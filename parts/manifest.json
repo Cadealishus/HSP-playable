@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "name": "HSP Lab Parts",
+  "description": "GLB part pack converted from the original MU assets. Values below are the source .cfg numbers mapped into HSP units: KSP tonnes -> kg, KSP kN.m reaction-wheel torque -> N.m at HSP's scale (Mk1 pod = 5 -> 3000, so 600 N.m per KSP unit).",
+  "modelBase": "parts/models/",
+  "parts": [
+    {
+      "id": "cupola",
+      "model": "Cupola.glb",
+      "label": "PPD-12 Cupola Module",
+      "blurb": "A window. Finally.",
+      "icon": "⬔",
+      "mass": 1760,
+      "crew": 1,
+      "maxTemp": 2000,
+      "reactionWheel": 5400,
+      "charge": 200,
+      "scale": 1.0,
+      "cdAxial": 0.62, "cdNormal": 1.10,
+      "nodes": {
+        "stack": { "top": [0, 0.62, 0, 0, 1, 0, 1], "bottom": [0, -0.62, 0, 0, -1, 0, 1] },
+        "rules": { "stack": true, "srf": false, "allowSrf": true }
+      }
+    },
+    {
+      "id": "crewLab",
+      "model": "Large_Crew_Lab.glb",
+      "label": "Mobile Processing Lab MPL-LG-2",
+      "blurb": "Science, allegedly",
+      "icon": "▤",
+      "mass": 3500,
+      "crew": 2,
+      "maxTemp": 2000,
+      "charge": 400,
+      "scale": 1.0,
+      "cdAxial": 0.40, "cdNormal": 1.15,
+      "nodes": {
+        "stack": { "top": [0, 1.15, 0, 0, 1, 0, 1], "bottom": [0, -1.15, 0, 0, -1, 0, 1] },
+        "rules": { "stack": true, "srf": false, "allowSrf": true }
+      }
+    },
+    {
+      "id": "reactionWheel",
+      "model": "Large_Reaction_Wheel_SAS.glb",
+      "label": "Advanced Reaction Wheel, Large",
+      "blurb": "Authority, in a can",
+      "icon": "◎",
+      "mass": 200,
+      "maxTemp": 2000,
+      "reactionWheel": 18000,
+      "scale": 1.0,
+      "cdAxial": 0.30, "cdNormal": 1.05,
+      "nodes": {
+        "stack": { "top": [0, 0.24, 0, 0, 1, 0, 1], "bottom": [0, -0.24, 0, 0, -1, 0, 1] },
+        "rules": { "stack": true, "srf": false, "allowSrf": true }
+      }
+    },
+    {
+      "id": "dockingPortJr",
+      "model": "Docking_Port_Jr.glb",
+      "label": "Clamp-O-Tron Docking Port Jr.",
+      "blurb": "Small, round, optimistic",
+      "icon": "◍",
+      "mass": 20,
+      "maxTemp": 2000,
+      "scale": 1.0,
+      "cdAxial": 0.25, "cdNormal": 1.00,
+      "nodes": {
+        "stack": { "top": [0, 0.1474, 0, 0, 1, 0, 0], "bottom": [0, 0, 0, 0, -1, 0, 0] },
+        "attach": [0, 0, 0, 0, -1, 0],
+        "rules": { "stack": true, "srf": true, "allowSrf": true }
+      }
+    },
+    {
+      "id": "landingLegLT1",
+      "model": "Landing_Leg_LT1_Animated.glb",
+      "label": "LT-1 Landing Struts",
+      "blurb": "Stops you cratering",
+      "icon": "⋀",
+      "mass": 50,
+      "maxTemp": 2000,
+      "legs": true,
+      "scale": 0.01,
+      "animation": { "deploy": "Deploy" },
+      "cdAxial": 0.45, "cdNormal": 0.90,
+      "nodes": {
+        "attach": [0, 0, 0, 0, 0, -1],
+        "rules": { "stack": false, "srf": true, "allowSrf": false }
+      }
+    },
+    {
+      "id": "telescopicLadder",
+      "model": "Telescopic_Ladder_Animated.glb",
+      "label": "Telus Mobility Enhancer",
+      "blurb": "For getting back in",
+      "icon": "≡",
+      "mass": 5,
+      "maxTemp": 2000,
+      "scale": 1.0,
+      "animation": { "retract": "Retract" },
+      "cdAxial": 0.20, "cdNormal": 0.70,
+      "nodes": {
+        "attach": [0, 0, 0, 0, 0, -1],
+        "rules": { "stack": false, "srf": true, "allowSrf": false }
+      }
+    }
+  ]
+}
