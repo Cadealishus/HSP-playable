@@ -74,6 +74,7 @@ export class PlayerSystem {
     this.stepIndex = 0;
     this.stepOffsetPending = 0;
     this.mantleCheckTick = 0;
+    this.walls = [];
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -462,6 +463,15 @@ export class PlayerSystem {
   _moveStep(h) {
     const v = this.velocity;
     const wish = this._wish(_d);
+    // Touching walls: slide along them instead of pushing into them.
+    const W = this.walls;
+    for (let i = 0; i < W.length; i += 2) {
+      const d = wish.x * W[i] + wish.z * W[i + 1];
+      if (d < 0) {
+        wish.x -= d * W[i];
+        wish.z -= d * W[i + 1];
+      }
+    }
     const tgt = Math.hypot(wish.x, wish.z);
     if (this.state.grounded) {
       if (tgt < 1e-3) {
@@ -633,6 +643,7 @@ export class PlayerSystem {
   _doJump() {
     const st = this.state;
     this.velocity.y = Math.sqrt(2 * T.gravity * T.jumpHeight);
+    if (st.grounded) this.airStartY = this.position.y;
     st.grounded = false;
     this.jumpedSinceGround = true;
     this.timeSinceJump = 0;
@@ -683,6 +694,8 @@ export class PlayerSystem {
     const minH = fromGround ? M.minHeight : -0.25;
     if (height < minH || height > maxAbove) return false;
     const topSurface = ledge.point.y;
+    // Jump-mantles reach about as high as a standing mantle from the take-off ground.
+    if (!fromGround && topSurface - (this.airStartY ?? p.y) > M.maxHeight + 0.12) return false;
 
     // 3) Nothing in the way between us and the ledge edge at ledge height (e.g. a window frame).
     _o.set(p.x, topSurface + 0.25, p.z);
@@ -817,33 +830,53 @@ export class PlayerSystem {
     kcc.computeColliderMovement(this.collider, desired, this.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, KCC_GROUPS);
     const m = kcc.computedMovement();
     let grounded = kcc.computedGrounded() && v.y <= 0.5;
+    const dh = Math.hypot(desired.x, desired.z);
+    const mh = Math.hypot(m.x, m.z);
 
-    // Clip velocity against what we hit so we never store speed into walls (no corner jitter,
-    // no sticky ceilings), using the obstacle normals reported by the controller.
-    const nc = kcc.numComputedCollisions();
-    for (let i = 0; i < nc; i++) {
-      const c = kcc.computedCollision(i, this._coll || (this._coll = new this.RAPIER.CharacterCollision()));
-      if (!c) continue;
-      const nx = -c.normal1.x, ny = -c.normal1.y, nz = -c.normal1.z; // obstacle normal, pointing at us
-      if (ny < 0.5) {
-        const dot = v.x * nx + v.y * ny + v.z * nz;
-        if (dot < 0) {
-          if (ny > -0.5) {
-            // wall: remove the horizontal into-wall component only
-            const hl = Math.hypot(nx, nz) || 1;
-            const hx = nx / hl, hz = nz / hl;
-            const hd = v.x * hx + v.z * hz;
-            if (hd < 0) {
-              v.x -= hd * hx;
-              v.z -= hd * hz;
-            }
-          } else if (v.y > 0) {
-            v.y = 0; // ceiling bonk
+    // Explicit step-up (kerbs, stairs): blocked while grounded and there is a walkable top within
+    // step height just ahead with room for the capsule → lift onto it (camera smooths the jump).
+    let stepped = null;
+    if (wasGrounded && v.y <= 0.01 && dh > 1e-4 && mh < dh * 0.75 && !st.sliding) stepped = this._stepUp(desired, dh);
+    if (stepped) {
+      m.x = stepped.x - this.position.x;
+      m.y = stepped.y - this.position.y;
+      m.z = stepped.z - this.position.z;
+      grounded = true;
+      this.blockedSteps = 0;
+    } else {
+      // Clip velocity against near-vertical contacts so no speed is stored into walls (no corner
+      // jitter, bob/footsteps stop when pressed into a wall) and bonk on ceilings. Rounded contacts
+      // on step edges (normal.y > 0.3) are left alone so stairs keep their speed.
+      const nc = kcc.numComputedCollisions();
+      this.walls.length = 0;
+      for (let i = 0; i < nc; i++) {
+        const c = kcc.computedCollision(i, this._coll || (this._coll = new this.RAPIER.CharacterCollision()));
+        if (!c) continue;
+        const nx = c.normal1.x, ny = c.normal1.y, nz = c.normal1.z; // obstacle normal, pointing at us
+        if (ny < -0.5) {
+          if (v.y > 0) v.y = 0; // ceiling bonk
+        } else if (ny < 0.3) {
+          const hl = Math.hypot(nx, nz) || 1;
+          const hx = nx / hl, hz = nz / hl;
+          if (this.walls.length < 4) this.walls.push(hx, hz);
+          const hd = v.x * hx + v.z * hz;
+          if (hd < 0) {
+            v.x -= hd * hx;
+            v.z -= hd * hz;
           }
         }
       }
+      if (v.y > 0 && m.y < desired.y * 0.5 - 1e-4) v.y = 0;
+      // Flush against geometry the controller may report no contact: after a few blocked steps fall
+      // back to the achieved motion.
+      this.blockedSteps = dh > 1e-5 && mh < dh * 0.5 ? (this.blockedSteps || 0) + 1 : 0;
+      if (this.blockedSteps >= 3) {
+        const along = mh > 1e-6 ? (v.x * m.x + v.z * m.z) / mh : 0;
+        const k = mh > 1e-6 ? Math.max(0, along) / mh : 0;
+        v.x = m.x * k;
+        v.z = m.z * k;
+      }
     }
-    if (v.y > 0 && m.y < desired.y * 0.5 - 1e-4) v.y = 0;
 
     const dy = m.y;
     this.position.x += m.x;
@@ -863,12 +896,19 @@ export class PlayerSystem {
       if (v.y < 0) v.y = 0;
       // Discrete height changes while grounded (autostep up kerbs/stairs, snapping down) are
       // smoothed by the camera so stairs do not feel like a staircase of jolts.
-      if (wasGrounded && Math.abs(dy) > 0.07 && Math.abs(dy) < 0.6) this.cam.onStep(dy);
+      // On flat treads any vertical change is a step (edge ride, step-up, snap-down): smooth it.
+      // On ramps (tilted ground normal) the camera follows exactly.
+      const flat = this.groundNormal.y > 0.97;
+      if (wasGrounded && ((flat && Math.abs(dy) > 0.004) || Math.abs(dy) > 0.07) && Math.abs(dy) < 0.6) {
+        this.cam.onStep(dy);
+        this.prevPosition.y += dy; // interpolate without the discrete jump; the spring eases it
+      }
     }
 
     if (!grounded) {
       if (wasGrounded) {
         this.peakY = this.position.y;
+        this.airStartY = this.position.y - m.y; // ground height we left from (jump or walk-off)
       }
       this.peakY = Math.max(this.peakY, this.position.y);
       this.timeSinceGround += h;
@@ -878,6 +918,24 @@ export class PlayerSystem {
       this.jumpedSinceGround = false;
     }
     st.grounded = grounded;
+  }
+
+  _stepUp(desired, dh) {
+    const p = this.position;
+    const ux = desired.x / dh, uz = desired.z / dh;
+    const R = T.radius;
+    for (const ahead of [R + 0.05, R + 0.15]) {
+      _o.set(p.x + ux * ahead, p.y + T.stepHeight + 0.04, p.z + uz * ahead);
+      const hit = this._ray(_o, DOWN, T.stepHeight + 0.02);
+      if (!hit || hit.normal.y < 0.7 || hit.distance < 1e-3) continue;
+      const rise = hit.point.y - p.y;
+      if (rise < 0.03 || rise > T.stepHeight) continue;
+      const adv = Math.min(dh, 0.06);
+      const np = new THREE.Vector3(p.x + ux * adv, hit.point.y + 0.004, p.z + uz * adv);
+      if (!this._fits(this.capsuleHeight, np, 0.004)) continue;
+      return np;
+    }
+    return null;
   }
 
   _onLand(impactSpeed) {

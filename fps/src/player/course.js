@@ -1,4 +1,5 @@
-// Movement test course, built far from the level (around z = 3000) so it never interferes with
+// Movement test course, built far from the level (around z = 900; float32 precision in Rapier degrades
+// the character controller much further out) so it never interferes with
 // the town. Stations (x relative to the course origin, lanes run towards −z):
 //   mantle boxes 0.5 / 1.0 / 1.4 / 1.8 / 2.4 m, vault walls, stairs (0.18 m risers), ramps 20° /
 //   35° / 58°, kerbs 0.15 / 0.3 / 0.5 m, a 0.9 m corridor with a 1.4 m crouch tunnel, a 4 cm thin
@@ -6,7 +7,7 @@
 // Also registers the player-* screenshots.
 import * as THREE from 'three';
 
-export const COURSE_ORIGIN = new THREE.Vector3(0, 0, 3000);
+export const COURSE_ORIGIN = new THREE.Vector3(0, 0, 900);
 
 // Station coordinates (relative to COURSE_ORIGIN) shared with movementTests.js.
 export const STATIONS = {

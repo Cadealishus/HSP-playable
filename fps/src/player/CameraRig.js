@@ -10,7 +10,7 @@ export class CameraRig {
     this.player = player;
     this.noise = [makeNoise1D(11), makeNoise1D(23), makeNoise1D(37), makeNoise1D(41), makeNoise1D(53), makeNoise1D(67)];
     this.eye = Spring.of(20, 1.0); // eye height (critically damped, ~0.2 s)
-    this.step = Spring.of(22, 1.0); // stair / kerb smoothing offset
+    this.step = Spring.of(26, 1.0); // stair / kerb smoothing offset
     this.landY = Spring.of(15, 0.5); // landing dip (metres)
     this.landP = Spring.of(13, 0.55); // landing pitch dip (degrees)
     this.slideRoll = Spring.of(11, 0.85);
