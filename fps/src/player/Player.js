@@ -103,6 +103,7 @@ export class PlayerSystem {
     this.shapes = new Map();
 
     game.physics.onStep((h) => this._step(h));
+    game.events.on('run:start', () => this._onRunStart());
 
     const sp = game.world?.spawns?.player?.[0];
     if (sp) this.setPose({ pos: sp.pos, yaw: sp.yaw || 0, pitch: 0 });
@@ -132,6 +133,7 @@ export class PlayerSystem {
     this.velocity.set(0, 0, 0);
     this.yaw = yaw * DEG;
     this.pitch = pitch * DEG;
+    this.debugView = null;
     if (!keepState) {
       this._resetTransient();
       this.health = this.maxHealth;
@@ -187,7 +189,24 @@ export class PlayerSystem {
     const w = game.weapons;
     this.adsAmount = clamp(w?.adsAmount ?? 0, 0, 1);
 
-    if (this.alive) {
+    // Menu flyover / cinematics own the camera: freeze player input meanwhile and resume cleanly.
+    const overridden = typeof game.cameraOverride === 'function';
+    if (overridden !== this._overridden) {
+      this._overridden = overridden;
+      this.velocity.set(0, 0, 0);
+      this.cam.reset();
+      this.cam.eye.reset(this.stance === 'slide' ? T.eye.slide : T.eye[this.stance] ?? T.eye.stand);
+      for (const k in this.latch) this.latch[k] = false;
+    }
+
+    if (overridden) {
+      const I = this.intent;
+      I.f = I.s = 0;
+      I.jumpHeld = I.crouchHeld = I.sprintHeld = I.adsHeld = I.fireHeld = false;
+      this.state.sprinting = false;
+      this._endTac();
+      if (!this.alive) this.deathTime += dt;
+    } else if (this.alive) {
       // Mouse look. ADS scales sensitivity by the zoom ratio (CoD "relative" ADS sensitivity).
       const sens = inp.sensitivity * (game.settings.sensitivity ?? 1) * this.cam.lookScale(game);
       this.yaw -= inp.lookDelta.x * sens;
@@ -217,14 +236,23 @@ export class PlayerSystem {
       I.f = I.s = 0;
       I.jumpHeld = I.crouchHeld = I.sprintHeld = I.adsHeld = I.fireHeld = false;
       this.deathTime += dt;
-      if (this.deathTime > T.respawnDelay && !game.params?.has?.('nodeathrespawn')) this.respawn();
+      // Inside a wave-survival run the UI shows the run summary and emits run:start to redeploy.
+      if (this.deathTime > T.respawnDelay && !game.run?.active) this.respawn();
     }
   }
 
   lateUpdate(dt, game) {
     const a = game.physics.alpha ?? 0;
     this.renderPosition.lerpVectors(this.prevPosition, this.position, a);
-    this.cam.apply(dt, game);
+    if (typeof game.cameraOverride === 'function') game.cameraOverride(game.camera, dt, game);
+    else this.cam.apply(dt, game);
+  }
+
+  // run:start (DEPLOY / REDEPLOY): full health, clean camera state, spawn in the central square.
+  _onRunStart() {
+    const sp = this.game.world?.spawns?.player?.[0];
+    this.setPose({ pos: sp ? sp.pos : [0, 0, 0], yaw: sp?.yaw || 0, pitch: 0 });
+    this.game.events.emit('player:respawn', {});
   }
 
   // ------------------------------------------------------------------ simulation (fixed step)
