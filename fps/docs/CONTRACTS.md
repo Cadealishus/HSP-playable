@@ -46,6 +46,12 @@ your report. Put assets in `public/assets/<area>/` and credits in `docs/credits/
   `{ type: 'world'|'prop'|'player'|'enemy', surface, entity?, part? }`.
 - `game.input` — `down/pressed/released(action)`, `lookDelta {x,y}` (pixels), `wheel`, `locked`,
   `requestLock()`, `setVirtual(actions, look)`. Actions: see `BINDINGS` in `src/core/Input.js`.
+- `game.viewmodel.sharpLayer` (= 2): viewmodel meshes on this layer (optic reticles) are drawn after the
+  ADS weapon blur, so they stay sharp. The viewmodel camera has the layer enabled.
+- `game.cameraOverride`: when set to `fn(camera, dt, game)`, the player system stops driving the camera
+  and calls it instead (menu flyover, cinematics). `null` hands control back.
+- `game.run = { active, time, kills, headshots, score, streak, bestStreak, wave, difficulty }`: wave-survival
+  run state. UI starts/ends runs and tallies score; the AI director writes `wave`; core advances `time`.
 - `game.random()` — seeded RNG. In harness mode `Math.random` is seeded too.
 - `game.time = { now, dt, frame, scale }`, `game.paused` (systems with `alwaysUpdate: true` still update).
 - `game.registerShot(name, { description, setup(game), settle = 0.5, renderFrames = 8 })` — named
@@ -81,6 +87,8 @@ Builds the level: terrain, buildings, props, set dressing, skyline, colliders.
 - `spawns.player: [{ pos: Vector3 (feet), yaw: degrees }]`, `spawns.enemies: [{ pos, yaw }]`
 - `coverPoints: [{ pos: Vector3, normal: Vector3 (points away from the cover object), height: 'low'|'high' }]`
 - `bounds: Box3` (playable area). Optional `navGraph: { nodes: [{ pos }], edges: [[i, j]] }`.
+- `objective = { name, center: Vector3, radius }`: the central square the player holds.
+- `footprints: [{ x, z, w, d, rot, height }]`: building footprints for the minimap and menu map preview.
 - Static colliders via `physics.addStaticMesh/addStaticBox` with `{ type: 'world', surface }`.
   Dynamic props are rigid bodies on `LAYER.PROP` with `{ type: 'prop', surface }`.
 
@@ -95,6 +103,9 @@ Rapier kinematic character controller + camera. **Owns `game.camera` transform a
 - `applyRecoil(pitchDeg, yawDeg)` — weapon camera kick; `addShake(intensity, duration)`.
 - `takeDamage(amount, { direction, source })` — emits `player:damaged` / `player:died`.
 - Reads `game.weapons.adsAmount` and `game.weapons.current.adsZoom` for FOV and ADS move speed.
+- Honours `game.cameraOverride`. On `run:start`: full health, respawn at `spawns.player[0]`. While
+  `game.run.active`, death does not auto-respawn (the UI shows the run summary); outside a run
+  (dev/harness) auto-respawn after ~3 s is fine.
 
 ## weapons (`src/weapons/`)
 
@@ -115,6 +126,8 @@ and draws impacts, decals, tracers, world-space muzzle light, shell casings, smo
 
 ## ai (`src/ai/`)
 
+- `director = { wave, state: 'idle'|'active'|'intermission', hostilesAlive, hostilesRemaining, nextWaveIn }`:
+  the wave director. Starts wave 1 on `run:start`, stops and clears enemies on `run:end`.
 - `enemies: Enemy[]` — each `{ object, position, alive, health, takeDamage(amount, info) }`.
 - Hitboxes: colliders on `LAYER.HITBOX` with data `{ type: 'enemy', entity, part: 'head'|'torso'|'arm'|'leg', surface: 'flesh' }`
   that follow the skeleton. Movement capsules on `LAYER.ENEMY`.
@@ -155,6 +168,10 @@ Vectors are `THREE.Vector3`; clone them if you keep them.
 | `player:slide` | `{ phase: 'start'\|'end' }` |
 | `bullet:nearmiss` | `{ position, direction }` — enemy round passing within ~2 m of the player's head |
 | `score` | `{ amount, reason }` |
+| `run:start` | `{ difficulty }` (UI, on DEPLOY / REDEPLOY) |
+| `run:end` | `{ reason: 'died'\|'quit', time, wave, kills, score }` (UI) |
+| `wave:start` | `{ wave, count }` (AI director) |
+| `wave:cleared` | `{ wave, nextIn }` (AI director) |
 
 ## Harness
 

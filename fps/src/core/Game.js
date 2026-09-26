@@ -39,10 +39,20 @@ export class Game {
     // (x right, y up, -z forward, metres). The render system composites it over the world.
     const vmScene = new THREE.Scene();
     const vmCamera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10);
+    vmCamera.layers.enable(2);
     const vmRoot = new THREE.Group();
     vmRoot.name = 'viewmodel-root';
     vmScene.add(vmRoot);
-    this.viewmodel = { scene: vmScene, camera: vmCamera, root: vmRoot, fov: 55 };
+    // sharpLayer: viewmodel meshes on this layer (optic reticles) are drawn after the ADS weapon blur.
+    this.viewmodel = { scene: vmScene, camera: vmCamera, root: vmRoot, fov: 55, sharpLayer: 2 };
+
+    // When set to a function (camera, dt, game) the player system stops driving the camera and
+    // calls this instead (main-menu flyover, cinematics). Set back to null to hand control back.
+    this.cameraOverride = null;
+
+    // Wave-survival run state. The UI starts/ends runs (events run:start / run:end) and tallies
+    // score; the AI director owns waves. Core advances `time` while a run is active.
+    this.run = { active: false, time: 0, kills: 0, headshots: 0, score: 0, streak: 0, bestStreak: 0, wave: 0, difficulty: 'regular' };
 
     this.loader = new THREE.LoadingManager();
     this.systems = [];
@@ -100,6 +110,7 @@ export class Game {
     const paused = this.paused;
     for (const s of this.systems) if (s.update && (!paused || s.alwaysUpdate)) s.update(dt, this);
     if (!paused) this.physics.step(dt);
+    if (!paused && this.run.active) this.run.time += dt;
     for (const s of this.systems) if (s.lateUpdate && (!paused || s.alwaysUpdate)) s.lateUpdate(dt, this);
     if (render && this.render?.renderFrame) this.render.renderFrame(dt, this);
     this.input.endFrame();
