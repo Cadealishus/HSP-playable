@@ -248,7 +248,7 @@ export class CameraRig {
       const bounce = d.t > 0.62 ? Math.sin((d.t - 0.62) * 18) * Math.exp(-(d.t - 0.62) * 7) * 0.035 : 0;
       eyeY = lerp(d.eye0, T.eye.dead, drop) + bounce;
       const tip = smoothstep(clamp((d.t - 0.08) / 0.75, 0, 1));
-      dR = d.side * 78 * tip;
+      dR = d.side * 70 * tip;
       dP = (8 * DEG - d.pitch0) / DEG * tip - 6 * Math.sin(Math.PI * fall);
       dYaw = d.side * 14 * tip + d.twist * 20 * tip;
       dSide = -d.side * 0.35 * tip;

@@ -255,9 +255,10 @@ export function buildCourse(game, player) {
   for (const b of STATIONS.mantle) {
     const depth = 2.4, w = 2.6;
     const cz = MZ - depth / 2;
-    const material = b.h >= 1.8 ? 'concrete' : 'wood';
-    addBox(b.x, 0, cz, w, b.h, depth, material, b.h >= 1.8 ? 'concrete' : 'wood');
+    const concrete = b.h > 2;
+    addBox(b.x, 0, cz, w, b.h, depth, concrete ? 'concrete' : 'wood', concrete ? 'concrete' : 'wood');
     decal(hazardMat, b.x, b.h - 0.05, MZ, w, 0.1, 'z+', w * 2);
+    decal(hazardMat, b.x, b.h, MZ - 0.09, w, 0.18, 'y+', w * 2); // painted ledge edge on top
     decal(stencil(b.h.toFixed(1) + ' M'), b.x, Math.min(b.h * 0.5, 1.2), MZ, Math.min(1.4, b.h * 1.8), Math.min(0.7, b.h * 0.9), 'z+');
   }
 
@@ -388,25 +389,34 @@ function registerShots(game, player) {
   const P = (x, y, z) => coursePos(x, y, z);
   const hold = (actions, s) => window.__fps.hold(actions, s);
 
+  const hideVM = () => {
+    if (game.viewmodel?.root) game.viewmodel.root.visible = false;
+  };
+  const showVM = () => {
+    if (game.viewmodel?.root) game.viewmodel.root.visible = true;
+  };
+
   game.registerShot('player-course', {
     description: 'Player movement test course (boxes, vault walls, stairs, ramps, corridor, corners, drops)',
     settle: 0.3,
     setup: () => {
       player.setPose({ pos: P(0, 0, 26), yaw: 0, pitch: 0 });
+      hideVM();
       player.debugView = {
-        pos: new THREE.Vector3(...P(22, 17, 30)),
-        target: new THREE.Vector3(...P(2, 0, -2)),
-        fov: 62,
+        pos: new THREE.Vector3(...P(8, 26, 36)),
+        target: new THREE.Vector3(...P(6, 0, -3)),
+        fov: 84,
       };
     },
+    after: showVM,
   });
 
   game.registerShot('player-crouch', {
-    description: 'Crouched behind the 1.0 m low wall, looking over it at the course',
+    description: 'Crouched (eye 1.05 m) beside the mantle boxes: the 1.0 m box top sits at eye level',
     settle: 0.6,
     setup: () => {
-      const V = STATIONS.vault;
-      player.setPose({ pos: P(V.x - 0.3, 0, V.z + 0.62), yaw: 8, pitch: -3 });
+      const b = STATIONS.mantle.find((m) => m.h === 1.0);
+      player.setPose({ pos: P(b.x + 3.2, 0, STATIONS.mantleFrontZ + 2.6), yaw: 38, pitch: -4 });
       hold(['crouch'], 0.1);
     },
   });
@@ -427,11 +437,11 @@ function registerShots(game, player) {
 
   game.registerShot('player-mantle', {
     description: 'Mid-mantle onto the 1.8 m box: camera dip as the player pulls over the ledge',
-    settle: 0.3,
+    settle: 0.15,
     renderFrames: 1,
     setup: () => {
       const b = STATIONS.mantle.find((m) => m.h === 1.8);
-      player.setPose({ pos: P(b.x, 0, STATIONS.mantleFrontZ + 1.2), yaw: 0, pitch: 8 });
+      player.setPose({ pos: P(b.x + 0.4, 0, STATIONS.mantleFrontZ + 1.2), yaw: 6, pitch: -17 });
       hold(['forward'], 0.25);
       game.input.setVirtual(['forward', 'jump']);
     },
@@ -441,9 +451,9 @@ function registerShots(game, player) {
     description: 'Death camera: collapsed on the ground, tipped onto one side',
     settle: 1.4,
     setup: () => {
-      player.setPose({ pos: P(-2, 0, 8), yaw: 200, pitch: 0 });
+      player.setPose({ pos: P(-9, 0, 6), yaw: 25, pitch: -2 });
       game.advance(0.1, 0);
-      const src = new THREE.Vector3(...P(-8, 1.5, 4));
+      const src = new THREE.Vector3(...P(-3, 1.5, 7));
       player.takeDamage(1000, { source: { position: src } });
     },
   });

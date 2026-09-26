@@ -104,6 +104,28 @@ export async function run(fps, only = null) {
     fps.hold(['forward'], 3.2);
     add('narrow 0.9 m corridor passable', p.position.z - OZ < C.z0 - C.len + 0.5, r2(p.position.z - OZ), `z < ${C.z0 - C.len + 0.5}`);
   }
+  if (want('prone')) {
+    pose(0, 0, origZ);
+    fps.hold(['prone'], 1 / 60);
+    fps.hold([], 0.4);
+    const eyeP = p.cam.eyeHeight;
+    fps.hold(['forward'], 1.0);
+    add('prone speed (m/s)', p.state.prone && Math.abs(hs() - T.speed.prone) < 0.1, `${r2(hs())} eye ${r2(eyeP)} m`, `~${T.speed.prone}, eye ${T.eye.prone}`);
+    fps.hold(['prone'], 1 / 60);
+    fps.hold([], 0.3);
+    add('prone → stand', p.state.stance === 'stand', p.state.stance, 'stand');
+  }
+  if (want('fov')) {
+    pose(0, 0, origZ);
+    const hip = game.camera.fov;
+    fps.hold(['ads'], 0.6);
+    const ads = game.camera.fov;
+    const zoom = game.weapons?.current?.adsZoom ?? 1.25;
+    const expect = (2 * Math.atan(Math.tan((hip * Math.PI) / 360) / zoom) * 180) / Math.PI;
+    add('ADS FOV = hip / adsZoom (tan space)', Math.abs(ads - expect) < 0.3, `${r2(hip)}° → ${r2(ads)}°`, `${r2(expect)}° (zoom ${zoom})`);
+    add('ADS look sensitivity scaled', p.cam.lookScale(game) < 0.8, r2(p.cam.lookScale(game)), `adsSensitivity/zoom = ${r2((game.settings.adsSensitivity ?? 1) / zoom)}`);
+    fps.hold([], 0.5);
+  }
   if (want('sprint')) {
     pose(0, 0, origZ);
     let t = null;
