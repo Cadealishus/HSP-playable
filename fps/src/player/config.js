@@ -12,13 +12,13 @@ export const TUNING = {
   stanceTime: 0.2, // seconds for eye height to settle after a stance change
 
   // Ground speeds (m/s). ADS speeds are for adsAmount = 1.
-  speed: { walk: 4.9, ads: 2.7, crouch: 2.3, crouchAds: 1.55, prone: 0.95, sprint: 6.6, tac: 8.2 },
+  speed: { walk: 4.9, ads: 3.1, crouch: 2.95, crouchAds: 1.9, prone: 0.95, sprint: 6.6, tac: 8.2 },
   strafeMult: 0.9, // pure strafe speed multiplier
   backMult: 0.75, // pure backpedal multiplier
 
   // Acceleration model (m/s²): vector move-towards with case-dependent rates.
   accel: 34, // speeding up to walk speed (0 → 4.9 in ~0.15 s)
-  sprintAccel: 10, // extra speed above walk speed (walk → sprint ~0.17 s, → tac ~0.33 s)
+  sprintAccel: 26, // extra speed above walk speed (0 → 95% sprint in ~0.2 s)
   decel: 30, // no input: 4.9 → 0 in ~0.16 s, sprint stop ~0.22 s
   slowDecel: 16, // above target speed but still steering (e.g. sprint released)
   airAccel: 7, // air strafing
@@ -39,21 +39,23 @@ export const TUNING = {
   maxSlopeClimb: 50,
   minSlopeSlide: 55,
 
-  sprint: { minForward: 0.3 },
-  tac: { duration: 3.0, rechargeDelay: 0.35, rechargeTime: 4.0, minToStart: 0.2 },
+  sprint: { minForward: 0.3, outTime: 0.07 }, // sprint-out: 70 ms before firing / ADS
+  // Tac sprint recharge pauses (does not reset) while sliding or airborne.
+  tac: { duration: 4.25, rechargeDelay: 0.15, rechargeTime: 2.75, minToStart: 0.2 },
 
+  // MWII/MWIII-style slide: short burst that holds its speed, then a hard cut to crouch speed.
   slide: {
     minSpeed: 5.4, // must be sprinting at least this fast
-    boost: 1.5, // m/s added on entry (applied over `boostTime`)
-    boostTime: 0.08,
+    boost: 0.8, // m/s added on entry (applied over `boostTime`)
+    boostTime: 0.06,
     maxSpeed: 10.2,
-    friction: 4.6, // constant decel m/s²
-    frictionLin: 0.22, // + per m/s decel
+    friction: 3.0, // gentle constant decel during the slide (m/s²)
+    frictionLin: 0,
     slopeGain: 0.75, // fraction of gravity along the slope that feeds the slide
-    endSpeed: 3.0,
-    maxTime: 1.25,
-    cooldown: 0.55,
-    minCancelTime: 0.12,
+    duration: 0.72, // then speed is cut sharply to crouch speed
+    endSpeed: 3.0, // or earlier if it bleeds below this (uphill)
+    cooldown: 0.45,
+    minCancelTime: 0.08,
     steerRate: 0.6, // rad/s the slide direction can bend towards input
     jumpKeep: 0.95, // horizontal speed kept on slide-jump
   },
@@ -66,8 +68,10 @@ export const TUNING = {
     maxAngle: 55, // max angle between view forward and wall normal
     vaultMaxHeight: 1.3,
     vaultMaxDepth: 0.75, // obstacle thicker than this = mantle onto it
-    timeBase: 0.26, // duration = timeBase + timePerMetre * height
-    timePerMetre: 0.22,
+    timeBase: 0.1675, // duration = timeBase + timePerMetre * height (1.0/1.4/1.8 m → 0.38/0.46/0.55 s)
+    timePerMetre: 0.2125,
+    overshoot: 0.015, // feet rise ~1.5 cm past the ledge top then settle
+    dip: 3.8, // degrees of pitch dip at hand-plant (camera reaches ~3.2-3.7)
     vaultTime: 0.46,
     exitSpeed: 2.2,
     vaultExitSpeed: 4.2,
@@ -76,6 +80,7 @@ export const TUNING = {
   fall: { minHeight: 4.0, lethalHeight: 11.0 }, // fall damage 0 at min, 100 at lethal
   health: { max: 100, regenDelay: 4.0, regenRate: 40 },
   respawnDelay: 3.6,
+  death: { fallTime: 0.4, roll: 25, eye: 0.3 },
 
   // Stride = metres per footstep (drives head bob frequency and footstep events).
   stride: { walk: 1.72, ads: 1.1, sprint: 2.15, tac: 2.45, crouch: 0.95, prone: 0.62 },
@@ -86,7 +91,9 @@ export const TUNING = {
   fov: { sprint: 3, tac: 6.5, slide: 4.5, rate: 7 },
   slideRoll: 5.5, // degrees
 
-  recoil: { recoverFraction: 0.62, recoverDelay: 0.07, recoverRate: 9, sustainedRate: 1.6, punch: 0.3 },
+  // Recoil = aim offset (moves the aim point; only ~10% recovers, the player pulls down) plus a
+  // visual camera kick that fully returns in ~120 ms.
+  recoil: { recoverFraction: 0.1, recoverDelay: 0.08, recoverRate: 8, sustainedRate: 0, visualKick: 0.55, visualOmega: 45 },
 };
 
 export const STEP = 1 / 120; // simulation runs inside physics fixed sub-steps

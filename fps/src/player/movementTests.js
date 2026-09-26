@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 // Automated movement checks, run in the harness:
 //   node tools/shoot.mjs --eval "import('/src/player/movementTests.js').then(m => m.run(__fps))"
 // Every test drives the real input path with __fps.hold([...actions], seconds) on the test course
@@ -67,7 +68,7 @@ export async function run(fps, only = null) {
     const saved = Object.getOwnPropertyDescriptor(w, 'adsAmount');
     fps.hold(['forward', 'ads'], 1.2);
     const v = hs();
-    add('ADS walk speed (m/s)', v < 3.2 && v > 2.2, r2(v), `~2.7 (adsAmount=${r2(w.adsAmount)})`);
+    add('ADS walk speed (m/s)', v <= 3.2 && v >= 3.0, r2(v), `3.0-3.2 (adsAmount=${r2(w.adsAmount)})`);
     if (saved) Object.defineProperty(w, 'adsAmount', saved);
     fps.hold([], 0.5);
   }
@@ -76,7 +77,7 @@ export async function run(fps, only = null) {
     fps.hold(['crouch'], 0.05);
     fps.hold([], 0.05);
     fps.hold(['forward'], 1.0);
-    add('crouch walk speed (m/s)', Math.abs(hs() - T.speed.crouch) < 0.1, r2(hs()), '~2.3');
+    add('crouch walk speed (m/s)', hs() >= 2.9 && hs() <= 3.0, r2(hs()), '2.9-3.0');
     add('crouch toggle (tap)', p.state.crouching, p.state.stance, 'crouch');
     // eye transition time
     fps.hold([], 0.3);
@@ -133,9 +134,19 @@ export async function run(fps, only = null) {
       if (t === null && hs() > 0.95 * T.speed.sprint) t = tt;
     });
     add('sprint speed (m/s)', Math.abs(hs() - 6.6) < 0.1, r2(hs()), '6.6 (MWII ~6.4-6.8)');
-    add('sprint 0→95% (s)', t < 0.5, r2(t), '< 0.5');
+    add('sprint 0→95% (s)', t <= 0.21, r2(t), '~0.20');
     fps.hold(['forward'], 0.5);
-    add('sprint latched after releasing key', p.state.sprinting, p.state.sprinting, 'true (tap-to-sprint)');
+    const latched = p.state.sprinting;
+    add('sprint latched after releasing key', latched, latched, 'true (tap-to-sprint)');
+    // sprint-out: ADS while sprinting ends sprint and opens a 60-80 ms sprint-out window
+    fps.hold(['forward', 'ads'], 1 / 60);
+    const so0 = p.state.sprintOutT;
+    let soT = 0;
+    track(['forward', 'ads'], 0.2, (tt) => {
+      if (p.state.sprintOutT > 0) soT = tt;
+    });
+    add('sprint-out window (state.sprintOutT)', !p.state.sprinting && so0 > 0.05 && so0 <= 0.08 && soT + 1 / 60 >= 0.05 && soT + 1 / 60 <= 0.09, `start ${r3(so0)} s, open ~${r2(soT + 1 / 60)} s`, '60-80 ms');
+    fps.hold([], 0.5);
   }
   if (want('tac')) {
     pose(0, 0, origZ + 5);
@@ -145,14 +156,14 @@ export async function run(fps, only = null) {
     const started = p.state.tacticalSprint;
     let dur = 0;
     let vmax = 0;
-    track(['forward'], 3.3, (tt) => {
+    track(['forward'], 4.6, (tt) => {
       if (p.state.tacticalSprint) dur = tt;
       vmax = Math.max(vmax, hs());
     });
-    const sinceEnd = 3.3 - dur;
+    const sinceEnd = 4.6 - dur;
     add('tac sprint via double-tap', started, started, 'true');
     add('tac sprint speed (m/s)', Math.abs(vmax - 8.2) < 0.15, r2(vmax), '8.2 (MWII ~8.0-8.4)');
-    add('tac sprint duration (s)', Math.abs(dur + 0.05 - T.tac.duration) < 0.1, r2(dur + 0.05), `${T.tac.duration} then drops to sprint`);
+    add('tac sprint duration (s)', dur + 0.05 >= 4.0 && dur + 0.05 <= 4.5, r2(dur + 0.05), '4.0-4.5, then drops to sprint');
     add('after tac: still sprinting', p.state.sprinting && Math.abs(hs() - 6.6) < 0.15, r2(hs()), '6.6');
     // recharge: attempt re-activation each 0.1 s
     let recharge = null;
@@ -160,9 +171,33 @@ export async function run(fps, only = null) {
       fps.hold(['forward', 'sprint'], 1 / 60);
       if (p.state.tacticalSprint) recharge = sinceEnd + i * (0.1 + 1 / 60) + 1 / 60;
       fps.hold(['forward'], 0.1);
-      if (p.position.z - OZ < -30) p.setPose({ pos: P(0, 0, origZ), yaw: 0 }), (p.tacMeter = p.state.tacMeter);
     }
-    add('tac recharge after exhaustion (s)', recharge && recharge > 3 && recharge < 5.5, recharge && r2(recharge), `~${T.tac.rechargeTime + T.tac.rechargeDelay}`);
+    add('tac recharge after exhaustion (s)', recharge && recharge >= 2.5 && recharge <= 3.05, recharge && r2(recharge), '2.5-3.0');
+    // recharge pauses (does not reset) while airborne / sliding
+    pose(0, 0, origZ + 5);
+    fps.hold(['forward', 'sprint'], 0.1);
+    fps.hold(['forward'], 0.05);
+    fps.hold(['forward', 'sprint'], 0.05);
+    fps.hold(['forward'], 4.4); // exhaust
+    fps.hold(['forward'], 0.6); // partial recharge on the ground
+    const m0 = p.tacMeter;
+    fps.hold(['forward', 'jump'], 1 / 60);
+    let mAir = m0, airFrames = 0;
+    track(['forward'], 0.5, () => {
+      if (!p.state.grounded) {
+        mAir = p.tacMeter;
+        airFrames++;
+      }
+    });
+    const pausedAir = airFrames > 20 && Math.abs(mAir - m0) < 0.01;
+    fps.hold(['forward'], 0.3);
+    const m1 = p.tacMeter;
+    fps.hold(['forward', 'crouch'], 1 / 60);
+    const sliding = p.state.sliding;
+    fps.hold(['forward'], 0.5);
+    const m2 = p.tacMeter;
+    add('tac recharge pauses in air', pausedAir && m0 > 0.1, `ground ${r2(m0)} -> end of air ${r2(mAir)}`, 'unchanged (not reset)');
+    add('tac recharge pauses in slide', sliding && Math.abs(m2 - m1) < 0.01 && m1 > 0.1, `${r2(m1)} -> ${r2(m2)}`, 'unchanged (not reset)');
   }
   if (want('jump')) {
     pose(0, 0, origZ);
@@ -244,18 +279,20 @@ export async function run(fps, only = null) {
       const v0 = hs();
       fps.hold(['forward', 'crouch'], 1 / 60);
       const started = p.state.sliding;
-      let vmax = 0, t = 0;
+      let vmax = 0, t = 0, vLast = 0, vAfter = null;
       track(['forward'], 2.0, (tt) => {
         if (p.state.sliding) {
           t = tt;
           vmax = Math.max(vmax, hs());
-        }
+          vLast = hs();
+        } else if (vAfter === null && t > 0) vAfter = hs();
       });
       const L = p.lastSlide || {};
       const label = tac ? 'tac-sprint slide' : 'sprint slide';
       add(`${label} starts`, started, `entry ${r2(v0)} m/s → peak ${r2(vmax)}`, 'boost on entry');
-      add(`${label} distance (m)`, tac ? L.distance > 5.5 && L.distance < 7.5 : L.distance > 4 && L.distance < 5.8, r2(L.distance), tac ? '5.5-7.5' : '4.0-5.8');
-      add(`${label} duration (s)`, L.time > 0.7 && L.time < 1.3, r2(L.time), '0.7-1.3');
+      add(`${label} distance (m)`, tac ? L.distance > 5.0 && L.distance < 6.2 : L.distance > 4.2 && L.distance < 4.8, r2(L.distance), tac ? '5.0-6.2' : '~4.5');
+      add(`${label} duration (s)`, L.time >= 0.7 && L.time <= 0.75, r2(L.time), '0.70-0.75');
+      add(`${label} sharp end (speed drop in 1 frame)`, vLast - vAfter > 2, `${r2(vLast)} -> ${r2(vAfter)} m/s`, '> 2 m/s drop, no ease-out');
       add(`${label} ends crouched`, p.state.crouching, p.state.stance, 'crouch');
     }
     // slide cancel via jump
@@ -265,17 +302,23 @@ export async function run(fps, only = null) {
     fps.hold(['forward'], 0.25);
     const vs = hs();
     fps.hold(['forward', 'jump'], 1 / 60);
-    const jumpCancel = !p.state.sliding && p.velocity.y > 3 && hs() > vs * 0.85;
-    add('slide-cancel via jump', jumpCancel, `vy=${r2(p.velocity.y)} h=${r2(hs())} (was ${r2(vs)})`, 'airborne, keeps ~95% speed');
+    const LJ = p.lastSlide || {};
+    const jumpCancel = !p.state.sliding && LJ.cancel === 'jump' && p.velocity.y > 3 && hs() > vs * 0.85 && p.state.tacticalSprint;
+    add('slide-cancel via jump', jumpCancel, `cancel=${LJ.cancel} at ${r2(LJ.time)} s, vy=${r2(p.velocity.y)} h=${r2(hs())} tac=${p.state.tacticalSprint}`, 'immediate, airborne, keeps speed, tac sprint restored');
     fps.hold([], 1.0);
     // slide cancel via crouch → stand + sprint
     pose(STATIONS.track.x, 0, origZ + 8);
     fps.hold(['forward', 'sprint'], 1.2);
     fps.hold(['forward', 'crouch'], 1 / 60);
     fps.hold(['forward'], 0.25);
+    const nEv = events.length;
     fps.hold(['forward', 'crouch'], 1 / 60);
-    fps.hold(['forward'], 0.3);
-    add('slide-cancel via crouch', !p.state.sliding && p.state.stance === 'stand' && p.state.sprinting, `${p.state.stance} sprint=${p.state.sprinting} v=${r2(hs())}`, 'stand + sprinting');
+    const LC = p.lastSlide || {};
+    const endEv = events.slice(nEv).find((e) => e.n === 'player:slide' && e.e.phase === 'end');
+    const immediate = !p.state.sliding && p.state.stance === 'stand' && p.state.sprinting && p.state.tacticalSprint && p.tacMeter > 0.98;
+    fps.hold(['forward'], 0.4);
+    add('slide-cancel via crouch', immediate && LC.cancel === 'crouch' && endEv?.e.cancel === 'crouch', `same frame: stand+tac=${immediate} (slide ${r2(LC.time)} s)`, 'immediate stand -> tac sprint, event cancel:crouch');
+    add('after slide-cancel: tac sprint speed', Math.abs(hs() - T.speed.tac) < 0.2, r2(hs()), '8.2');
     const fovNow = game.camera.fov;
     add('slide/sprint FOV above base', fovNow > game.verticalFov(game.settings.fov), r2(fovNow), `> ${r2(game.verticalFov(game.settings.fov))}`);
   }
@@ -283,17 +326,25 @@ export async function run(fps, only = null) {
     for (const b of STATIONS.mantle) {
       pose(b.x, 0, STATIONS.mantleFrontZ + 1.4, 0);
       fps.hold(['forward'], 0.2);
-      let started = false, t0 = null, dur = 0, onTop = false;
+      let started = false, t0 = null, dur = 0, onTop = false, dip = 0, over = -1;
       track(['forward', 'jump'], 1.4, (t) => {
         if (p.state.mantling && !started) {
           started = true;
           t0 = t;
         }
-        if (p.state.mantling) dur = t - t0;
+        if (p.state.mantling) {
+          dur = t - t0 + 1 / 60;
+          dip = Math.min(dip, (game.camera.rotation.x - p.pitch) / (Math.PI / 180));
+          over = Math.max(over, p.position.y - b.h);
+        }
         if (p.state.grounded && Math.abs(p.position.y - b.h) < 0.05 && p.position.z - OZ < STATIONS.mantleFrontZ) onTop = true;
       });
       if (b.h <= 0.5) add(`0.5 m box: hop/mantle onto`, onTop, `y=${r2(p.position.y)}`, 'on top');
-      else if (b.h < 2.2) add(`mantle ${b.h} m box`, started && onTop, `${started ? 'mantled' : 'no mantle'} y=${r2(p.position.y)} t=${r2(dur)}s`, 'on top');
+      else if (b.h < 2.2) {
+        const want = { 1: 0.38, 1.4: 0.46, 1.8: 0.55 }[b.h];
+        add(`mantle ${b.h} m box`, started && onTop && Math.abs(dur - want) <= 0.025, `${started ? 'mantled' : 'no mantle'} t=${r3(dur)} s`, `on top in ${want} s`);
+        add(`mantle ${b.h} m: hand-plant dip + overshoot`, dip <= -3 && dip >= -4.2 && over > 0.01 && over < 0.022, `dip ${r2(dip)} deg, overshoot ${r2(over * 100)} cm`, '3-4 deg dip, ~1.5 cm overshoot');
+      }
       else add(`no mantle on ${b.h} m box (too tall)`, !started && p.position.y < 0.2, `y=${r2(p.position.y)}`, 'stays on ground');
     }
     // vault the 1.0 m thin wall
@@ -308,8 +359,11 @@ export async function run(fps, only = null) {
     const b = STATIONS.mantle.find((m) => m.h === 1.8);
     pose(b.x, 0, STATIONS.mantleFrontZ + 4, 0);
     fps.hold(['forward', 'sprint'], 0.35);
-    fps.hold(['forward', 'sprint', 'jump'], 1.0);
-    add('mantle from a running jump (1.8 m)', Math.abs(p.position.y - 1.8) < 0.08, r2(p.position.y), 'on top');
+    let landedTop = false;
+    track(['forward', 'sprint', 'jump'], 0.8, () => {
+      if (p.state.grounded && Math.abs(p.position.y - 1.8) < 0.05) landedTop = true;
+    });
+    add('mantle from a running jump (1.8 m)', landedTop, landedTop, 'lands on top, keeps sprinting');
   }
   if (want('stairs')) {
     const S = STATIONS.stairs;
@@ -489,16 +543,63 @@ export async function run(fps, only = null) {
   }
   if (want('recoil')) {
     pose(0, 0, origZ);
+    const deg = Math.PI / 180;
+    // single shot: visual kick returns fully in ~120 ms
+    p.applyRecoil(1.0, 0);
+    let peak = 0, at120 = null;
+    track([], 0.3, (t) => {
+      peak = Math.max(peak, p.cam.punchP.x);
+      if (at120 === null && t >= 0.12 - 1e-6) at120 = p.cam.punchP.x;
+    });
+    add('visual kick recovers in ~120 ms', peak > 0.3 && Math.abs(at120) < peak * 0.1, `peak ${r2(peak)} deg, at 120 ms ${r3(at120)} deg`, '< 10% left at 120 ms');
+    pose(0, 0, origZ);
     const p0 = p.pitch;
     for (let i = 0; i < 10; i++) {
       p.applyRecoil(0.6, 0);
       fps.hold([], 0.075);
     }
-    const climb = (game.camera.rotation.x - p0) / (Math.PI / 180);
-    fps.hold([], 0.8);
-    const after = (game.camera.rotation.x - p0) / (Math.PI / 180);
-    add('recoil climbs during burst', climb > 2.5, `${r2(climb)}° after 10 shots of 0.6°`, '> 2.5°');
-    add('recoil partially recovers', Math.abs(after - 10 * 0.6 * (1 - T.recoil.recoverFraction)) < 0.25 && after < climb * 0.75, `${r2(after)}° after 0.8 s`, `~${r2(10 * 0.6 * (1 - T.recoil.recoverFraction))}° (38% kept)`);
+    const climb = (game.camera.rotation.x - p0) / deg;
+    fps.hold([], 1.0);
+    const after = (game.camera.rotation.x - p0) / deg;
+    add('recoil climbs during burst', climb > 5, `${r2(climb)} deg after 10 shots of 0.6 deg`, '~6 deg (aim point moves)');
+    const rec = 1 - after / 6;
+    add('aim offset recovers only 0-15%', rec >= 0 && rec <= 0.15, `${r2(after)} deg left after 1 s (${Math.round(rec * 100)}% recovered)`, 'player must pull down');
+  }
+  if (want('death')) {
+    pose(0, 0, origZ, 0, 0);
+    const killer = new THREE.Vector3(...P(-6, 4, origZ - 8));
+    p.takeDamage(500, { source: { position: killer } });
+    fps.hold([], 0.4);
+    const eye = game.camera.position.y - p.renderPosition.y;
+    const roll = Math.abs(game.camera.rotation.z) / (Math.PI / 180);
+    fps.hold([], 1.0);
+    const rollEnd = Math.abs(game.camera.rotation.z) / (Math.PI / 180);
+    const yawTurn = (game.camera.rotation.y - p.yaw) / (Math.PI / 180);
+    const pitchEnd = game.camera.rotation.x / (Math.PI / 180);
+    add('death cam: 0.4 s fall to ~0.3 m', eye < 0.36 && eye > 0.24, r2(eye), '~0.3 m at 0.4 s');
+    add('death cam: 20-30 deg roll', roll >= 20 && roll <= 30 && rollEnd >= 20 && rollEnd <= 30, `${r2(roll)} deg at 0.4 s, ${r2(rollEnd)} deg settled`, '20-30 deg');
+    add('death cam: turns/pitches toward killer', yawTurn > 3 && pitchEnd > 2, `yaw +${r2(yawTurn)} deg (killer front-left), pitch ${r2(pitchEnd)} deg (killer above)`, 'toward killer');
+    p.setPose({ pos: P(0, 0, origZ) });
+  }
+  if (want('landing')) {
+    for (const [label, y] of [['1 m hop', null], ['3 m drop', 3]]) {
+      if (y) {
+        const d = STATIONS.drops.find((q) => q.h === 3);
+        pose(d.x, d.h, d.z, 90);
+        fps.hold(['forward'], 0.45);
+      } else {
+        pose(0, 0, origZ);
+        fps.hold(['jump'], 1 / 60);
+      }
+      let dip = 0, li = 0, sp = 0;
+      track([], 1.4, () => {
+        if (p.state.grounded) dip = Math.min(dip, game.camera.position.y - p.renderPosition.y - p.cam.eye.x);
+        li = Math.max(li, p.motion.landImpulse);
+        sp = p.motion.landSpeed;
+      });
+      add(`landing camera dip (${label})`, y ? dip < -0.07 : dip < -0.03, `${r2(-dip * 100)} cm at ${r2(sp)} m/s`, y ? '> 7 cm' : '> 3 cm');
+      add(`motion.landImpulse (${label})`, y ? li > 0.6 : li > 0.35 && li < 0.7, r2(li), y ? '> 0.6' : '0.35-0.7');
+    }
   }
 
   offs.forEach((o) => o());

@@ -32,9 +32,9 @@ export class PlayerSystem {
     this.state = {
       grounded: false, sprinting: false, tacticalSprint: false, crouching: false, sliding: false, moving: false,
       // additive (not in the original contract): useful for weapons / audio / ui
-      prone: false, mantling: false, mantleT: 0, vaulting: false, stance: 'stand', tacMeter: 1, dead: false,
+      prone: false, mantling: false, mantleT: 0, vaulting: false, stance: 'stand', tacMeter: 1, dead: false, sprintOutT: 0,
     };
-    this.motion = { bobPhase: Math.PI / 2, bobAmount: 0, speed01: 0, landImpulse: 0 };
+    this.motion = { bobPhase: Math.PI / 2, bobAmount: 0, speed01: 0, landImpulse: 0, landSpeed: 0 };
     this.body = null;
     this.collider = null;
     this.tuning = T;
@@ -75,6 +75,8 @@ export class PlayerSystem {
     this.stepOffsetPending = 0;
     this.mantleCheckTick = 0;
     this.walls = [];
+    this.sprintOutT = 0;
+    this.lastHitDir = null;
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -141,7 +143,7 @@ export class PlayerSystem {
       this.alive = true;
       Object.assign(this.state, {
         grounded: true, sprinting: false, tacticalSprint: false, crouching: false, sliding: false, moving: false,
-        prone: false, mantling: false, mantleT: 0, vaulting: false, stance: 'stand', tacMeter: 1, dead: false,
+        prone: false, mantling: false, mantleT: 0, vaulting: false, stance: 'stand', tacMeter: 1, dead: false, sprintOutT: 0,
       });
       for (const k in this.latch) this.latch[k] = false;
       this._setCapsule(T.height.stand);
@@ -175,6 +177,7 @@ export class PlayerSystem {
     this.health = Math.max(0, this.health - amount);
     this.lastDamageAt = game.time.now;
     const direction = this._attackerDirection(info);
+    if (direction) this.lastHitDir = direction.clone();
     game.events.emit('player:damaged', { amount, health: this.health, direction, source: info.source ?? null });
     this.cam.flinch(direction, amount);
     if (this.health <= 0) this._die(info);
@@ -280,8 +283,10 @@ export class PlayerSystem {
     this.timeSinceJump += h;
     if (L.jump) this.jumpBuffer = T.jumpBuffer;
 
+    const wasSprinting = this.state.sprinting;
     this._stanceInput(L);
     this._sprintLogic(L);
+    this._updateSprintOut(h, wasSprinting);
     if (st.sliding) this._slideStep(h);
     else this._moveStep(h);
     this._jumpLogic(h);
@@ -411,6 +416,16 @@ export class PlayerSystem {
     if (st.tacticalSprint && !st.sprinting) this._endTac();
   }
 
+  // Sprint-out: after leaving sprint (not into a slide) weapons wait T.sprint.outTime before firing
+  // or aiming. Published as state.sprintOutT (seconds remaining).
+  _updateSprintOut(h, wasSprinting) {
+    const st = this.state;
+    if (wasSprinting && !st.sprinting && !st.sliding) this.sprintOutT = T.sprint.outTime;
+    else if (st.sprinting) this.sprintOutT = 0;
+    else this.sprintOutT = Math.max(0, (this.sprintOutT || 0) - h);
+    st.sprintOutT = this.sprintOutT;
+  }
+
   _endTac() {
     if (this.state.tacticalSprint) this.tacEndAt = this.simTime;
     this.state.tacticalSprint = false;
@@ -426,6 +441,8 @@ export class PlayerSystem {
         this.tacExhausted = true;
         st.tacticalSprint = false;
       }
+    } else if (st.sliding || this.mantle || !st.grounded) {
+      // recharge pauses (does not reset) while sliding / airborne / mantling
     } else if (this.simTime - this.tacEndAt > T.tac.rechargeDelay && this.tacMeter < 1) {
       this.tacMeter = Math.min(1, this.tacMeter + h / T.tac.rechargeTime);
       if (this.tacMeter >= 1) this.tacExhausted = false;
@@ -564,42 +581,49 @@ export class PlayerSystem {
     s.speed = speed;
     this.velocity.x = s.dir.x * speed;
     this.velocity.z = s.dir.z * speed;
-    if (s.t > 0.2 && (speed < T.slide.endSpeed || s.t > T.slide.maxTime)) this._endSlide('crouch');
+    if (s.t >= T.slide.duration || (s.t > 0.2 && speed < T.slide.endSpeed)) {
+      // Hard cut to crouch-walk speed (CoD slides stop, they do not ease out).
+      const cut = Math.min(speed, T.speed.crouch);
+      this.velocity.x = s.dir.x * cut;
+      this.velocity.z = s.dir.z * cut;
+      this._endSlide('crouch');
+    }
     else if (!this.state.grounded && this.timeSinceGround > 0.25) this._endSlide('air');
   }
 
-  _endSlide(to = 'crouch') {
+  _endSlide(to = 'crouch', cancel = null) {
     const s = this.slide;
     if (!s) return;
     this.state.sliding = false;
     this.slideCooldown = T.slide.cooldown;
-    this.lastSlide = { distance: Math.hypot(this.position.x - s.startPos.x, this.position.z - s.startPos.z), time: s.t, reason: to };
+    this.lastSlide = { distance: Math.hypot(this.position.x - s.startPos.x, this.position.z - s.startPos.z), time: s.t, reason: to, cancel, endSpeed: this._hSpeed() };
     this.slide = null;
     // Stand up if that is what was asked (and there is room), otherwise end crouched.
     this.stance = 'crouch';
     this._setCapsule(T.height.crouch);
     if (to === 'stand' || to === 'air') this._trySetStance('stand');
-    this.game.events.emit('player:slide', { phase: 'end' });
+    this.game.events.emit('player:slide', { phase: 'end', cancel });
     this.cam.onSlideEnd();
   }
 
   _slideCancel(kind) {
     const st = this.state;
-    this._endSlide(kind === 'crouch' || kind === 'jump' ? 'stand' : 'crouch');
+    // MWIII slide-cancel: crouch or jump ends the slide immediately, stands up straight into
+    // sprint and restores tactical sprint.
+    this._endSlide('stand', kind);
     if (this.stance !== 'stand') return;
-    const sp = this._hSpeed();
     if (kind === 'jump') {
       const k = T.slide.jumpKeep;
       this.velocity.x *= k;
       this.velocity.z *= k;
       this._doJump();
-    } else if (this._forwardEnough()) {
+    }
+    if (this._forwardEnough() || kind === 'jump') {
       st.sprinting = true;
-      const cap = T.speed.sprint;
-      if (sp > cap) {
-        this.velocity.x *= cap / sp;
-        this.velocity.z *= cap / sp;
-      }
+      this.tacMeter = 1;
+      this.tacExhausted = false;
+      st.tacticalSprint = true;
+      this.sprintOutT = 0;
     }
   }
 
@@ -791,9 +815,10 @@ export class PlayerSystem {
       p.z = lerp(s.z, m.land.z, fw);
     } else {
       // Pull up (fast, then slowing) and roll onto the top.
-      const up = easeOutCubic(u / 0.7);
-      const fw = easeInOutSine((u - 0.45) / 0.55);
-      p.y = lerp(s.y, m.topY + 0.02, up);
+      const up = easeOutCubic(u / 0.62);
+      const fw = easeInOutSine((u - 0.4) / 0.6);
+      const over = T.mantle.overshoot * Math.sin(Math.PI * clamp((u - 0.4) / 0.6, 0, 1));
+      p.y = lerp(s.y, m.topY, up) + over;
       p.x = lerp(s.x, m.land.x, fw);
       p.z = lerp(s.z, m.land.z, fw);
     }
@@ -808,6 +833,7 @@ export class PlayerSystem {
       if (m.endStance !== this.stance) this._trySetStance(m.endStance);
       const exit = m.vault ? T.mantle.vaultExitSpeed : T.mantle.exitSpeed;
       this.velocity.set(m.dir.x * exit, m.vault ? 0.5 : 0, m.dir.z * exit);
+      if (!m.vault) p.y = m.topY + 0.005;
       this.peakY = p.y;
       this.jumpedSinceGround = true;
       this.timeSinceGround = m.vault ? 0.2 : 0;
@@ -1086,7 +1112,7 @@ export class PlayerSystem {
     st.dead = true;
     this.deathTime = 0;
     this.game.events.emit('player:died', {});
-    this.cam.onDeath(this._attackerDirection(info));
+    this.cam.onDeath(this._attackerDirection(info) || this.lastHitDir);
   }
 
   _deadStep(h) {

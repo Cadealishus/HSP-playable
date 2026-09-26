@@ -448,7 +448,7 @@ function registerShots(game, player) {
   });
 
   game.registerShot('player-dead', {
-    description: 'Death camera: collapsed on the ground, tipped onto one side',
+    description: 'Death camera: 0.4 s collapse to ~0.3 m eye, ~25° roll, head turned toward the killer',
     settle: 1.4,
     setup: () => {
       player.setPose({ pos: P(-9, 0, 6), yaw: 25, pitch: -2 });

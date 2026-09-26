@@ -14,12 +14,12 @@ export class CameraRig {
     this.landY = Spring.of(15, 0.5); // landing dip (metres)
     this.landP = Spring.of(13, 0.55); // landing pitch dip (degrees)
     this.slideRoll = Spring.of(11, 0.85);
-    this.punchP = Spring.of(40, 0.42); // per-shot visual punch (degrees)
+    this.punchP = Spring.of(T.recoil.visualOmega, 1.0); // visual kick (deg), critically damped: back in ~120 ms
     this.punchR = Spring.of(32, 0.5);
     this.flinchP = Spring.of(17, 0.6);
     this.flinchY = Spring.of(17, 0.6);
     this.flinchR = Spring.of(15, 0.6);
-    this.mantleP = Spring.of(12, 0.8);
+    this.mantleP = Spring.of(30, 0.9);
     this.mantleR = Spring.of(11, 0.8);
     this.mantleY = Spring.of(12, 0.8);
     this.reset();
@@ -44,6 +44,7 @@ export class CameraRig {
     this.death = null;
     this.leanRoll = 0;
     this.lastFov = -1;
+    this.landPulse = 0;
     this.eyeHeight = e;
   }
 
@@ -57,10 +58,14 @@ export class CameraRig {
     this.landY.impulse(0.25);
   }
 
+  // Landing: vertical dip + pitch nod, both scaled by impact speed (hop ~6 m/s → ~4 cm / ~1°,
+  // 4 m drop ~12 m/s → ~11 cm / ~2.5°). motion.landImpulse gets a 0..1 pulse for the viewmodel.
   onLand(impact) {
-    const v = 0.15 * impact + 0.0045 * impact * impact;
-    this.landY.impulse(-Math.min(v, 3.2));
-    this.landP.impulse(-Math.min(impact * 2.6, 45));
+    const v = 0.17 * impact + 0.005 * impact * impact;
+    this.landY.impulse(-Math.min(v, 3.4));
+    this.landP.impulse(-Math.min(impact * 3.4, 55));
+    this.landPulse = Math.max(this.landPulse || 0, clamp(impact / 14, 0, 1));
+    this.player.motion.landSpeed = impact;
   }
 
   onSlideStart() {
@@ -85,11 +90,22 @@ export class CameraRig {
       const s = dir.x * rx + dir.z * rz; // attacker on the right → fall to the left
       if (Math.abs(s) > 0.2) side = s > 0 ? 1 : -1;
     }
-    this.death = { t: 0, side, eye0: this.eyeHeight, pitch0: p.pitch, twist: (this.game.random() - 0.5) * 0.5 };
+    // Relative yaw / pitch to the killer (from the last damage direction).
+    let aimYaw = 0, aimPitch = 0;
+    if (dir) {
+      const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+      const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+      aimYaw = -Math.atan2(dir.x * rx + dir.z * rz, dir.x * fx + dir.z * fz); // + = turn left (three.js yaw)
+      aimYaw = clamp(aimYaw, -1.2, 1.2);
+      aimPitch = clamp(Math.asin(clamp(dir.y, -1, 1)) + 0.12, -0.3, 0.45); // slightly up from the ground
+    }
+    this.death = { t: 0, side, eye0: this.eyeHeight, pitch0: p.pitch, aimYaw, aimPitch };
     this.shake(0.35, 0.35);
   }
 
   // ---------------------------------------------------------------- inputs from other systems
+  // Aim offset: the whole kick moves the aim point, only recoverFraction (~10%) drifts back, so the
+  // player has to pull down. Visual kick: an extra camera-only punch that is fully gone in ~120 ms.
   recoil(pitchDeg, yawDeg) {
     const p = this.player;
     const r = T.recoil.recoverFraction;
@@ -98,7 +114,8 @@ export class CameraRig {
     this.recP += pitchDeg * r;
     this.recY += yawDeg * r;
     this.lastRecoilAt = this.time;
-    this.punchP.impulse(pitchDeg * T.recoil.punch * 40);
+    // critically damped spring: peak at 1/ω ≈ 22 ms, back to <5% by ~120 ms
+    this.punchP.impulse(pitchDeg * T.recoil.visualKick * Math.E * T.recoil.visualOmega);
     this.punchR.impulse((this.game.random() - 0.5) * pitchDeg * 30);
   }
 
@@ -181,9 +198,11 @@ export class CameraRig {
         mR = -3.5 * s;
         mY = -0.05 * s;
       } else {
-        mP = -(3 + 3.2 * m.height) * Math.pow(s, 1.3);
-        mR = 2.5 * s;
-        mY = -0.1 * s;
+        // Hand-plant dip early in the climb (3–4°), then the head rolls over the top.
+        const plant = Math.sin(Math.PI * clamp(u / 0.5, 0, 1));
+        mP = -T.mantle.dip * plant;
+        mR = 2.0 * s;
+        mY = -0.05 * plant;
       }
     }
     if (dt > 0) {
@@ -238,20 +257,23 @@ export class CameraRig {
     const shP = sh * 3.2 * N[0](tn), shY = sh * 3.2 * N[1](tn + 31.7), shR = sh * 4.5 * N[2](tn + 63.1);
     const shX = sh * 0.035 * N[3](tn + 12.3), shYp = sh * 0.035 * N[4](tn + 44.9);
 
-    // Death camera: collapse to the ground and tip over to one side.
+    // Death camera: 0.4 s fall to ~0.3 m eye, 20–30° roll, head turning slightly towards the killer.
     let dY = 0, dP = 0, dR = 0, dYaw = 0, dSide = 0;
     if (!p.alive && this.death) {
       const d = this.death;
       if (dt > 0) d.t += dt;
-      const fall = clamp(d.t / 0.62, 0, 1);
-      const drop = fall * fall;
-      const bounce = d.t > 0.62 ? Math.sin((d.t - 0.62) * 18) * Math.exp(-(d.t - 0.62) * 7) * 0.035 : 0;
-      eyeY = lerp(d.eye0, T.eye.dead, drop) + bounce;
-      const tip = smoothstep(clamp((d.t - 0.08) / 0.75, 0, 1));
-      dR = d.side * 70 * tip;
-      dP = (8 * DEG - d.pitch0) / DEG * tip - 6 * Math.sin(Math.PI * fall);
-      dYaw = d.side * 14 * tip + d.twist * 20 * tip;
-      dSide = -d.side * 0.35 * tip;
+      const D = T.death;
+      const fall = clamp(d.t / D.fallTime, 0, 1);
+      const drop = fall * fall; // accelerating collapse
+      const after = d.t - D.fallTime;
+      const bounce = after > 0 ? Math.sin(after * 20) * Math.exp(-after * 9) * 0.03 : 0;
+      eyeY = lerp(d.eye0, D.eye, drop) + bounce;
+      const tip = smoothstep(fall);
+      dR = d.side * D.roll * tip + (after > 0 ? Math.sin(after * 17) * Math.exp(-after * 8) * 2 * d.side : 0);
+      // Pitch: towards the killer's elevation from the ground eye (half-way), plus a knock on impact.
+      dP = ((d.aimPitch - d.pitch0) / DEG) * 0.5 * tip - 5 * Math.sin(Math.PI * fall);
+      dYaw = (d.aimYaw / DEG) * 0.35 * tip;
+      dSide = -d.side * 0.12 * tip;
     }
 
     this.eyeHeight = eyeY;
@@ -280,6 +302,8 @@ export class CameraRig {
     }
     cam.updateMatrixWorld();
 
-    mo.landImpulse = clamp(-this.landY.x / 0.08, 0, 1);
+    // landImpulse: 0..1, max of the current camera dip and a decaying pulse set on touchdown.
+    if (dt > 0) this.landPulse = (this.landPulse || 0) * Math.exp(-7 * dt);
+    mo.landImpulse = clamp(Math.max(-this.landY.x / 0.08, this.landPulse || 0), 0, 1);
   }
 }
