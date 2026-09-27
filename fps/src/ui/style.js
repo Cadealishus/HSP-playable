@@ -759,11 +759,11 @@ const CSS = `
 .ow-att-top {
   position:absolute; left: calc(var(--u) * 18); right: calc(var(--u) * 18); top: calc(var(--u) * 9);
   display:flex; align-items:center; justify-content:space-between;
-  font-size: calc(13px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink-2);
+  font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.28em; color: var(--ink);
 }
 .ow-att-unit { display:flex; align-items:center; gap: calc(var(--u) * 2.5); }
 .ow-crest { width: calc(22px * var(--k)); height: calc(22px * var(--k)); color: var(--acc); display:block; }
-.ow-att-net { display:flex; align-items:center; gap: calc(var(--u) * 2); color: var(--ink-3); }
+.ow-att-net { display:flex; align-items:center; gap: calc(var(--u) * 2); color: var(--ink-2); }
 .ow-att-net::before { content:''; width: calc(6px * var(--k)); height: calc(6px * var(--k));
   border-radius:50%; background: var(--acc); }
 
@@ -794,7 +794,7 @@ const CSS = `
   padding-top: calc(var(--u) * 4); border-top: 1px solid var(--hair);
   align-items:baseline;
 }
-.ow-ms-grid .k { font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.24em; color: var(--ink-3); }
+.ow-ms-grid .k { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.22em; color: var(--ink-2); }
 .ow-ms-grid .v { font-family: var(--fs); text-transform:none; letter-spacing:0;
   font-size: calc(17px * var(--k)); line-height:1.35; color: var(--ink); font-weight:400; }
 
@@ -807,7 +807,7 @@ const CSS = `
   font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink);
   margin-bottom: calc(var(--u) * 3);
 }
-.ow-lo-hint { font-size: calc(12px * var(--k)); letter-spacing:.22em; color: var(--ink-3); }
+.ow-lo-hint { font-size: calc(13.5px * var(--k)); letter-spacing:.2em; color: var(--ink-2); }
 .ow-lo-cards { display:grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 3); }
 .ow-lo-card {
   position:relative; cursor:pointer; text-align:left;
@@ -828,13 +828,13 @@ const CSS = `
 .ow-lo-card.on .ow-lo-code { color: var(--acc); }
 .ow-lo-name { font-family: var(--fd); font-weight:600; font-size: calc(32px * var(--k));
   letter-spacing:.05em; line-height:1; margin: calc(var(--u) * 2.5) 0 calc(var(--u) * 1.4); }
-.ow-lo-kit { font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.22em; color: var(--ink-3); }
+.ow-lo-kit { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
 .ow-lo-desc { font-family: var(--fs); text-transform:none; letter-spacing:0; font-weight:400;
   font-size: calc(15px * var(--k)); line-height:1.4; color: var(--ink-2);
   margin: calc(var(--u) * 3) 0 calc(var(--u) * 3.5); min-height: calc(42px * var(--k)); }
 .ow-lo-stats { display:grid; gap: calc(var(--u) * 1.6); }
 .ow-lo-stat { display:grid; grid-template-columns: calc(104px * var(--k)) 1fr; align-items:center;
-  font-size: calc(11px * var(--k)); font-weight:600; letter-spacing:.18em; color: var(--ink-3); }
+  font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.16em; color: var(--ink-2); }
 .ow-lo-stat i { display:block; height: calc(3px * var(--k)); background: rgba(255,255,255,.10); position:relative; }
 .ow-lo-stat b { position:absolute; inset:0; background: var(--ink-2); transform-origin:left center; }
 .ow-lo-card.on .ow-lo-stat b { background: var(--ink); }
@@ -849,10 +849,10 @@ const CSS = `
 .ow-att-foot {
   position:absolute; left: calc(var(--u) * 18); right: calc(var(--u) * 18); bottom: calc(var(--u) * 8);
   display:flex; justify-content:space-between; align-items:baseline;
-  font-size: calc(12px * var(--k)); font-weight:600; letter-spacing:.24em;
+  font-size: calc(13.5px * var(--k)); font-weight:600; letter-spacing:.22em;
 }
 .ow-att-best { color: var(--ink-2); white-space:pre; }
-.ow-att-build { color: var(--ink-3); }
+.ow-att-build { color: var(--ink-2); }
 
 /* ========================================================= death / report */
 .ow-screen {
