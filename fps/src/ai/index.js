@@ -1257,8 +1257,10 @@ export class AiSystem {
     const cam = this.ctx.camera;
     const c = world?.levelToWorld ? world.levelToWorld(cx, 0, cz, new THREE.Vector3()) : new THREE.Vector3(cx, 0, cz);
     const t = world?.levelToWorld ? world.levelToWorld(tx, 0, tz, new THREE.Vector3()) : new THREE.Vector3(tx, 0, tz);
-    c.y = this.groundAt(c.x, c.z, 30) + eyeH;
-    t.y = this.groundAt(t.x, t.z, 30) + lookH;
+    // probe from just above street level: a probe from high up lands on
+    // cables, awnings and the gatehouse arch
+    c.y = this.groundAt(c.x, c.z, 3) + eyeH;
+    t.y = this.groundAt(t.x, t.z, 3) + lookH;
     cam.position.copy(c);
     cam.lookAt(t);
     cam.updateMatrixWorld(true);
@@ -1270,21 +1272,21 @@ export class AiSystem {
   _levelFloor(x, z) {
     const world = this.ctx.peek('world');
     const p = world?.levelToWorld ? world.levelToWorld(x, 0, z, new THREE.Vector3()) : new THREE.Vector3(x, 0, z);
-    p.y = this.groundAt(p.x, p.z, 30);
+    p.y = this.groundAt(p.x, p.z, 3);
     return p;
   }
 
   /**
-   * `debugStage('closeup')` — one rifleman about 4 m from the camera on the
-   * open ground where the main street meets the far cross street, up and
+   * `debugStage('closeup')` — one rifleman about 4.4 m from the camera on the
+   * open north end of the main street (clear of stalls and the gate), up and
    * aiming just past the lens: the distance a player meets a man coming round
    * a corner.
    */
   _stageCloseup() {
     if (this._navPending) this._buildNav();
     this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
-    const { cam } = this._frameLevel(0.6, -33.2, 1.62, 0.2, -37.6, 1.2);
-    const pos = this._levelFloor(0.2, -37.4);
+    const { cam } = this._frameLevel(0.6, 28.6, 1.62, 0.2, 33.2, 1.2);
+    const pos = this._levelFloor(0.2, 33.0);
     const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.38;
     const a = this.spawn('vanguard', pos, yaw);
     a.staged = {
@@ -1303,8 +1305,8 @@ export class AiSystem {
 
   /**
    * `debugStage('flop')` — a squad bunched round a grenade that has already
-   * landed among them, on the open ground at the south end of the main
-   * street, shot from a low eye so the launch reads against the sky. Two
+   * landed among them, on the open north end of the main street, shot from a
+   * low eye so the launch reads against the sky. Two
    * frames after staging it goes off; `FLOP_FREEZE` frames (fixed 60 Hz) later
    * the dolls are frozen near the top of their arc and the clock slowed to a
    * crawl, once the fireball has burnt down enough not to white out the frame.
@@ -1312,14 +1314,14 @@ export class AiSystem {
   _stageFlop() {
     if (this._navPending) this._buildNav();
     this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
-    const { cam } = this._frameLevel(0.8, -29.0, 1.25, -0.2, -41.0, 2.6);
+    const { cam } = this._frameLevel(1.0, 25.5, 1.25, -0.2, 38.0, 2.4);
     const squad = this.createSquad();
     /** [variant, level x, level z] — a loose knot of four round the charge */
     const LAYOUT = [
-      ['vanguard', -2.0, -39.4],
-      ['breacher', 1.4, -39.8],
-      ['irregular', -0.9, -42.6],
-      ['vanguard', 2.2, -42.2],
+      ['vanguard', -2.0, 34.6],
+      ['breacher', 1.4, 34.2],
+      ['irregular', -0.9, 37.4],
+      ['vanguard', 2.2, 37.0],
     ];
     const men = [];
     for (const [variant, x, z] of LAYOUT) {
@@ -1336,10 +1338,10 @@ export class AiSystem {
     }
     // the charge, a little beyond the middle of the knot so the men come out
     // sideways and toward the lens rather than straight away from it
-    const at = this._levelFloor(0.1, -41.6);
+    const at = this._levelFloor(0.1, 36.4);
     at.y += 0.25;
     // a man already down behind them, so the blast also re-launches a corpse
-    const dPos = this._levelFloor(-0.4, -44.2);
+    const dPos = this._levelFloor(-0.4, 39.4);
     const casualty = this.spawn('breacher', dPos, 0.6);
     squad.add(casualty);
     casualty.animator.update(0.016, 0);
