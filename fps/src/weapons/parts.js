@@ -1144,29 +1144,15 @@ export function buildMagazine(asm, mats, o) {
   bodyParts.push(notch);
 
   // Floor plate + finger ledge, on the arc's tangent.
-  //
-  // NERDCON: when `baseplateMat` is set these become a colour-anodised billet
-  // baseplate (a real aftermarket part), rendered in the weapon's accent colour
-  // instead of merged into the polymer body. It sits in the lower-right of the
-  // frame in hipfire and is the one weapon-specific brand cue. Falls back to the
-  // polymer body if no accent is supplied.
-  const baseplateMat = o.baseplateMat ?? null;
   const end = at(1);
   const plate = extrude(roundRect(w + 0.0026, d * 0.97, 0.004, 4), 0.01, { bevel: 0.001 });
   plate.rotateX(Math.PI / 2 + end.tilt);
   plate.translate(0, end.y - 0.0035, end.z);
+  bodyParts.push(plate);
   const ledge = box(w + 0.0034, 0.007, 0.013, 0.0016, 2);
   ledge.rotateX(end.tilt);
   ledge.translate(0, end.y - 0.007, end.z - d * 0.4);
-  if (baseplateMat) {
-    asm.add(plate, baseplateMat, {});
-    asm.add(ledge, baseplateMat, {});
-    plate.dispose();
-    ledge.dispose();
-  } else {
-    bodyParts.push(plate);
-    bodyParts.push(ledge);
-  }
+  bodyParts.push(ledge);
   // Base pad, a slightly different polymer batch.
   const pad = extrude(roundRect(w + 0.003, d * 0.9, 0.004, 4), 0.005, { bevel: 0.0009 });
   pad.rotateX(Math.PI / 2 + end.tilt);

@@ -151,11 +151,8 @@ export function buildPistol() {
     0.0032,
     { bevel: 0.0005 }
   );
-  // NerdCon: slide-stop lever in NerdCon Blue #3568FF anodise — the SIDECAR's
-  // camera-facing billet control, the shared brand accent (matches the rifle/smg
-  // selectors). The gold baseplate is its weapon-specific accent.
-  body.add(stopLever, 'accent_blue', { x: -0.0132, y: bore - 0.0135, z: -0.022, ry: Math.PI / 2 });
-  body.add(stopLever, 'accent_blue', { x: 0.0132, y: bore - 0.0135, z: -0.022, ry: Math.PI / 2 });
+  body.add(stopLever, 'steel', { x: -0.0132, y: bore - 0.0135, z: -0.022, ry: Math.PI / 2 });
+  body.add(stopLever, 'steel', { x: 0.0132, y: bore - 0.0135, z: -0.022, ry: Math.PI / 2 });
   stopLever.dispose();
   const takedown = latheZ(
     [
@@ -232,7 +229,6 @@ export function buildPistol() {
     rimR: 0.00478,
     bulletLen: 0.0132,
     poly: 'polymer',
-    baseplateMat: 'accent_gold', // NerdCon: SIDECAR anodised gold baseplate
   });
 
   const trigger = new Assembly('pistol-trigger');
@@ -255,7 +251,7 @@ export function buildPistol() {
 
   return {
     id: 'pistol',
-    label: 'SIDECAR',
+    label: 'P19 SIDEARM',
     fxClass: 'pistol',
     body,
     moving: { magazine, trigger, slide: slideAsm },

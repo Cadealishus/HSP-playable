@@ -4,6 +4,7 @@ import { WeaponMaterials, ENV_OCCLUSION } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
 import { ProjectileSim } from './ballistics.js';
 import { WEAPON_DEFS, buildRecoilPattern, SPREAD_MODS } from './defs.js';
+import { buildCarbine } from './models/carbine.js';
 import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
 import { buildPistol } from './models/pistol.js';
@@ -21,7 +22,9 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  *   parts.js      real firearm components built from published dimensions:
  *                 receivers, barrels, muzzle devices, handguards, stocks,
  *                 grips, magazines, optics, iron sights, triggers.
- *   models/*.js   the three weapons assembled from those parts.
+ *   models/*.js   the four weapons assembled from those parts. The carbine
+ *                 is authored in millimetres with mmgeo.js and funnelled into
+ *                 the same Assembly/material pipeline.
  *   hands.js      gloved hands + sleeved arms, two-bone IK from the hand.
  *   viewmodel.js  the animation stack (sway/bob/lag/recoil/ADS/clips).
  *   clips.js      keyframed reload / inspect / draw timelines.
@@ -37,7 +40,9 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  *   wp.spreadDegrees      live cone half-angle — drive the crosshair gap with it
  *   wp.adsProgress        0..1
  *   wp.reloading / wp.firing / wp.switching / wp.inspecting
- *   wp.weaponIds          ['rifle','smg','pistol']
+ *   wp.weaponIds          ['carbine','rifle','smg','pistol']  (swap order)
+ *   wp.primaryId          'carbine' — the default primary
+ *   wp.loadoutInfo()      [{ id, displayName, class, caliber, magSize, blurb }]
  *   wp.setWeapon(id)      draw/holster animated swap
  *   wp.selectLoadout(id, {animated,refill})  run-start loadout (game subsystem)
  *   wp.nextWeapon()
@@ -47,7 +52,7 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  *   wp.tryFire()          honours fire mode + rpm; returns true if a shot left
  *   wp.viewmodel          the rig (fx/ui may read muzzle/eject transforms)
  *   wp.muzzleWorld(v3)    world-space muzzle, for anything that needs it
- *   wp.debugPose(kind)    'idle' | 'ads' | 'fire'  (the capture harness)
+ *   wp.debugPose(kind, {weapon})  'idle' | 'ads' | 'fire'  (the capture harness)
  *   wp.stats              { tris, drawCalls, live, fired }
  *
  * EVENTS EMITTED  (all canonical, see ARCHITECTURE.md)
@@ -59,6 +64,11 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  * Anything else (ammo counts, fire mode, the current weapon) is a getter on
  * this object rather than an event, so no new event types are introduced.
  */
+/** Swap order (Tab / wheel / number keys 1-4). The carbine is the primary. */
+const WEAPON_ORDER = ['carbine', 'rifle', 'smg', 'pistol'];
+const PRIMARY_ID = 'carbine';
+const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+
 export class WeaponSystem {
   static id = 'weapons';
   static deps = ['materials', 'physics'];
@@ -67,7 +77,7 @@ export class WeaponSystem {
     this.viewmodel = null;
     this.sim = null;
     this.states = new Map();
-    this.activeId = 'rifle';
+    this.activeId = PRIMARY_ID;
     this.debugMode = null;
 
     this._fireTimer = 0;
@@ -147,9 +157,9 @@ export class WeaponSystem {
     this.viewmodel.onClipEvent = (name, clip) => this._onClipEvent(name, clip);
 
     const t0 = performance.now();
-    const builders = { rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
+    const builders = { carbine: buildCarbine, rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
     let tris = 0;
-    for (const id of ['rifle', 'smg', 'pistol']) {
+    for (const id of WEAPON_ORDER) {
       const def = { ...WEAPON_DEFS[id] };
       def.cycleTime = 60 / def.rpm;
       const model = builders[id]();
@@ -262,7 +272,7 @@ export class WeaponSystem {
     if (!s) return h;
     const a = this.ammo;
     const vm = this.viewmodel;
-    h.name = s.def.label ?? s.def.id;
+    h.name = s.def.displayName ?? s.def.label ?? s.def.id;
     h.mode = s.mode;
     // `a.mag` counts the chambered round, so a topped-off rifle is 31. The HUD
     // draws one pip per round against magSize, so clamp the *display* to the
@@ -612,9 +622,10 @@ export class WeaponSystem {
       if (input.actionPressed('reload')) this.reload();
       if (input.pressed('KeyB')) this.cycleFireMode();
       if (input.pressed('KeyI')) this.inspect();
-      if (input.pressed('Digit1')) this.setWeapon('rifle');
-      if (input.pressed('Digit2')) this.setWeapon('smg');
-      if (input.pressed('Digit3')) this.setWeapon('pistol');
+      // 1-4 in swap order: carbine, rifle, smg, pistol.
+      for (let i = 0; i < WEAPON_ORDER.length; i++) {
+        if (input.pressed(DIGITS[i])) this.setWeapon(WEAPON_ORDER[i]);
+      }
       if (input.pressed('Tab')) this.nextWeapon();
       if (input.wheel) this.nextWeapon();
       this._runTrigger(dt, input.fire, input.firePressed, def, s);
@@ -735,7 +746,9 @@ export class WeaponSystem {
   debugPose(kind = 'idle', opts = {}) {
     const vm = this.viewmodel;
     this.debugMode = kind;
-    this.setWeaponImmediate('rifle');
+    // The harness shows the primary unless a shot asks for a specific gun.
+    const want = opts?.weapon ?? PRIMARY_ID;
+    this.setWeaponImmediate(this.states.has(want) ? want : PRIMARY_ID);
     vm.stopClip();
     vm.recPos.reset();
     vm.recRot.reset();
@@ -753,7 +766,7 @@ export class WeaponSystem {
     // A fixed, non-zero noise phase: a settled but not artificially symmetric pose.
     vm.noiseT = 12.37;
     vm.debugFrozen = true;
-    this._spread = kind === 'ads' ? 0.24 : 2.05;
+    this._spread = kind === 'ads' ? this.current.spreadAds : this.current.spreadHip;
     this._sinceShot = 10;
     this._debugFrame = 0;
 
@@ -817,17 +830,19 @@ export class WeaponSystem {
   /**
    * LOADOUT ENTRY POINT for the game subsystem (`ctx.get('weapons')`).
    *
-   * Sets the player's active weapon at run start. Job -> weaponId mapping (the
-   * game/ui agent owns the job copy, weapons just takes an id):
-   *   FRAUD ANALYST      -> 'rifle'   (RULES ENGINE MK4)
-   *   PAYMENTS ENGINEER  -> 'smg'     (VELOCITY-9)
-   *   COMPLIANCE OFFICER -> 'pistol'  (SIDECAR)
+   * Sets the player's active weapon at run start. The game/ui side owns the
+   * loadout copy; weapons just takes an id. Ids and their ESF designations
+   * (def.displayName, also listed by `loadoutInfo()`):
+   *   'carbine' KESTREL 556   the default primary
+   *   'rifle'   HARRIER 556
+   *   'smg'     MERLIN 9
+   *   'pistol'  P19 SIDEARM
    *
    * Defaults to an instant swap (no draw animation) because a run-start loadout
    * should already be in hand. Pass { animated:true } for the holster/draw swap,
    * { refill:true } to top the mag + reserve to full (e.g. on continue/restart).
    *
-   * @param {'rifle'|'smg'|'pistol'} id
+   * @param {'carbine'|'rifle'|'smg'|'pistol'} id
    * @param {{animated?:boolean, refill?:boolean}} [opts]
    * @returns {boolean} true if `id` is a real weapon and is now (or is becoming) active.
    */
@@ -841,6 +856,34 @@ export class WeaponSystem {
     }
     if (opts.animated) return id === this.activeId ? true : this.setWeapon(id);
     return this.setWeaponImmediate(id);
+  }
+
+  /** The default primary (what a run starts with if the loadout names nothing). */
+  get primaryId() {
+    return PRIMARY_ID;
+  }
+
+  /**
+   * Loadout copy source for `ui`/`game`: one plain object per weapon, in swap
+   * order. Freshly allocated — call it when building a menu, not per frame.
+   */
+  loadoutInfo() {
+    const out = [];
+    for (const id of WEAPON_ORDER) {
+      const d = this.states.get(id)?.def ?? WEAPON_DEFS[id];
+      out.push({
+        id,
+        displayName: d.displayName,
+        class: d.class,
+        caliber: d.caliber,
+        magSize: d.magSize,
+        rpm: d.rpm,
+        modes: d.modes.slice(),
+        blurb: d.blurb ?? '',
+        primary: id === PRIMARY_ID,
+      });
+    }
+    return out;
   }
 
   _runDebug(ctx) {

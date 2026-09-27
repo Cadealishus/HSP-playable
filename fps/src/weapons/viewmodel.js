@@ -214,24 +214,60 @@ export class Viewmodel {
     }
     const ring = mergeAll(ringArcs);
     this._reticleGeo = [core, halo, rim, ring];
-    // NERDCON: the dot is Cyan Pulse #00E5FF, not the stock red. The intensity
-    // budget above is unchanged and still applies — 0.95 keeps the core on the
-    // near-linear part of the AgX curve, where a saturated cyan stays a saturated
-    // cyan instead of desaturating to white. The halo is one step toward white
-    // (bloom seed) and the ring carries the emitter read.
-    this.dotCore = new THREE.Mesh(core, mats.reticle(0x00e5ff, 0.95));
-    this.dotHalo = new THREE.Mesh(halo, mats.reticle(0x5cf0ff, 0.34));
+    this.dotCore = new THREE.Mesh(core, mats.reticle(0xff1206, 0.95));
+    this.dotHalo = new THREE.Mesh(halo, mats.reticle(0xff2a0c, 0.34));
     this.dotRim = new THREE.Mesh(rim, mats.reticleOutline(0.85));
-    this.dotRing = new THREE.Mesh(ring, mats.reticle(0x00e5ff, 0.95 * 0.5));
+    this.dotRing = new THREE.Mesh(ring, mats.reticle(0xff1206, 0.95 * 0.5));
     this.dotHalo.renderOrder = 19;
     this.dotRim.renderOrder = 20;
     this.dotRing.renderOrder = 20;
     this.dotCore.renderOrder = 21;
-    this.reticle.add(this.dotHalo);
-    this.reticle.add(this.dotRim);
-    this.reticle.add(this.dotRing);
-    this.reticle.add(this.dotCore);
-    for (const m of [this.dotCore, this.dotHalo, this.dotRim, this.dotRing]) {
+    this.dotGroup = new THREE.Object3D();
+    this.reticle.add(this.dotGroup);
+    for (const m of [this.dotHalo, this.dotRim, this.dotRing, this.dotCore]) this.dotGroup.add(m);
+
+    /**
+     * HOLOGRAPHIC CIRCLE-DOT — the carbine's reticle (optic.style === 'holo').
+     *
+     * Authored at UNIT = the ring radius and scaled as one shape, like the dot:
+     *   ring     continuous, 7% of its radius wide. A hologram has no segments.
+     *   dot      8% of the ring radius at the centre.
+     *   bloom    a 2.6x-wide ring and a 2.4x dot at a few percent: a hologram is
+     *            a diffraction image with a soft skirt, not a hard LED edge, and
+     *            this is the whole difference between "holo" and "red dot".
+     *   keyline  normally blended dark rings either side of the lit ring, so it
+     *            still reads over a blown-out sky (additive cannot go darker).
+     * Ring radius 0.034 rad at full ADS: ~25 px at 720p / 38 px at 1080p, the
+     * size a modern shooter draws its 68 MOA holo ring at, well inside the
+     * window's 0.13 rad half-height.
+     */
+    const hRing = new THREE.RingGeometry(0.965, 1.035, 128, 1);
+    const hBloom = new THREE.RingGeometry(0.91, 1.09, 128, 1);
+    const hKey = mergeAll([new THREE.RingGeometry(0.93, 0.962, 128, 1), new THREE.RingGeometry(1.038, 1.07, 128, 1)]);
+    const hDot = new THREE.CircleGeometry(0.08, 24);
+    const hDotBloom = new THREE.CircleGeometry(0.19, 24);
+    this._reticleGeo.push(hRing, hBloom, hKey, hDot, hDotBloom);
+    this.holoRing = new THREE.Mesh(hRing, mats.reticle(0xff1a08, 0.9));
+    this.holoBloom = new THREE.Mesh(hBloom, mats.reticle(0xff3a14, 0.9));
+    this.holoKey = new THREE.Mesh(hKey, mats.reticleOutline(0.3));
+    this.holoDot = new THREE.Mesh(hDot, mats.reticle(0xff1206, 1.0));
+    this.holoDotBloom = new THREE.Mesh(hDotBloom, mats.reticle(0xff3a14, 0.95));
+    this.holoKey.renderOrder = 19;
+    this.holoBloom.renderOrder = 20;
+    this.holoDotBloom.renderOrder = 20;
+    this.holoRing.renderOrder = 21;
+    this.holoDot.renderOrder = 21;
+    this.holoGroup = new THREE.Object3D();
+    this.holoGroup.visible = false;
+    this.reticle.add(this.holoGroup);
+    for (const m of [this.holoKey, this.holoBloom, this.holoDotBloom, this.holoRing, this.holoDot]) {
+      this.holoGroup.add(m);
+    }
+
+    for (const m of [
+      this.dotCore, this.dotHalo, this.dotRim, this.dotRing,
+      this.holoRing, this.holoBloom, this.holoKey, this.holoDot, this.holoDotBloom,
+    ]) {
       m.frustumCulled = false;
       m.userData.owNoPrepass = true;
       m.userData.owNoShadow = true;
@@ -986,6 +1022,19 @@ export class Viewmodel {
     // allocation.
     _v.fromArray(optic.center).applyQuaternion(this.rig.quaternion).add(this.rig.position);
     _v3.set(0, 0, -1).applyQuaternion(this.rig.quaternion).normalize();
+    /**
+     * POINT OF AIM. Rounds leave along the CAMERA axis (index.js tryFire), so
+     * once the eye is behind the glass the reticle is drawn on that axis, not on
+     * the swaying optic axis: at full ADS it is exactly on screen centre and
+     * exactly where the round goes, and the window/tube sways around it the way a
+     * zeroed sight's housing moves around a steady reticle. Hipfire keeps the
+     * pure collimator (the dot hangs off the optic axis and vignettes out).
+     */
+    if (ads > 0) {
+      _v3.x *= 1 - ads;
+      _v3.y *= 1 - ads;
+      _v3.z = -Math.sqrt(Math.max(0, 1 - _v3.x * _v3.x - _v3.y * _v3.y));
+    }
 
     // Where the axis ray from the eye crosses the lens plane.
     const s = _v.dot(_v3);
@@ -997,9 +1046,19 @@ export class Viewmodel {
     // Vignette: how far off the lens centre the apparent dot lands.
     const offX = _v2.x - _v.x;
     const offY = _v2.y - _v.y;
-    const off = Math.hypot(offX, offY);
-    const apertureR = optic.apertureR ?? 0.01;
-    let alpha = 1 - smootherstep(apertureR * 0.5, apertureR * 1.05, off);
+    const holo = optic.style === 'holo';
+    let alpha;
+    if (holo) {
+      // Rectangular window: fade on whichever edge the ring reaches first.
+      const ringR = s * 0.034;
+      const ex = Math.abs(offX) + ringR - optic.apertureW;
+      const ey = Math.abs(offY) + ringR - optic.apertureH;
+      alpha = 1 - smootherstep(-0.002, 0.004, Math.max(ex, ey));
+    } else {
+      const off = Math.hypot(offX, offY);
+      const apertureR = optic.apertureR ?? 0.01;
+      alpha = 1 - smootherstep(apertureR * 0.5, apertureR * 1.05, off);
+    }
     alpha *= lerp(0.55, 1, ads); // brighter once the eye is behind the glass
 
     if (alpha <= 0.01) {
@@ -1009,6 +1068,18 @@ export class Viewmodel {
     this.reticle.visible = true;
     this.reticle.position.copy(_v2);
     this.reticle.lookAt(this.anchor.getWorldPosition(_v));
+    this.dotGroup.visible = !holo;
+    this.holoGroup.visible = holo;
+    if (holo) {
+      const ringR = s * 0.034;
+      this.holoGroup.scale.setScalar(ringR);
+      this.holoRing.material.opacity = alpha;
+      this.holoDot.material.opacity = alpha;
+      this.holoBloom.material.opacity = alpha * 0.07;
+      this.holoDotBloom.material.opacity = alpha * 0.1;
+      this.holoKey.material.opacity = alpha * 0.3;
+      return;
+    }
     /**
      * SIZE. Angular, so it is FOV-independent within a stance — but not constant
      * across stances, because the requirement is a fixed number of PIXELS.

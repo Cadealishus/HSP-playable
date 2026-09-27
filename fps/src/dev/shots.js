@@ -87,6 +87,59 @@ export const SHOTS = {
     doc: 'Mid-recoil with muzzle flash — flash shape, light spill, shell eject.',
   },
 
+  // ---- WEAPONS area (src/weapons): per-gun viewmodel shots ----
+  // `weapon` / `ads` above show the default primary (the carbine). These pin a
+  // specific gun so every model can be reviewed in the same framing.
+  'weapon-carbine': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 80,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('idle', { weapon: 'carbine' }),
+    doc: 'Hip-fire viewmodel, KESTREL 556 carbine + holo sight.',
+  },
+  'ads-carbine': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 58,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('ads', { weapon: 'carbine' }),
+    doc: 'ADS through the holo window — circle-dot reticle on screen centre.',
+  },
+  'weapon-rifle': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 80,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('idle', { weapon: 'rifle' }),
+    doc: 'Hip-fire viewmodel, HARRIER 556 rifle.',
+  },
+  'ads-rifle': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 58,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('ads', { weapon: 'rifle' }),
+    doc: 'ADS through the rifle tube sight.',
+  },
+  'weapon-smg': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 80,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('idle', { weapon: 'smg' }),
+    doc: 'Hip-fire viewmodel, MERLIN 9 SMG.',
+  },
+  'weapon-pistol': {
+    pos: [6, 1.7, 10],
+    look: [-2, 1.8, -2],
+    fov: 80,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('weapons')?.debugPose?.('idle', { weapon: 'pistol' }),
+    doc: 'Hip-fire viewmodel, P19 sidearm.',
+  },
+  // ---- end WEAPONS area ----
+
   // ---- combat / fx ----
   combat: {
     pos: [4, 1.7, 12],

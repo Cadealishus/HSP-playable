@@ -274,7 +274,6 @@ export function buildRifle() {
     segs: 8,
     witness: 4,
     poly: 'polymer',
-    baseplateMat: 'accent_blue', // NerdCon: RULES ENGINE MK4 anodised blue baseplate
   });
 
   const charging = new Assembly('rifle-charging');
@@ -304,20 +303,17 @@ export function buildRifle() {
   trigger.add(trg.geo, 'steel_bright', {});
   trg.geo.dispose();
 
-  // NerdCon: ambi safety selector in NerdCon Blue #3568FF anodise — a billet
-  // control on the camera-facing left flank, the shared brand accent across all
-  // three weapons.
   const selector = new Assembly('rifle-selector');
-  const sel = selectorPart('accent_blue', 'steel');
-  selector.add(sel.geo, 'accent_blue', {});
+  const sel = selectorPart('alu', 'steel');
+  selector.add(sel.geo, 'alu', {});
   sel.geo.dispose();
-  const selR = selectorPart('accent_blue', 'steel');
-  selector.add(selR.geo, 'accent_blue', { sx: -1 });
+  const selR = selectorPart('alu', 'steel');
+  selector.add(selR.geo, 'alu', { sx: -1 });
   selR.geo.dispose();
 
   return {
     id: 'rifle',
-    label: 'RULES ENGINE MK4',
+    label: 'HARRIER 556',
     fxClass: 'carbine',
     body,
     moving: { magazine, charging, bolt, trigger, selector },
