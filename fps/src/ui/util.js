@@ -9,28 +9,31 @@
  */
 
 /**
- * Arcade Terminal type system (NERDCON_CONTRACT).
+ * FLOP OPS type system.
  *
- * ONE monospace family carries the whole HUD — JetBrains Mono, loaded via the
- * Google Fonts link in index.html (weights 400/700/800, display=swap) and
- * degrading through "SF Mono" / ui-monospace on machines offline. Uppercase,
- * letterspaced labels; tabular figures on every counter. "DIN Condensed" style
- * condensed faces are gone: the terminal look wants a fixed-width grid, not a
- * military condensed. Press Start 2P (FONT_ARCADE) is reserved for the
- * title-screen wordmark + "INSERT COIN" moments only — never body HUD.
+ * Two families, both self-hosted from src/ui/fonts (Google Fonts, SIL OFL 1.1)
+ * so the game never makes a network request for its own typography:
+ *
+ *   Barlow Condensed  500/600/700  every HUD label, numeral and title. A
+ *                     narrow, squared grotesque in the military-stencil family:
+ *                     reads at 11px on a minimap tag and at 120px on the title.
+ *   Inter             variable     running copy only: mission text, loadout
+ *                     descriptions, radio subtitles, the after-action report.
+ *
+ * Fallbacks go condensed-first, then the system sans, so an offline machine
+ * without the woff2s still gets a narrow face where one exists.
  */
 export const FONT_STACK =
-  '"JetBrains Mono","SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace';
+  '"Barlow Condensed","Avenir Next Condensed","DIN Alternate","Roboto Condensed","Arial Narrow",' +
+  '"Liberation Sans Narrow","Helvetica Neue",system-ui,sans-serif';
 
-/** Display face: the big ammo/score numerals, banners, the menu title.
- *  Same family at weight 800 — heavier, still tabular, still on-grid. */
-export const FONT_DISPLAY =
-  '"JetBrains Mono","SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace';
+/** Display face: the big ammo/score numerals, banners, screen titles. */
+export const FONT_DISPLAY = FONT_STACK;
 
-export const FONT_MONO = '"JetBrains Mono","SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace';
+/** Running copy: subtitles, descriptions, report lines. */
+export const FONT_SANS = 'Inter,"Helvetica Neue","Segoe UI",Roboto,"Liberation Sans",system-ui,sans-serif';
 
-/** Arcade accent — title wordmark + INSERT COIN only. Max 2 elements per screen. */
-export const FONT_ARCADE = '"Press Start 2P","JetBrains Mono",ui-monospace,monospace';
+export const FONT_MONO = '"SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace';
 
 /* ------------------------------------------------------------------ dom --- */
 

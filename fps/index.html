@@ -3,117 +3,117 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <title>NERD OF DUTY — A Fintech NerdCon Game</title>
-    <!-- Inline data-URI favicon: Void Black square, Loot Gold ledger book with a
-         dark spine. Self-contained so it never 404s. -->
+    <title>FLOP OPS</title>
+    <!-- Inline favicon: the ESF mark (amber chevron over a bar, in a square).
+         Self-contained so it never 404s. -->
     <link
       rel="icon"
       type="image/svg+xml"
-      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20fill='%23050505'/%3E%3Crect%20x='4'%20y='3'%20width='8'%20height='10'%20rx='1'%20fill='%23FFD700'/%3E%3Crect%20x='7.3'%20y='3'%20width='1.4'%20height='10'%20fill='%23050505'/%3E%3C/svg%3E"
-    />
-    <!-- Arcade Terminal type system: JetBrains Mono carries the HUD, Press Start 2P
-         is reserved for the title wordmark + INSERT COIN moments (see NERDCON_CONTRACT). -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Press+Start+2P&display=swap"
-      rel="stylesheet"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20fill='%230b0b0a'/%3E%3Cpath%20d='M3.5%209%208%204.6%2012.5%209'%20fill='none'%20stroke='%23EDB54C'%20stroke-width='1.9'/%3E%3Crect%20x='3.5'%20y='11'%20width='9'%20height='1.8'%20fill='%23EDB54C'/%3E%3C/svg%3E"
     />
     <style>
-      :root { color-scheme: dark; }
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #050505; }
-      body {
-        font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
-        -webkit-font-smoothing: antialiased;
+      /* Type is self-hosted (src/ui/fonts, Google Fonts under the SIL OFL) so
+         the loading screen and the game never touch the network. Barlow
+         Condensed carries every label; Inter carries running copy. The HUD
+         stylesheet (src/ui/style.js) declares the same faces for the game. */
+      @font-face { font-family: "Barlow Condensed"; font-weight: 600; font-display: swap;
+        src: url("/src/ui/fonts/barlow-condensed-600.woff2") format("woff2"); }
+      @font-face { font-family: "Barlow Condensed"; font-weight: 700; font-display: swap;
+        src: url("/src/ui/fonts/barlow-condensed-700.woff2") format("woff2"); }
+      @font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap;
+        src: url("/src/ui/fonts/inter-var.woff2") format("woff2"); }
+
+      :root {
+        color-scheme: dark;
+        --ink: rgba(243, 241, 235, 0.96);
+        --ink-2: rgba(232, 229, 221, 0.62);
+        --ink-3: rgba(222, 218, 208, 0.38);
+        --acc: #edb54c;
+        --cond: "Barlow Condensed", "Avenir Next Condensed", "Arial Narrow", "Liberation Sans Narrow",
+          "Helvetica Neue", system-ui, sans-serif;
+        --sans: Inter, "Helvetica Neue", "Segoe UI", Roboto, "Liberation Sans", system-ui, sans-serif;
       }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0b0a; }
+      body { font-family: var(--cond); -webkit-font-smoothing: antialiased; }
       #game { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: none; }
 
       /* ================================================================ boot
          PRE-ENGINE LOADING SCREEN.
 
-         This markup is parsed and painted before /src/main.js has even been
-         fetched, so the ~2.9 s engine.init() long task no longer happens behind
-         a black screen. The inline script at the bottom of <body> owns this DOM
-         until main.js subscribes to `boot:progress` and drives it.
+         Parsed and painted before /src/main.js has even been fetched, so the
+         engine's init long task never happens behind a black screen. The inline
+         script at the bottom of <body> owns this DOM until main.js drives it
+         through window.__BOOT__.
 
-         Palette is the Arcade Terminal contract, exact hexes: Void Black
-         #050505 field, Panel Dark #0D0D0D bar track, Loot Gold #FFD700 fill,
-         Cyan Pulse #00E5FF phase caption. Nothing here is loaded from the
-         network except the two webfonts, which degrade through the mono stack.
-      */
+         Layout is a mission loading card: unit mark top-left, the operation
+         bottom-left, Command's advice above a hairline progress bar. */
       #boot {
         position: fixed; inset: 0; z-index: 9000;
-        display: flex; align-items: center; justify-content: center;
         background:
-          radial-gradient(ellipse 90% 60% at 50% 22%, rgba(53, 104, 255, 0.13), transparent 62%),
-          radial-gradient(ellipse 80% 70% at 50% 106%, rgba(255, 45, 120, 0.1), transparent 64%),
-          #050505;
-        color: #f0f0f0; text-transform: uppercase;
+          radial-gradient(ellipse 70% 60% at 78% 68%, rgba(237, 181, 76, 0.07), transparent 70%),
+          linear-gradient(180deg, #0d0d0c 0%, #0a0a09 60%, #0c0b09 100%);
+        color: var(--ink);
         opacity: 1; transition: opacity 0.42s ease-out;
         will-change: opacity;
       }
-      /* CRT scanlines — same cabinet substrate as the attract screen. */
-      #boot::before {
-        content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0.45;
-        background: repeating-linear-gradient(0deg,
-          rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.22) 3px);
-        background-size: 100% 3px; mix-blend-mode: multiply;
-      }
-      #boot::after {
-        content: ''; position: absolute; inset: 0; pointer-events: none;
-        box-shadow: inset 0 0 260px 44px rgba(0, 0, 0, 0.72);
-      }
       #boot.gone { opacity: 0; pointer-events: none; }
-      .boot-inner {
-        position: relative; z-index: 1;
-        width: min(720px, 88vw);
-        display: flex; flex-direction: column; align-items: center; text-align: center;
+      .boot-top {
+        position: absolute; left: 6.5vh; right: 6.5vh; top: 5.5vh;
+        display: flex; align-items: center; justify-content: space-between;
+        font-weight: 600; font-size: 1.25vh; letter-spacing: 0.3em; text-transform: uppercase;
+        color: var(--ink-2);
       }
-      .boot-mode {
-        font-size: 10px; letter-spacing: 0.5em; padding-left: 0.5em; color: #00e5ff;
-        text-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+      .boot-unit { display: flex; align-items: center; gap: 1vh; }
+      .boot-unit svg { width: 2.1vh; height: 2.1vh; color: var(--acc); display: block; }
+      .boot-wm { font-weight: 700; font-size: 1.9vh; letter-spacing: 0.08em; color: var(--ink); }
+      .boot-main {
+        position: absolute; left: 6.5vh; bottom: 19vh; width: min(92vw, 110vh);
       }
-      /* The one Press Start 2P element on this screen (contract: max 2). */
+      .boot-kicker {
+        display: flex; align-items: center; gap: 1.2vh;
+        font-weight: 600; font-size: 1.3vh; letter-spacing: 0.3em; text-transform: uppercase;
+      }
+      .boot-kicker b { color: var(--acc); font-weight: 600; }
+      .boot-kicker i { width: 1px; height: 1.2vh; background: rgba(255, 255, 255, 0.18); }
+      .boot-kicker span { color: var(--ink-3); }
       .boot-title {
-        font-family: "Press Start 2P", "JetBrains Mono", ui-monospace, monospace;
-        font-size: clamp(20px, 3.4vw, 40px); line-height: 1.1; letter-spacing: 0.02em;
-        margin: 22px 0 16px;
-        text-shadow: 3px 3px 0 #ff2d78, -2px -1px 0 #00e5ff, 0 0 32px rgba(53, 104, 255, 0.5);
+        font-weight: 700; font-size: 7.4vh; line-height: 0.92; letter-spacing: 0.03em;
+        text-transform: uppercase; margin: 1.6vh 0 1.8vh;
       }
       .boot-sub {
-        font-size: 11px; letter-spacing: 0.42em; padding-left: 0.42em;
-        color: rgba(240, 240, 240, 0.6);
+        font-family: var(--sans); font-size: 1.75vh; line-height: 1.45; color: var(--ink-2);
+        max-width: 64vh;
+      }
+      .boot-tip {
+        position: absolute; left: 6.5vh; right: 6.5vh; bottom: 9.5vh;
+        display: flex; align-items: baseline; gap: 2.2vh;
+      }
+      .boot-tip b {
+        flex: none; font-weight: 700; font-size: 1.3vh; letter-spacing: 0.26em; color: var(--acc);
+        text-transform: uppercase;
+      }
+      #boot-tip {
+        font-family: var(--sans); font-size: 1.75vh; line-height: 1.4; color: var(--ink);
+        transition: opacity 0.3s linear; min-height: 1.4em;
       }
       .boot-bar {
-        position: relative; width: 100%; height: 8px; margin: 46px 0 0;
-        background: #0d0d0d;
-        box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.3), 0 0 22px rgba(0, 229, 255, 0.06);
-        overflow: hidden;
+        position: absolute; left: 6.5vh; right: 6.5vh; bottom: 6.5vh; height: 2px;
+        background: rgba(255, 255, 255, 0.1); overflow: hidden;
       }
       .boot-bar > i {
         display: block; height: 100%; width: 100%;
         transform: scaleX(0); transform-origin: left center;
-        background: linear-gradient(90deg, #b38f00 0%, #ffd700 78%, #fff3a8 100%);
-        box-shadow: 0 0 14px rgba(255, 215, 0, 0.45);
+        background: var(--acc);
         will-change: transform;
       }
       .boot-row {
+        position: absolute; left: 6.5vh; right: 6.5vh; bottom: 3.4vh;
         display: flex; justify-content: space-between; align-items: baseline;
-        width: 100%; margin-top: 12px;
-        font-size: 11px; letter-spacing: 0.24em;
+        font-weight: 600; font-size: 1.25vh; letter-spacing: 0.26em; text-transform: uppercase;
       }
-      #boot-phase { color: #00e5ff; }
-      #boot-pct { color: rgba(240, 240, 240, 0.6); font-variant-numeric: tabular-nums; }
-      .boot-tip {
-        margin-top: 56px; min-height: 1.4em;
-        font-size: 11px; letter-spacing: 0.2em; color: #888888;
-        transition: opacity 0.3s linear;
-      }
-      .boot-foot {
-        margin-top: 22px; font-size: 9.5px; letter-spacing: 0.34em;
-        color: rgba(240, 240, 240, 0.24);
-      }
+      #boot-phase { color: var(--ink-2); }
+      #boot-pct { color: var(--ink-3); font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>
@@ -121,17 +121,31 @@
     <div id="ui"></div>
 
     <div id="boot">
-      <div class="boot-inner">
-        <div class="boot-mode">HOLD THE LEDGER</div>
-        <div class="boot-title">NERD OF DUTY</div>
-        <div class="boot-sub">A FINTECH NERDCON GAME</div>
-        <div class="boot-bar"><i id="boot-fill"></i></div>
-        <div class="boot-row">
-          <span id="boot-phase">OPENING THE BOOKS</span>
-          <span id="boot-pct">0%</span>
+      <div class="boot-top">
+        <div class="boot-unit">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="1" y="1" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <path d="M6 13.5 12 8l6 5.5" fill="none" stroke="currentColor" stroke-width="2.2" />
+            <rect x="6" y="16" width="12" height="2.2" fill="currentColor" />
+          </svg>
+          <span>EXTRA SPECIAL FORCES</span>
         </div>
-        <div class="boot-tip" id="boot-tip">T+2 IS NOT A FEATURE.</div>
-        <div class="boot-foot">NOV 19–20 · SAN DIEGO · FINTECHNERDCON.COM</div>
+        <div class="boot-wm">FLOP OPS</div>
+      </div>
+
+      <div class="boot-main">
+        <div class="boot-kicker"><b>MISSION 01</b><i></i><span>BORDER TOWN · CENTRAL SQUARE</span></div>
+        <div class="boot-title">OPERATION<br />TOTAL CONFIDENCE</div>
+        <div class="boot-sub">
+          Hold the town square for as long as it takes. Command estimates this will take about a wave.
+        </div>
+      </div>
+
+      <div class="boot-tip"><b>COMMAND ADVISES</b><span id="boot-tip">If you are taking fire, consider not being where the fire is.</span></div>
+      <div class="boot-bar"><i id="boot-fill"></i></div>
+      <div class="boot-row">
+        <span id="boot-phase">ESTABLISHING UPLINK</span>
+        <span id="boot-pct">0%</span>
       </div>
     </div>
 
@@ -143,6 +157,10 @@
        * is still evaluating. `main.js` takes over by calling window.__BOOT__.set
        * from every `boot:progress` event; nothing else here talks to the engine.
        *
+       * The caption is derived from progress, not from the engine's own phase
+       * names, so the loading screen stays in Command's voice whatever the
+       * engine calls its subsystems.
+       *
        * No RNG anywhere — the tip order is a fixed rotation, so a capture is
        * reproducible and two players see the same first line.
        */
@@ -153,16 +171,29 @@
         var pctEl = document.getElementById('boot-pct');
         var tipEl = document.getElementById('boot-tip');
 
-        /* Dry, fintech-literate, all caps. Rotated in this exact order. */
+        /* Command's loading advice. Rotated in this exact order. */
         var TIPS = [
-          'T+2 IS NOT A FEATURE.',
-          'THE LEDGER DOES NOT RECONCILE ITSELF.',
-          'REAL-TIME MEANS TUESDAY, IN PRACTICE.',
-          'COBOL DOES NOT NEGOTIATE.',
-          'A CHARGEBACK IS A REFUND WITH LAWYERS.',
-          'THE FAX IS STILL IN THE PAYMENT FLOW.',
-          'COMPLIANCE IS A CONTACT SPORT.',
-          'EVERY OUTAGE IS A BATCH JOB SOMEBODY LOVED.',
+          'If you are taking fire, consider not being where the fire is.',
+          'Reloading takes less time than being shot. Plan accordingly.',
+          'Headshots are worth more. Command does not make the rules. Command makes most of the rules.',
+          '"About a wave" is an estimate. Estimates are not promises. Command wishes to stress this.',
+          'Cover is anything between you and the enemy. The enemy has read the same manual.',
+          'Your health regenerates if you stop getting shot. So does Command’s patience, more slowly.',
+          'Sprinting is faster than walking. This has been confirmed by testing.',
+          'The square has been held before. Not by us, but it has been held.',
+          'Extra Special Forces are not special forces. They are extra special. There is a form.',
+          'Hostiles are hostile. Command apologises for any confusion in previous briefings.',
+        ];
+
+        /* Progress-banded captions: [from pct, caption]. */
+        var PHASES = [
+          [0.0, 'ESTABLISHING UPLINK'],
+          [0.12, 'SURVEYING THE TOWN'],
+          [0.28, 'LOCATING THE SQUARE'],
+          [0.44, 'ISSUING WEAPONS'],
+          [0.58, 'BRIEFING HOSTILES'],
+          [0.72, 'CONFIRMING CONFIDENCE'],
+          [0.88, 'FINALISING THE ESTIMATE'],
         ];
 
         var capture = false;
@@ -174,7 +205,6 @@
 
         // Capture harness: the screenshot must frame the game, never a loading
         // overlay, and the deterministic frame budget must not pay for a fade.
-        // Gone before the first byte of engine work.
         if (capture) {
           root.style.display = 'none';
           window.__BOOT__ = { set: function () {}, done: function () {}, fail: function () {} };
@@ -189,10 +219,10 @@
             tipEl.textContent = TIPS[shown];
             tipEl.style.opacity = '1';
           }, 300);
-        }, 2500);
+        }, 3600);
 
         var last = 0;
-        var lastPhase = '';
+        var lastPhase = -1;
         var finished = false;
 
         function stop() {
@@ -201,8 +231,8 @@
         }
 
         window.__BOOT__ = {
-          /** @param {number} pct 0..1, monotonic. @param {string} [detail] caption */
-          set: function (pct, detail) {
+          /** @param {number} pct 0..1, monotonic. The engine's caption is ignored. */
+          set: function (pct) {
             if (finished) return;
             var p = pct > 1 ? 1 : pct < 0 ? 0 : pct;
             if (p > last) {
@@ -210,9 +240,11 @@
               fill.style.transform = 'scaleX(' + p.toFixed(4) + ')';
               pctEl.textContent = Math.round(p * 100) + '%';
             }
-            if (detail && detail !== lastPhase) {
-              lastPhase = detail;
-              phase.textContent = detail;
+            var i = 0;
+            while (i + 1 < PHASES.length && last >= PHASES[i + 1][0]) i++;
+            if (i !== lastPhase) {
+              lastPhase = i;
+              phase.textContent = PHASES[i][1];
             }
           },
           /** Boot finished: land on 100%, fade out, drop the node. */
@@ -222,7 +254,7 @@
             stop();
             fill.style.transform = 'scaleX(1)';
             pctEl.textContent = '100%';
-            phase.textContent = 'CLEARED FOR DEPLOY';
+            phase.textContent = 'CLEARED TO DEPLOY';
             root.classList.add('gone');
             setTimeout(function () {
               if (root.parentNode) root.parentNode.removeChild(root);

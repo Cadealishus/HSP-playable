@@ -6,10 +6,10 @@ const D = Math.SQRT1_2;
 
 /** kind -> { colour, weight, scale, life, ring } */
 const KINDS = {
-  hit: { c: '#f6fafc', w: 1.8, s: 1.0, life: 0.26, ring: 0, spin: 0 },        // Terminal White
-  armour: { c: '#00E5FF', w: 2.0, s: 1.03, life: 0.28, ring: 0.5, spin: 0 },  // Cyan Pulse
-  head: { c: '#FFD700', w: 2.2, s: 1.08, life: 0.32, ring: 0.3, spin: 0 },    // Loot Gold
-  kill: { c: '#FF2D78', w: 2.7, s: 1.18, life: 0.42, ring: 1, spin: 9 },      // Boss Magenta
+  hit: { c: '#f6f4ee', w: 1.8, s: 1.0, life: 0.26, ring: 0, spin: 0 },
+  armour: { c: '#b9ccda', w: 2.0, s: 1.03, life: 0.28, ring: 0.5, spin: 0 },
+  head: { c: '#edb54c', w: 2.2, s: 1.08, life: 0.32, ring: 0.3, spin: 0 },
+  kill: { c: '#e4412e', w: 2.7, s: 1.18, life: 0.42, ring: 1, spin: 9 },
 };
 
 /**

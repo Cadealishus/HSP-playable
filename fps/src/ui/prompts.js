@@ -1,4 +1,4 @@
-import { el, setText, setStyle, setClass, ease, clamp01, damp } from './util.js';
+import { el, setText, setStyle, setClass, ease, clamp01, damp, Pool } from './util.js';
 
 /** Interaction prompt: keycap + verb, with an optional hold-progress rule. */
 export class Prompt {
@@ -69,14 +69,14 @@ export class Banner {
    * @param {string} title
    * @param {string} sub
    * @param {number} life  seconds on screen
-   * @param {'kill'|'threat'|'settle'} [kind]  colour variant (see style.js)
+   * @param {'info'|'threat'|'clear'} [kind]  colour variant (see style.js)
    */
-  show(title, sub, life = 2.1, kind = 'kill') {
+  show(title, sub, life = 2.1, kind = 'info') {
     setText(this.title, (title ?? '').toUpperCase());
     setText(this.sub, (sub ?? '').toUpperCase());
     setStyle(this.sub, 'display', sub ? '' : 'none');
     setClass(this.root, 'threat', kind === 'threat');
-    setClass(this.root, 'settle', kind === 'settle');
+    setClass(this.root, 'clear', kind === 'clear');
     this.life = life;
     this.t = 0;
   }
@@ -94,6 +94,77 @@ export class Banner {
     setStyle(this.root, 'display', '');
     setStyle(this.root, 'opacity', a.toFixed(3));
     setStyle(this.root, 'transform', `translate(-50%,-50%) scale(${s.toFixed(4)})`);
+  }
+
+  dispose() {
+    this.root.remove();
+  }
+}
+
+/**
+ * Score callouts under the reticle: `+100  HOSTILE NEUTRALISED`.
+ *
+ * The modern-shooter placement: small, just below and right of centre, newest
+ * line on top, three visible. It deliberately does NOT share the Banner — the
+ * banner is the wave beat and has one slot; a kill every second would stamp
+ * all over it. Four pooled rows, built once; update() only writes transform
+ * and opacity.
+ */
+export class ScorePop {
+  constructor(parent) {
+    this.root = el('div', 'ow-xp', parent);
+    this.pool = new Pool(
+      4,
+      () => {
+        const row = el('div', 'ow-xp-row');
+        row._pts = el('b', null, row, '+100');
+        row._lbl = el('span', null, row, '');
+        return row;
+      },
+      this.root
+    );
+    this.life = 1.9;
+  }
+
+  /**
+   * @param {string} label  uppercase callout
+   * @param {number} points
+   * @param {'kill'|'head'|'bonus'} [kind]
+   */
+  push(label, points, kind = 'kill') {
+    const it = this.pool.acquire();
+    it.life = this.life;
+    const n = it.node;
+    this.root.prepend(n);
+    setText(n._pts, points ? '+' + Math.round(points).toLocaleString('en-US') : '');
+    setStyle(n._pts, 'display', points ? '' : 'none');
+    setText(n._lbl, label);
+    setClass(n, 'head', kind === 'head');
+    setClass(n, 'bonus', kind === 'bonus');
+    return it;
+  }
+
+  update(dt) {
+    const items = this.pool.items;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.alive) continue;
+      it.t += dt;
+      if (it.t >= it.life) {
+        this.pool.release(it);
+        continue;
+      }
+      const inT = clamp01(it.t / 0.12);
+      const outT = clamp01((it.t - (it.life - 0.4)) / 0.4);
+      const x = (1 - ease.outCubic(inT)) * -10;
+      const a = ease.outQuad(inT) * (1 - ease.inQuad(outT));
+      setStyle(it.node, 'transform', `translateX(${x.toFixed(2)}px)`);
+      setStyle(it.node, 'opacity', a.toFixed(3));
+    }
+  }
+
+  clear() {
+    this.pool.releaseAll();
   }
 
   dispose() {

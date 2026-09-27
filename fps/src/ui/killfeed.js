@@ -13,7 +13,7 @@ function rifleIcon(parent) {
 }
 
 function skullIcon(parent) {
-  const s = svg('svg', { viewBox: '0 0 11 11', fill: 'rgba(255,215,0,.95)' }, parent);
+  const s = svg('svg', { viewBox: '0 0 11 11', fill: 'rgba(243,241,235,.95)' }, parent);
   svg('path', { d: 'M5.5.8c2.4 0 4.1 1.7 4.1 4 0 1.5-.7 2.4-1.5 3v1.3H3v-1.3c-.9-.6-1.6-1.5-1.6-3 0-2.3 1.7-4 4.1-4z' }, s);
   svg('circle', { cx: 3.9, cy: 4.6, r: 1.15, fill: 'rgba(10,12,14,.9)' }, s);
   svg('circle', { cx: 7.1, cy: 4.6, r: 1.15, fill: 'rgba(10,12,14,.9)' }, s);
@@ -25,24 +25,19 @@ function skullIcon(parent) {
 
 /**
  * Killfeed, top right. Newest row on top, six visible, 5.6s dwell.
- * Rows the local player is involved in get the amber treatment so your own
- * kills are readable at a glance without reading the names.
+ * Rows Doug is involved in get the accent edge so his own kills are readable
+ * at a glance without reading the names.
  *
- * THEMED NAMES (NERDCON_CONTRACT copy bible). Every LEGACY CORE SECURITY
- * soldier carries two names: a faction rank — ENFORCER / CONSULTANT / AUDITOR,
- * `agent.variantDisplay` — and a callsign — COBOL, BATCH, T+2, `agent.name`.
- * A row renders them together as `AUDITOR ▸ COBOL`, which is the only place the
- * player ever learns that the three silhouettes they are fighting are three
- * different job titles. Both spans are built once in the pool factory; nothing
- * here allocates after construction.
+ * Every hostile carries two names: a role (`agent.variantDisplay`) and a
+ * callsign (`agent.name`). A row renders them together as `RIFLEMAN ▸ VIPER 2`.
+ * Both spans are built once in the pool factory; nothing here allocates after
+ * construction.
  *
  * A row has two shapes:
- *   kill   [attacker] [weapon icons] [variant ▸] [callsign]
- *   note   [single centred line]  — score-feed copy that is NOT a kill,
- *          e.g. `BATCH PROCESSED ×2`. It lives in the feed rather than the
- *          banner because src/ui/prompts.js Banner is a singleton with no
- *          queue: a kill banner and the wave banner already clobber each other,
- *          and a third competitor would make both unreadable.
+ *   kill   [attacker] [weapon icons] [role ▸] [callsign]
+ *   note   [single line] — a notice that is NOT a kill, e.g. `DOUBLE KILL · NOTED`.
+ *          It lives in the feed rather than the banner because the banner is
+ *          a singleton reserved for the wave beat.
  */
 export class Killfeed {
   constructor(parent) {

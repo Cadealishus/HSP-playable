@@ -52,8 +52,8 @@ function diamond(parent) {
       width: 9.6,
       height: 9.6,
       transform: 'rotate(45 8 8)',
-      fill: 'rgba(0,229,255,.92)',
-      stroke: 'rgba(4,16,22,.78)',
+      fill: 'rgba(237,181,76,.95)',
+      stroke: 'rgba(20,14,4,.78)',
       'stroke-width': 1,
     },
     s
@@ -63,15 +63,15 @@ function diamond(parent) {
 
 function chevron(parent) {
   const s = svg('svg', { viewBox: '0 0 16 16' }, parent);
-  svg('path', { d: 'M8 1.5 14.4 13H1.6z', fill: 'rgba(0,229,255,.95)', stroke: 'rgba(4,16,22,.72)', 'stroke-width': 1 }, s);
+  svg('path', { d: 'M8 1.5 14.4 13H1.6z', fill: 'rgba(237,181,76,.95)', stroke: 'rgba(20,14,4,.72)', 'stroke-width': 1 }, s);
   return s;
 }
 
 function nadeGlyph(parent) {
   const s = svg('svg', { viewBox: '0 0 16 16' }, parent);
-  // threat glyph → Boss Magenta (never red-orange)
-  svg('circle', { cx: 8, cy: 8, r: 5.4, fill: 'rgba(255,45,120,.95)', stroke: 'rgba(0,0,0,.5)', 'stroke-width': 1 }, s);
-  svg('rect', { x: 7.2, y: 0.8, width: 1.6, height: 3.2, fill: 'rgba(255,45,120,.95)' }, s);
+  // threat glyph: red, the only threat colour
+  svg('circle', { cx: 8, cy: 8, r: 5.4, fill: 'rgba(228,65,46,.95)', stroke: 'rgba(0,0,0,.5)', 'stroke-width': 1 }, s);
+  svg('rect', { x: 7.2, y: 0.8, width: 1.6, height: 3.2, fill: 'rgba(228,65,46,.95)' }, s);
   return s;
 }
 

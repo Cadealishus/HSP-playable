@@ -37,8 +37,8 @@ export class DamageArcs {
         const node = el('div', 'ow-dmg');
         const s = svg('svg', { viewBox: '-170 -170 340 340' }, node);
         const back = svg('g', { fill: 'none', stroke: 'rgba(0,0,0,.5)', 'stroke-width': 9.5 }, s);
-        const main = svg('g', { fill: 'none', stroke: '#FF2D78', 'stroke-width': 5.6 }, s); // Boss Magenta
-        const thin = svg('g', { fill: 'none', stroke: '#ff6bae', 'stroke-width': 1.5 }, s);
+        const main = svg('g', { fill: 'none', stroke: '#e4412e', 'stroke-width': 5.6 }, s);
+        const thin = svg('g', { fill: 'none', stroke: '#f06a55', 'stroke-width': 1.5 }, s);
         for (let i = 0; i < SEG; i++) {
           const c = (i - (SEG - 1) / 2) * SEG_STEP;
           svg('path', { d: arcPath(c, R_MAIN), opacity: (BELL[i] * 0.9).toFixed(2) }, back);

@@ -10,24 +10,17 @@ import { Killfeed } from './killfeed.js';
 import { Compass, RunBar } from './compass.js';
 import { Minimap } from './minimap.js';
 import { WorldMarkers } from './markers.js';
-import { Prompt, Banner } from './prompts.js';
+import { Prompt, Banner, ScorePop } from './prompts.js';
 import { PauseMenu } from './menu.js';
 import { CombatDemo } from './demo.js';
-import { AttractScreen, DeathScreen, GameOverScreen } from './screens.js';
-import { BoardsScreen } from './boards.js';
-import { CabinetMode } from './cabinet.js';
-import { shareRun, copyLink } from './sharecard.js';
+import { AttractScreen, DeathScreen, GameOverScreen, LOADOUTS } from './screens.js';
+import { RadioSubs } from './radio.js';
 
 /**
- * NO CALLSIGN TABLE HERE — deliberately.
- *
- * There used to be a copy of the contract's ten LEGACY CORE SECURITY callsigns
- * in this file, duplicating `CALLSIGNS` in src/ai/index.js, and it existed only
- * to invent a name when an event didn't carry one. Every live soldier already
- * carries its own `agent.name` (callsign, assigned in AiSystem.spawn) and
- * `agent.variantDisplay` (faction rank: ENFORCER / CONSULTANT / AUDITOR), and
- * both ride on the payloads this subsystem receives. The killfeed reads those.
- * If a payload has no name, the row says so or is dropped — it does not guess.
+ * No callsign table here, deliberately. Every live hostile carries its own
+ * `agent.name` (callsign) and `agent.variantDisplay` (role), and both ride on
+ * the payloads this subsystem receives. The killfeed reads those. If a payload
+ * has no name, the row says so or is dropped — it does not guess.
  */
 
 const MAX_BLIPS = 48;
@@ -35,22 +28,13 @@ const MAX_BLIPS = 48;
 /** How stale the last enemy round may be and still be blamed for your death. */
 const ATTACKER_MEMORY_S = 6;
 
-/**
- * submit-score error codes → Arcade Terminal copy. Terse, uppercase, and it
- * always tells the player what to DO next — an error message that only names
- * the fault is a dead end on a cabinet with a queue behind it.
- */
-const SUBMIT_ERRORS = {
-  bad_initials: 'THREE LETTERS A–Z.',
-  blocked_initials: 'NOT ON A CONFERENCE SCREEN. PICK ANOTHER THREE.',
-  bad_job: 'RUN DATA CORRUPT — RUN IT BACK.',
-  out_of_range: 'RUN DATA CORRUPT — RUN IT BACK.',
-  implausible: 'THE LEDGER DOES NOT BALANCE. THIS RUN WAS NOT FILED.',
-  rate_limited: 'TOO MANY FILINGS THIS HOUR. COOL OFF.',
-  bad_token: 'RUN TOKEN EXPIRED — RUN IT BACK.',
-  token_spent: 'ALREADY FILED.',
-  insert_failed: 'THE BOARD IS DOWN. TRY AGAIN.',
-  server_error: 'THE BOARD IS DOWN. TRY AGAIN.',
+/** Health fraction under which Command comments on Doug's condition. */
+const HURT_RADIO_FRAC = 0.35;
+
+/** Score callout copy. Deadpan, uppercase, short enough to read mid-fight. */
+const CALLOUT = {
+  kill: 'HOSTILE NEUTRALISED',
+  head: 'HEADSHOT. NOTED.',
 };
 
 /**
@@ -72,7 +56,9 @@ const SUBMIT_ERRORS = {
  *   ui.hurt(amount, dirX, dirZ)         directional arc + flash + flinch
  *   ui.killfeed.push({attacker,attackerVariant,victim,victimVariant,headshot,
  *                     mine,attackerFriendly})  |  ui.killfeed.push({note})
- *   ui.banner.show(title, sub, life)    kill / objective confirmation
+ *   ui.banner.show(title, sub, life, kind)  wave / objective banner
+ *   ui.radio.say(kind, vars)            Command radio subtitle (radio.js)
+ *   ui.scorePop.push(label, pts, kind)  score callout under the reticle
  *   ui.setPrompt({key,text,sub,progress}) / ui.clearPrompt()
  *   ui.setObjectives([{position,label,name}])
  *   ui.setBlips([{x,z,kind:'enemy'|'friend',heading}])
@@ -80,7 +66,7 @@ const SUBMIT_ERRORS = {
  *   ui.setMatch({scoreUs,scoreThem,timeLeft,mode})
  *   ui.setHudVisible(bool)              hide everything (cinematics)
  *   ui.pause() / ui.resume() / ui.menu.toggle()
- *   ui.debugState('combat'|'menu'|'clean')
+ *   ui.debugState('combat'|'menu'|'clean'|'title'|'death'|'radio')
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS SUBSYSTEM READS FROM OTHERS (all optional, all duck-typed)
@@ -97,7 +83,8 @@ const SUBMIT_ERRORS = {
  *
  * Events consumed: weapon:fire, weapon:reload, damage:dealt, damage:taken,
  * player:death, player:state, explosion, resize, game:*.
- * Events emitted:  ui:pause, ui:quality, ui:sensitivity, ui:fov, ui:setting.
+ * Events emitted:  ui:pause, ui:quality, ui:sensitivity, ui:fov, ui:setting,
+ *                  ui:startRun, ui:continue, ui:accept, ui:restart, ui:attract.
  */
 export class UiSystem {
   static id = 'ui';
@@ -129,16 +116,14 @@ export class UiSystem {
     this.ammo = new AmmoPanel(this.chromeLayer);
     this.prompt = new Prompt(this.chromeLayer);
     this.banner = new Banner(this.chromeLayer);
+    this.scorePop = new ScorePop(this.centreLayer);
 
-    // Arcade meta-screens (over the HUD chrome, under the pause menu).
-    this.attract = new AttractScreen(
-      this.root,
-      (job) => this._startRun(job),
-      () => this.showBoards()
-    );
+    // Front-end screens (over the HUD chrome, under the radio and pause menu).
+    this.attract = new AttractScreen(this.root, (id) => this._startRun(id));
     this.death = new DeathScreen(this.root, {
       onContinue: () => {
         this.death.hide();
+        this.radio.say('continue', null, { force: true });
         ctx.events.emit('ui:continue', {});
         ctx.input?.requestPointerLock?.();
       },
@@ -153,32 +138,27 @@ export class UiSystem {
         ctx.events.emit('ui:restart', {});
         ctx.input?.requestPointerLock?.();
       },
-      onSubmit: (initials) => this._submitScore(initials),
-      onSkip: () => this.over.setSkipped(),
-      onShare: () => this._shareRun(),
-      onCopy: () => this._copyShareLink(),
-      onBoards: () => this.showBoards(),
+      onReturn: () => {
+        this.over.hide();
+        ctx.events.emit('ui:attract', {});
+      },
     });
 
-    // THE BOARD. Reads through the game subsystem's leaderboard client at
-    // runtime (ctx.peek), never an import — src/ui owns no network code.
-    this.boards = new BoardsScreen(this.root, {
-      fetchBoard: (opts) => this._fetchBoard(opts),
-      onClose: () => this.hideBoards(),
-    });
+    // Command's radio net sits over the screens: DOUG IS DOWN is exactly when
+    // Command has something to say.
+    this.radioLayer = el('div', 'ow-layer', this.root);
+    this.radio = new RadioSubs(this.radioLayer, this.rng.fork());
 
-    // `?cabinet=1`: fullscreen, attract loop, 60s idle reset.
-    this.cabinet = new CabinetMode(this.root, {
-      onPage: (page) => this._cabinetPage(page),
-      onIdleReset: () => this._cabinetIdleReset(),
-    });
-
-    /** Result of the last submit — drives the share card + board highlight. */
-    this._lastSubmit = null;
-    /** The run behind the current game-over card. */
-    this._runData = null;
-    /** Which screen the boards overlay was opened from, so BACK returns there. */
-    this._boardsFrom = null;
+    /** Killer of the last death, `RIFLEMAN ▸ VIPER 2`, for the down screen. */
+    this._killer = null;
+    /** Next game:wave is the restart after a continue, not a new wave. */
+    this._continuing = false;
+    /** Score delta from the kill currently being processed (game:score). */
+    this._killDelta = 0;
+    this._killDeltaFrame = -1;
+    this._hurtArmed = true;
+    /** Shot pinned by debugState so `shot:applied` does not clear it. */
+    this._pin = null;
 
     this.menu = new PauseMenu(this.root, ctx);
 
@@ -196,7 +176,7 @@ export class UiSystem {
       magSize: 30,
       reloading: false,
       reloadProgress: 0,
-      weaponName: 'RULES ENGINE MK4',
+      weaponName: 'ASSAULT RIFLE',
       fireMode: 'AUTO',
       lethalCount: 2,
       tacticalCount: 1,
@@ -206,12 +186,12 @@ export class UiSystem {
       ads: false,
       airborne: false,
       baseSpread: 5.5,
-      mode: 'HOLD THE LEDGER',
-      // ---- HOLD THE LEDGER run state (driven by game:* events) ----
+      mode: 'OPERATION TOTAL CONFIDENCE',
+      // ---- run state (driven by game:* events) ----
       wave: 1,
       score: 0,
       mult: 1,
-      waveThreat: 'HOLD THE LEDGER',
+      waveThreat: 'HOLD THE SQUARE',
       job: null,
       /** true when no player/weapons subsystem is driving us (stub-safe demo) */
       simulate: false,
@@ -300,19 +280,22 @@ export class UiSystem {
       }
       if (e.killed) {
         this._lastKillAt = ctx.time.elapsed;
-        // `AUDITOR ▸ COBOL`: the faction rank and the callsign, both read off
-        // the actual Agent that just died. No fallback rotation.
+        // `RIFLEMAN ▸ VIPER 2`: role and callsign, both read off the Agent that
+        // just died. No fallback rotation.
         this.killfeed.push({
-          attacker: 'YOU',
+          attacker: 'DOUG',
           victim: e.target?.name ?? e.name ?? null,
           victimVariant: e.target?.variantDisplay ?? null,
           headshot: !!e.headshot,
           mine: true,
         });
-        // Score-feed copy (NERDCON_CONTRACT): headshot = SAR FILED +150, else CARD DECLINED +100.
-        this.banner.show(e.headshot ? 'SAR FILED' : 'CARD DECLINED', e.headshot ? '+150' : '+100', 1.6, 'kill');
-        // Defensive fallback: if no `game` subsystem drives the score, still move
-        // the counter locally so the run bar is never static. game:score overrides.
+        // The game's own score delta for this kill arrives on game:score from
+        // inside the same event cascade (ai → actor:death → game), before this
+        // handler runs. Fall back to the base value when no game drives score.
+        const fresh = this._killDeltaFrame === ctx.time.frame && this._killDelta > 0;
+        const pts = fresh ? this._killDelta : (e.headshot ? 150 : 100) * Math.max(1, this.state.mult | 0);
+        this._killDeltaFrame = -1;
+        this.scorePop.push(e.headshot ? CALLOUT.head : CALLOUT.kill, pts, e.headshot ? 'head' : 'kill');
         if (!this.ctx.peek('game')) this.state.score += e.headshot ? 150 : 100;
       }
     });
@@ -331,51 +314,34 @@ export class UiSystem {
       this.hurt(amount, dx, dz);
     });
 
-    // ------------------------------------------------------------------ //
-    // THERE IS NO `actor:death` KILLFEED ROW, AND THAT IS THE FIX.
-    //
-    // What used to be here read `e?.by?.name` and fell back to a rotating
-    // callsign. Both halves were wrong:
-    //
-    //  1. `actor:death` has no `by` field. Its payload is
-    //     `{actor, point, impulse, headshot}` (src/ai/agent.js:943), so the
-    //     `??` fallback fired 100% of the time and printed a LEGACY CORE
-    //     SECURITY soldier credited with a kill it did not make.
-    //  2. Its "already credited" guard could never work. `ai` emits
-    //     `actor:death` from *inside* its own `damage:dealt` handler, and the
-    //     registry topo-sorts `ai` ahead of `ui`, so the death arrived here
-    //     BEFORE this subsystem's `damage:dealt` handler had run for the same
-    //     round — `_lastKillAt` was always stale. Every player kill therefore
-    //     produced two rows: an invented one, and the correct `YOU` row.
-    //
-    // Nothing in the payload identifies a killer and no other source for one
-    // exists, so the row is gone rather than guessed. Kills you make are
-    // credited from `damage:dealt` above (which knows it was you); the round
-    // that kills YOU is credited from its `source` on `player:death` below. If
-    // `actor:death` ever grows a real attacker field, render THAT here — do
-    // not reintroduce a rotation.
-    // ------------------------------------------------------------------ //
+    // There is no `actor:death` killfeed row: its payload names no killer.
+    // Kills Doug makes are credited from `damage:dealt` above; the round that
+    // kills Doug is credited from its `source` on `player:death` below.
 
     on('player:death', () => {
       const a = this._lastAttacker;
       const fresh = a && ctx.time.elapsed - this._lastAttackerAt < ATTACKER_MEMORY_S;
       this._lastAttacker = null;
+      this._killer = null;
       if (!fresh || !a.name) return; // fell, drowned, unattributable — say nothing
+      this._killer = (a.variantDisplay ? String(a.variantDisplay).toUpperCase() + ' ▸ ' : '') + String(a.name).toUpperCase();
       this.killfeed.push({
         attacker: a.name,
         attackerVariant: a.variantDisplay ?? null,
-        victim: 'YOU',
+        victim: 'DOUG',
         attackerFriendly: false,
         mine: true,
       });
     });
 
-    // Double kill inside the 1.2s window (src/game/scoring.js). Contract copy:
-    // `BATCH PROCESSED`. It lands in the feed, not the banner — see Killfeed.
+    // Two or more kills inside the 1.2 s window (src/game/scoring.js). A feed
+    // note, not a banner; three or more and Command notices.
     on('game:multiKill', (e) => {
       const n = Math.max(2, Math.round(e?.count ?? 2));
-      this.killfeed.push({ note: n > 2 ? 'BATCH PROCESSED ×' + n : 'BATCH PROCESSED', mine: true });
+      const note = n === 2 ? 'DOUBLE KILL · NOTED' : n === 3 ? 'TRIPLE KILL · NOTED' : n + ' AT ONCE · COMMAND IS CONCERNED';
+      this.killfeed.push({ note, mine: true });
       this.sfx('hit_kill', 0.9);
+      if (n >= 3) this.radio.say('streak', { m: Math.max(1, this.state.mult | 0) });
     });
 
     on('explosion', (e) => {
@@ -394,9 +360,9 @@ export class UiSystem {
     });
 
     // ==================================================================== //
-    // HOLD THE LEDGER game loop (src/game, id `game`). All optional: if the
-    // game subsystem never emits, the attract screen + job click alone still
-    // release the player into the running game.
+    // OPERATION TOTAL CONFIDENCE (src/game, id `game`). All optional: if the
+    // game subsystem never emits, the title screen alone still releases the
+    // player into the running game.
     // ==================================================================== //
     on('game:state', (e) => this._setGameState(e?.state));
 
@@ -404,56 +370,74 @@ export class UiSystem {
       const wave = e?.wave ?? this.state.wave ?? 1;
       const count = e?.count;
       this.state.wave = wave;
-      this.state.waveThreat = 'LEGACY CORE SECURITY';
-      const sub = count ? count + ' INBOUND · LEGACY CORE SECURITY' : 'LEGACY CORE SECURITY INBOUND';
-      this.banner.show('WAVE ' + wave, sub, 2.4, 'threat');
+      this.state.waveThreat = 'HOLD THE SQUARE';
+      const sub = count ? count + ' HOSTILES INBOUND' : 'HOSTILES INBOUND';
+      this.banner.show('WAVE ' + wave, sub, 2.6, 'threat');
       this.sfx('wave_start', 0.7);
+      if (this._continuing) {
+        this._continuing = false; // Command already spoke on the continue
+      } else {
+        this.radio.say(wave <= 1 ? 'deploy' : 'wave', { n: wave });
+      }
     });
 
     on('game:waveClear', (e) => {
       const wave = e?.wave ?? this.state.wave ?? 1;
       const bonus = Math.max(0, Math.round(e?.bonus ?? 0));
-      this.banner.show('WAVE ' + wave + ' SETTLED', '+' + bonus.toLocaleString('en-US'), 2.6, 'settle');
+      this.banner.show('WAVE ' + wave + ' HELD', 'SQUARE SECURE  +' + bonus.toLocaleString('en-US'), 2.8, 'clear');
       this.sfx('wave_clear', 0.8);
+      this.radio.say('clear', { n: wave });
     });
 
     on('game:score', (e) => {
       if (e?.score !== undefined) this.state.score = e.score;
       if (e?.mult !== undefined) this.state.mult = e.mult;
+      if (e?.delta > 0) {
+        this._killDelta = e.delta;
+        this._killDeltaFrame = ctx.time.frame;
+      }
     });
 
     on('game:mult', (e) => {
-      if (e?.mult !== undefined) this.state.mult = e.mult;
+      if (e?.mult === undefined) return;
+      const up = e.mult > (this.state.mult | 0);
+      this.state.mult = e.mult;
+      if (up && e.mult >= 3) this.radio.say('streak', { m: e.mult });
     });
 
     on('game:continueOffer', () => {
       this._setGameState('down');
-      this.death.show({ canContinue: true });
+      this.death.show({ canContinue: true, killer: this._killer });
+    });
+
+    on('ui:continue', () => {
+      this._continuing = true;
+      this._hurtArmed = true;
     });
 
     on('game:over', (e) => {
       this.death.hide();
       this.attract.hide();
-      this.hideBoards();
       this.over.show(e ?? {});
-      this._armSubmit(e ?? {});
+      this._releasePointer();
       this.sfx('run_over', 0.8);
+      this.radio.say('over', null, { force: true });
     });
 
     // Capture harness applies a camera shot; clear the attract/end overlays so
     // world + combat shots frame the game, not a menu. (Unknown `default` shot
     // returns before emitting this, so the title screen still captures clean.)
     on('shot:applied', () => {
-      this.attract.hide();
-      this.death.hide();
+      if (this._pin !== 'title') this.attract.hide();
+      if (this._pin !== 'death') this.death.hide();
       this.over.hide();
-      this.hideBoards();
     });
 
     this.resize(ctx.canvas.clientWidth || innerWidth, ctx.canvas.clientHeight || innerHeight, ctx);
     this._prevPos.copy(this._playerPos());
 
-    // Boot straight into the attract screen (no game subsystem required).
+    // Boot straight into the title screen (no game subsystem required).
+    this.attract.setBest(this._bestRecord());
     this.attract.show(true);
   }
 
@@ -506,188 +490,79 @@ export class UiSystem {
     s.wave = 1;
     s.score = 0;
     s.mult = 1;
-    s.waveThreat = 'HOLD THE LEDGER';
+    s.waveThreat = 'HOLD THE SQUARE';
+    this._killer = null;
+    this._continuing = false;
+    this._hurtArmed = true;
   }
 
-  /** Job card clicked on the attract screen → deploy into the run. */
-  _startRun(job) {
+  /** Local best from src/game, for the title footer. */
+  _bestRecord() {
+    const g = this.ctx.peek('game');
+    return typeof g?.bestRecord === 'function' ? g.bestRecord() : null;
+  }
+
+  /** A screen is up: give the player their cursor back, and do not read the
+   *  lost lock as "open the pause menu". */
+  _releasePointer() {
+    this._hadPointerLock = false;
+    try {
+      if (document.pointerLockElement) document.exitPointerLock?.();
+    } catch {
+      /* not eligible — nothing to release */
+    }
+  }
+
+  /** Loadout card clicked on the title screen → deploy into the run. */
+  _startRun(id) {
     this.attract.hide();
     this.death.hide();
     this.over.hide();
+    this.radio.clear();
     this._resetRunState();
-    this.state.job = job ?? 'fraud-analyst';
-    const w = {
-      'fraud-analyst': 'RULES ENGINE MK4',
-      'payments-engineer': 'VELOCITY-9',
-      'compliance-officer': 'SIDECAR',
-    }[this.state.job];
-    if (w) this.state.weaponName = w;
+    const L = LOADOUTS.find((l) => l.id === id) ?? LOADOUTS[0];
+    this.state.job = L.id;
+    this.state.weaponName = L.kit;
     this.ctx.events.emit('ui:startRun', { job: this.state.job });
     // Hand off to the game's click-to-lock flow (this call is inside the gesture).
     this.ctx.input?.requestPointerLock?.();
   }
 
-  /** Reflect `game:state` transitions onto the meta-screens. */
+  /** Reflect `game:state` transitions onto the screens and the radio. */
   _setGameState(state) {
     switch (state) {
       case 'attract':
         this.death.hide();
         this.over.hide();
-        this.hideBoards();
+        this.radio.clear();
         this._resetRunState();
-        this._lastSubmit = null;
-        this._runData = null;
+        this.attract.setBest(this._bestRecord());
         this.attract.show();
+        this._releasePointer();
         break;
       case 'play':
         this.attract.hide();
         this.death.hide();
         this.over.hide();
-        this.hideBoards();
         break;
       case 'down':
         this.attract.hide();
         this.over.hide();
-        this.hideBoards();
-        if (!this.death.open) this.death.show({ canContinue: false });
+        if (!this.death.open) {
+          this.death.show({ canContinue: false, killer: this._killer });
+        }
+        this._releasePointer();
+        this.radio.say('down', null, { force: true });
         break;
       case 'over':
         this.attract.hide();
         this.death.hide();
         if (!this.over.open) this.over.show();
+        this._releasePointer();
         break;
       default:
         break;
     }
-    this.cabinet?.setGameState(state);
-  }
-
-  /* ================================================================== */
-  /* leaderboard · share · boards · cabinet                             */
-  /* ================================================================== */
-
-  /**
-   * The Supabase client, owned by src/game. Reached at runtime so this
-   * subsystem never imports another's module (ARCHITECTURE.md rule 2), and so
-   * the HUD still works with no `game` subsystem registered at all.
-   */
-  _leaderboard() {
-    const lb = this.ctx.peek('game')?.leaderboard;
-    return lb?.enabled ? lb : null;
-  }
-
-  /** game:over → put the initials selector in front of the player. */
-  _armSubmit(d) {
-    const lb = this._leaderboard();
-    this._lastSubmit = null;
-    this._runData = {
-      job: d.job ?? this.state.job ?? 'fraud-analyst',
-      score: Math.max(0, Math.round(d.score ?? 0)),
-      wave: Math.max(1, Math.round(d.wave ?? 1)),
-      kills: Math.max(0, Math.round(d.kills ?? 0)),
-      accuracy: d.accuracy ?? null,
-      duration_s: Math.max(0, Math.round(d.durationS ?? 0)),
-      continued: d.continued === true,
-    };
-    if (!lb) {
-      this.over.disableEntry();
-      return;
-    }
-    this.over.armEntry(lb.lastInitials?.() ?? null);
-  }
-
-  async _submitScore(initials) {
-    const lb = this._leaderboard();
-    if (!lb || !this._runData) return;
-    this.over.setSubmitting();
-
-    const res = await lb.submit({ ...this._runData, initials });
-
-    if (res.ok) {
-      this._lastSubmit = res;
-      this.over.setFiled({ rank: res.rank, total: res.total });
-      this.sfx('wave_clear', 0.6);
-      return;
-    }
-    if (res.queued) {
-      this._lastSubmit = { id: null, queued: true };
-      this.over.setQueued();
-      return;
-    }
-    this.over.setRejected(SUBMIT_ERRORS[res.error] ?? res.detail ?? 'THE BOARD REFUSED IT. TRY AGAIN.');
-  }
-
-  async _shareRun() {
-    if (!this._runData) return;
-    const lb = this._leaderboard();
-    const id = this._lastSubmit?.id;
-    const url = id && lb ? lb.shareUrl(id) : 'https://nerd-of-duty.vercel.app';
-    const initials = lb?.lastInitials?.() ?? 'AAA';
-    const result = await shareRun({ ...this._runData, initials }, url);
-    lb?.beacon('share', { job: this._runData.job, wave: this._runData.wave, score: this._runData.score });
-    this.over.setShareStatus(
-      { shared: 'SHARED.', downloaded: 'CARD SAVED TO YOUR DOWNLOADS.', cancelled: '', failed: 'COULD NOT BUILD THE CARD.' }[
-        result
-      ] ?? ''
-    );
-  }
-
-  async _copyShareLink() {
-    const lb = this._leaderboard();
-    const id = this._lastSubmit?.id;
-    if (!id || !lb) return;
-    const ok = await copyLink(lb.shareUrl(id));
-    lb.beacon('share', { job: this._runData?.job, wave: this._runData?.wave, score: this._runData?.score });
-    this.over.setShareStatus(ok ? 'LINK COPIED.' : 'COPY BLOCKED — SELECT THE URL BY HAND.');
-  }
-
-  _fetchBoard(opts) {
-    const lb = this._leaderboard();
-    if (!lb) return Promise.resolve({ ok: false, error: 'offline' });
-    return lb.board(opts);
-  }
-
-  /** Open THE BOARD. TODAY is the featured board on a cabinet. */
-  showBoards(tab) {
-    if (this.boards.open) return;
-    this._boardsFrom = this.attract.open ? 'attract' : this.over.open ? 'over' : null;
-    this.attract.hide();
-    this.over.hide();
-    this.boards.show({
-      tab: tab ?? (this.cabinet?.active ? 'today' : 'global'),
-      highlightId: this._lastSubmit?.id ?? null,
-    });
-  }
-
-  hideBoards() {
-    if (!this.boards.open) return;
-    this.boards.hide();
-    if (this._boardsFrom === 'attract') this.attract.show();
-    else if (this._boardsFrom === 'over') this.over.show();
-    this._boardsFrom = null;
-  }
-
-  /** Cabinet attract loop page change: title card ↔ the two featured boards. */
-  _cabinetPage(page) {
-    if (page === 'title') {
-      this.boards.hide();
-      this._boardsFrom = null;
-      this.attract.show();
-      return;
-    }
-    this.attract.hide();
-    this.over.hide();
-    this._boardsFrom = 'attract';
-    this.boards.show({ tab: page, highlightId: null });
-  }
-
-  _cabinetIdleReset() {
-    this.boards.hide();
-    this.over.hide();
-    this.death.hide();
-    this.menu.close();
-    this._boardsFrom = null;
-    this.ctx.events.emit('ui:attract', {});
   }
 
   /* ---------------------------------------------------------------- api --- */
@@ -779,12 +654,12 @@ export class UiSystem {
    * 'combat' runs the scripted firefight timeline in demo.js.
    */
   debugState(name = 'combat') {
-    // Any debug state means "not on the attract/end screens" — clear them so
-    // the capture harness frames the HUD, never a menu.
+    // Any debug state means "not on the front-end screens" unless the state is
+    // one of the screens — clear them so the harness frames what was asked for.
     this.attract.hide();
     this.death.hide();
     this.over.hide();
-    this.boards.hide();
+    this._pin = null;
     if (name === 'clean') {
       this.demo?.stop(this);
       this.demo = null;
@@ -793,6 +668,8 @@ export class UiSystem {
       this.arcs.clear();
       this.hit.clear();
       this.markers.clear();
+      this.scorePop.clear();
+      this.radio.clear();
       this.clearPrompt();
       return { state: 'clean' };
     }
@@ -801,8 +678,38 @@ export class UiSystem {
       this.menu.show();
       return { state: 'menu' };
     }
+    if (name === 'title') {
+      this._pin = 'title';
+      this.attract.setBest({ score: 18450, wave: 4 });
+      this.attract.show(true);
+      return { state: 'title' };
+    }
     if (!this.demo) this.demo = new CombatDemo();
     this.demo.start(this);
+    if (name === 'radio') {
+      // Mid-wave, with Command on the net.
+      this.radio.sayExact(
+        'command',
+        'Doug, we have revised the estimate from "about a wave" to "about another wave".',
+        'Copy.'
+      );
+      return { state: 'radio' };
+    }
+    if (name === 'death') {
+      this._pin = 'death';
+      this.demo.stop(this);
+      this.state.simulate = true;
+      this.state.health = 0;
+      this.health.hurt = 0.85;
+      this.scorePop.clear();
+      this.hit.clear();
+      this.markers.clear();
+      this.killfeed.push({ attacker: 'VIPER 2', attackerVariant: 'RIFLEMAN', victim: 'DOUG', attackerFriendly: false, mine: true });
+      this.death.show({ canContinue: true, killer: 'RIFLEMAN ▸ VIPER 2' });
+      this.death.shown = 1;
+      this.radio.sayExact('command', 'Doug is down. Repeat, Doug is down. Command is going to need a moment.', 'Ow.', 4);
+      return { state: 'death' };
+    }
     return { state: 'combat', frames: 'timeline keyed to frame 90' };
   }
 
@@ -820,7 +727,7 @@ export class UiSystem {
       if (ctx.input.actionPressed('pause')) this.menu.toggle();
       // Losing pointer lock mid-match is the same intent as pressing Escape.
       if (ctx.input.pointerLocked) this._hadPointerLock = true;
-      else if (this._hadPointerLock && !this.menu.open) {
+      else if (this._hadPointerLock && !this.menu.open && !this._screenOpen()) {
         this._hadPointerLock = false;
         this.menu.show();
       }
@@ -886,6 +793,17 @@ export class UiSystem {
       }
     }
 
+    // ---- Command notices when Doug is in the red -------------------------
+    if (!s.simulate) {
+      const frac = s.maxHealth > 0 ? s.health / s.maxHealth : 1;
+      if (this._hurtArmed && frac > 0 && frac < HURT_RADIO_FRAC && this.ctx.peek('game')?.state === 'play') {
+        this._hurtArmed = false;
+        this.radio.say('hurt');
+      } else if (!this._hurtArmed && frac > 0.8) {
+        this._hurtArmed = true;
+      }
+    }
+
     // ---- demo timeline ---------------------------------------------------
     if (this.demo?.active) this.demo.update(this, dt);
 
@@ -907,19 +825,17 @@ export class UiSystem {
     const heading = (Math.atan2(fx, -fz) * 180) / Math.PI;
 
     // ---- widgets ---------------------------------------------------------
-    // The attract screen is a translucent SCRIM now (so the dusk plaza reads
-    // through it), which means it no longer hides the gameplay chrome behind
-    // it: minimap, compass, vitals and the ammo panel were all showing through
-    // the title card. They are match furniture and have no business on the
-    // title, so the HUD is faded out for the whole time a title-class screen is
-    // up. The death/game-over cards keep the old behaviour — they are modal
-    // cards over a run in progress and the HUD reading through them is correct.
-    const titleScreen = this.attract.open || this.boards.open;
+    // The title is a front-end screen, not a match: minimap, compass, vitals
+    // and ammo have no business on it, so the HUD fades out while it is up.
+    // DOUG IS DOWN and the report are cards over a run in progress, and the HUD
+    // reading through them is correct.
+    const titleScreen = this.attract.open;
     const hudGoal = this.hudTarget * (this.menu.open ? 0.15 : 1) * (titleScreen ? 0 : 1);
     this.hudVisible = damp(this.hudVisible, hudGoal, 10, rawDt);
     setStyle(this.chromeLayer, 'opacity', this.hudVisible.toFixed(3));
     setStyle(this.worldLayer, 'opacity', this.hudVisible.toFixed(3));
     setStyle(this.centreLayer, 'opacity', this.hudVisible.toFixed(3));
+    setStyle(this.radioLayer, 'opacity', titleScreen ? '0' : this.menu.open ? '0.3' : '1');
 
     this.crosshair.update(dt, s);
     this.hit.update(dt);
@@ -930,13 +846,13 @@ export class UiSystem {
     this.runBar.update(dt, s);
     this.prompt.update(dt);
     this.banner.update(dt);
+    this.scorePop.update(dt);
+    this.radio.update(rawDt);
 
     // Meta-screens fade on UNSCALED time so they still animate while paused/dead.
     this.attract.update(rawDt);
     this.death.update(rawDt);
     this.over.update(rawDt);
-    this.boards.update(rawDt);
-    this.cabinet.update(rawDt);
 
     this._buildCompassObjectives(pos);
     this.compass.update(heading, this._compassObjs);
@@ -1004,6 +920,10 @@ export class UiSystem {
     this._blipCount = n;
   }
 
+  _screenOpen() {
+    return this.attract.open || this.death.open || this.over.open;
+  }
+
   _buildCompassObjectives(pos) {
     const out = this._compassObjs;
     out.length = 0;
@@ -1046,11 +966,11 @@ export class UiSystem {
     this.markers.dispose();
     this.prompt.dispose();
     this.banner.dispose();
+    this.scorePop.dispose();
+    this.radio.dispose();
     this.attract.dispose();
     this.death.dispose();
     this.over.dispose();
-    this.boards.dispose();
-    this.cabinet.dispose();
     this.menu.dispose();
     this.root.remove();
     removeStyles();

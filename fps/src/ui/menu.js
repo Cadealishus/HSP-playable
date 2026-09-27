@@ -19,9 +19,9 @@ export class PauseMenu {
     this.root = el('div', 'ow-menu', parent);
     const inner = el('div', 'ow-menu-inner', this.root);
 
-    const h = el('h1', null, inner, 'On Hold');
-    h.textContent = 'ON HOLD';
-    el('div', 'sub', inner, 'SETTLEMENT ON HOLD · HOLD THE LEDGER');
+    const h = el('h1', null, inner, 'Paused');
+    h.textContent = 'PAUSED';
+    el('div', 'sub', inner, 'OPERATION TOTAL CONFIDENCE · FLOP OPS');
     el('div', 'rule', inner);
 
     this.rows = el('div', null, inner);
@@ -87,7 +87,7 @@ export class PauseMenu {
       this.ctx.config.invertY = false;
       this.setQuality('ultra');
     });
-    el('div', 'hint', inner, 'ESC RESUME · WASD MOVE · SHIFT SPRINT · R RELOAD · F SETTLE');
+    el('div', 'hint', inner, 'ESC RESUME · WASD MOVE · SHIFT SPRINT · R RELOAD · F USE');
 
     this.open = false;
     this.shown = 0;

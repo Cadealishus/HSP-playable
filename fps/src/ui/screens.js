@@ -1,113 +1,206 @@
-import { el, setText, setStyle, setClass, clamp01, damp, ease } from './util.js';
-import { InitialsEntry } from './initials.js';
+import { el, svg, setText, setStyle, setClass, damp, ease } from './util.js';
 
 /**
  * ===========================================================================
- * Arcade meta-screens: ATTRACT (title / job select), the death (INSUFFICIENT
- * FUNDS) beat, and the RUN SETTLED game-over card.
+ * Front-end screens: the TITLE (mission card + ESF loadout select), the
+ * DOUG IS DOWN beat, and the AFTER-ACTION REPORT.
  * ===========================================================================
  *
- * These are DOM overlays that live over the HUD chrome. Each fades via a damped
- * `update(rawDt)` — driven from the HUD's lateUpdate on UNSCALED time so they
- * still animate while the game clock is frozen — and nothing here uses a CSS
- * transition on a number, keeping capture frames deterministic.
+ * DOM overlays over the HUD chrome. Each fades via a damped `update(rawDt)`
+ * driven from the HUD's lateUpdate on UNSCALED time, so they still animate
+ * while the game clock is slowed or frozen; nothing uses a CSS transition on a
+ * number, which keeps capture frames deterministic.
  *
- * They talk to the rest of the game only through the callbacks handed in by the
- * UI system, which turn them into the contract's `ui:startRun` / `ui:continue`
- * / `ui:restart` events. The screens never import another subsystem.
+ * They talk to the rest of the game only through callbacks handed in by the UI
+ * system, which turns them into `ui:startRun` / `ui:continue` / `ui:accept` /
+ * `ui:restart` / `ui:attract`. The screens never import another subsystem.
+ *
+ * Tone: the presentation is completely straight. The jokes are in the copy.
  */
 
-const JOBS = [
+/**
+ * ESF loadouts. Ids are what `ui:startRun {job}` carries to src/game, which
+ * maps them to a weapon and an armour multiplier. `stats` are 0..1 bars for the
+ * card, relative to each other, not to any real number.
+ */
+export const LOADOUTS = [
   {
-    id: 'fraud-analyst',
+    id: 'alpha',
     idx: '01',
-    name: 'FRAUD ANALYST',
-    role: 'RIFLE · RANGE',
-    kit: 'Balanced rifle. Reads the pattern and declines the fraud at range.',
-    weapon: 'RULES ENGINE MK4',
+    code: 'ALPHA',
+    name: 'STANDARD ISSUE',
+    kit: 'ASSAULT RIFLE',
+    desc: "Accurate at range. Command's first choice, and also its second.",
+    stats: { RANGE: 0.82, 'RATE OF FIRE': 0.62, PROTECTION: 0.5 },
   },
   {
-    id: 'payments-engineer',
+    id: 'bravo',
     idx: '02',
-    name: 'PAYMENTS ENGINEER',
-    role: 'SMG · ASSAULT',
-    kit: 'Full-auto SMG. High throughput, sub-second settlement up close.',
-    weapon: 'VELOCITY-9',
+    code: 'BRAVO',
+    name: 'ROOM SERVICE',
+    kit: 'SUBMACHINE GUN',
+    desc: 'High rate of fire. Recommended for rooms, corridors and disagreements.',
+    stats: { RANGE: 0.4, 'RATE OF FIRE': 0.94, PROTECTION: 0.5 },
   },
   {
-    id: 'compliance-officer',
+    id: 'charlie',
     idx: '03',
-    name: 'COMPLIANCE OFFICER',
-    role: 'PISTOL · TANK',
-    kit: 'Sidearm and max armour. Slow, audited, and very hard to put down.',
-    weapon: 'SIDECAR',
+    code: 'CHARLIE',
+    name: 'CONTINGENCY',
+    kit: 'SIDEARM · DOUBLE PLATING',
+    desc: 'One pistol, twice the armour. Command calls it a contingency. Doug calls it a pistol.',
+    stats: { RANGE: 0.46, 'RATE OF FIRE': 0.34, PROTECTION: 1 },
   },
+];
+
+/** The mission card. Field → value, rendered in this order. */
+const MISSION = [
+  ['LOCATION', 'Border town. The square in the middle of it.'],
+  ['OBJECTIVE', 'Hold the town square for as long as it takes.'],
+  ['DURATION', 'About a wave. (Command estimate.)'],
+  ['PLAN', 'Phase one: hold the square. Phase two: Doug.'],
+  ['ASSETS', 'Doug.'],
 ];
 
 /* Shared damped-fade backbone for a pointer-events overlay. */
 function fade(node, shown, open) {
-  const vis = shown;
-  if (vis < 0.004) {
+  if (shown < 0.004) {
     setStyle(node, 'display', 'none');
     setStyle(node, 'pointer-events', 'none');
     return;
   }
   setStyle(node, 'display', '');
   setStyle(node, 'pointer-events', open ? 'auto' : 'none');
-  setStyle(node, 'opacity', ease.outQuad(vis).toFixed(3));
+  setStyle(node, 'opacity', ease.outQuad(shown).toFixed(3));
 }
 
-/* -------------------------------------------------------------- attract --- */
+/**
+ * Keep a click on a screen from reaching src/core/input, which grabs pointer
+ * lock on any left mousedown that bubbles to window. Screens that deploy the
+ * player request the lock themselves, inside the click gesture.
+ */
+function guard(node) {
+  node.addEventListener('mousedown', (e) => e.stopPropagation());
+}
+
+/** The ESF mark: a plain chevron-over-bar in a square. Not a parody of anything. */
+function crest(parent) {
+  const s = svg('svg', { viewBox: '0 0 24 24', class: 'ow-crest' }, parent);
+  svg('rect', { x: 1, y: 1, width: 22, height: 22, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5 }, s);
+  svg('path', { d: 'M6 13.5 12 8l6 5.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 2.2, 'stroke-linejoin': 'miter' }, s);
+  svg('rect', { x: 6, y: 16, width: 12, height: 2.2, fill: 'currentColor' }, s);
+  return s;
+}
+
+const fmt = (n) => Math.max(0, Math.round(n || 0)).toLocaleString('en-US');
+
+/* ---------------------------------------------------------------- title --- */
 
 export class AttractScreen {
-  /**
-   * @param {(jobId:string)=>void} onSelect
-   * @param {()=>void} [onBoards] title-screen route to the leaderboard
-   */
-  constructor(parent, onSelect, onBoards) {
+  /** @param {(loadoutId:string)=>void} onSelect */
+  constructor(parent, onSelect) {
     this.onSelect = onSelect;
-    this.onBoards = onBoards;
     this.root = el('div', 'ow-attract', parent);
-    const inner = el('div', 'ow-att-inner', this.root);
+    guard(this.root);
 
-    el('div', 'ow-att-mode', inner, 'HOLD THE LEDGER');
-    el('div', 'ow-att-title', inner, 'NERD OF DUTY');
-    el('div', 'ow-att-sub', inner, 'A FINTECH NERDCON GAME');
+    // ---- top bar -----------------------------------------------------------
+    const top = el('div', 'ow-att-top', this.root);
+    const unit = el('div', 'ow-att-unit', top);
+    crest(unit);
+    el('span', null, unit, 'EXTRA SPECIAL FORCES');
+    el('div', 'ow-att-net', top, 'SECURE NET · COMMAND');
 
-    const sel = el('div', 'ow-att-jobsel', inner);
-    el('div', 'ln', sel);
-    el('div', 'lbl-x', sel, 'SELECT YOUR JOB');
-    el('div', 'ln r', sel);
+    // ---- left column: wordmark + mission card ------------------------------
+    const left = el('div', 'ow-att-left', this.root);
+    el('div', 'ow-att-title', left, 'FLOP OPS');
+    el('div', 'ow-att-rule', left);
 
-    const cards = el('div', 'ow-att-cards', inner);
-    for (const job of JOBS) {
-      const card = el('div', 'ow-att-card', cards);
-      el('div', 'ow-card-idx', card, job.idx);
-      el('div', 'ow-card-name', card, job.name);
-      el('div', 'ow-card-role', card, job.role);
-      el('div', 'ow-card-kit', card, job.kit);
-      el('div', 'ow-card-weapon', card, job.weapon);
-      el('div', 'ow-card-cta', card, 'DEPLOY ▸');
-      card.addEventListener('click', () => this.onSelect?.(job.id));
+    const ms = el('div', 'ow-mission', left);
+    const mh = el('div', 'ow-ms-head', ms);
+    el('span', 'ow-ms-tag', mh, 'MISSION 01');
+    el('span', 'ow-ms-sep', mh);
+    el('span', 'ow-ms-tag dim', mh, 'BRIEFING');
+    el('div', 'ow-ms-name', ms, 'OPERATION TOTAL CONFIDENCE');
+    const grid = el('div', 'ow-ms-grid', ms);
+    for (const [k, v] of MISSION) {
+      el('div', 'k', grid, k);
+      el('div', 'v', grid, v);
     }
 
-    el('div', 'ow-att-hint', inner, 'CREDIT 1 · CLICK TO DEPLOY');
-
-    // One input from the title to the board — the loop quality bar's "<= 2
-    // inputs to any screen" applies to the social object too.
-    const meta = el('div', 'ow-att-meta', inner);
-    this.boardBtn = el('button', 'ow-att-link', meta, 'SEE THE BOARD ▸');
-    this.boardBtn.type = 'button';
-    this.boardBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.onBoards?.();
+    // ---- loadout select ----------------------------------------------------
+    const lo = el('div', 'ow-att-loadouts', this.root);
+    const lh = el('div', 'ow-lo-head', lo);
+    el('span', null, lh, 'SELECT LOADOUT');
+    el('span', 'ow-lo-hint', lh, 'CLICK OR PRESS 1 – 3 TO DEPLOY');
+    const cards = el('div', 'ow-lo-cards', lo);
+    this.cards = [];
+    LOADOUTS.forEach((L, i) => {
+      const card = el('div', 'ow-lo-card', cards);
+      const t = el('div', 'ow-lo-top', card);
+      el('span', 'ow-lo-idx', t, L.idx);
+      el('span', 'ow-lo-code', t, L.code);
+      el('div', 'ow-lo-name', card, L.name);
+      el('div', 'ow-lo-kit', card, L.kit);
+      el('div', 'ow-lo-desc', card, L.desc);
+      const st = el('div', 'ow-lo-stats', card);
+      for (const key in L.stats) {
+        const r = el('div', 'ow-lo-stat', st);
+        el('span', null, r, key);
+        const bar = el('i', null, r);
+        const fill = el('b', null, bar);
+        fill.style.transform = `scaleX(${L.stats[key].toFixed(3)})`;
+      }
+      el('div', 'ow-lo-cta', card, 'DEPLOY');
+      card.addEventListener('mouseenter', () => this._focus(i));
+      card.addEventListener('click', () => this._deploy(i));
+      this.cards.push(card);
     });
 
-    el('div', 'ow-att-footer', inner, 'NOV 19–20 · SAN DIEGO · FINTECHNERDCON.COM');
+    // ---- footer ------------------------------------------------------------
+    const foot = el('div', 'ow-att-foot', this.root);
+    this.best = el('div', 'ow-att-best', foot, '');
+    el('div', 'ow-att-build', foot, 'FLOP OPS · ESF INTERNAL BUILD');
+
+    this.focus = 0;
+    this._focus(0);
+
+    this._onKey = (e) => {
+      if (!this.open || e.repeat) return;
+      if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+        this._deploy(e.code.charCodeAt(5) - 49);
+      } else if (e.code === 'ArrowRight') {
+        this._focus((this.focus + 1) % this.cards.length);
+      } else if (e.code === 'ArrowLeft') {
+        this._focus((this.focus + this.cards.length - 1) % this.cards.length);
+      } else if (e.code === 'Enter') {
+        this._deploy(this.focus);
+      }
+    };
+    addEventListener('keydown', this._onKey);
 
     this.open = false;
     this.shown = 0;
     setStyle(this.root, 'display', 'none');
+  }
+
+  _focus(i) {
+    this.focus = i;
+    for (let j = 0; j < this.cards.length; j++) setClass(this.cards[j], 'on', j === i);
+  }
+
+  _deploy(i) {
+    if (!this.open || !LOADOUTS[i]) return;
+    this._focus(i);
+    this.onSelect?.(LOADOUTS[i].id);
+  }
+
+  /** Local best, shown bottom-left. @param {{score:number, wave:number}|null} b */
+  setBest(b) {
+    if (!b || !(b.score > 0)) {
+      setText(this.best, 'NO PREVIOUS OPERATIONS ON FILE');
+      return;
+    }
+    setText(this.best, `PERSONAL BEST  ${fmt(b.score)}  ·  WAVE ${Math.max(1, b.wave | 0)}`);
   }
 
   show(instant = false) {
@@ -126,11 +219,18 @@ export class AttractScreen {
   }
 
   dispose() {
+    removeEventListener('keydown', this._onKey);
     this.root.remove();
   }
 }
 
 /* ---------------------------------------------------------------- death --- */
+
+const DOWN_BODY = {
+  canContinue:
+    'Command has been notified. Command has approved one (1) additional chance, pending paperwork.',
+  final: 'Command has been notified. Command is out of additional chances. Command had one.',
+};
 
 export class DeathScreen {
   /** @param {{onContinue:()=>void, onAccept:()=>void}} cbs */
@@ -138,34 +238,31 @@ export class DeathScreen {
     this.onContinue = onContinue;
     this.onAccept = onAccept;
     this.root = el('div', 'ow-screen death', parent);
-    const card = el('div', 'ow-screen-card', this.root);
+    guard(this.root);
+    const band = el('div', 'ow-death', this.root);
 
-    el('div', 'ow-sc-kicker', card, 'SETTLEMENT FAILED');
-    el('div', 'ow-sc-title', card, 'INSUFFICIENT FUNDS');
-    el(
-      'div',
-      'ow-sc-body',
-      card,
-      'The ledger came up short. File a dispute to reopen the position — one continue per run — or accept the loss and settle.'
-    );
+    el('div', 'ow-sc-kicker', band, 'OPERATION TOTAL CONFIDENCE');
+    el('div', 'ow-sc-title', band, 'DOUG IS DOWN');
+    this.killer = el('div', 'ow-death-killer', band, '');
+    this.body = el('div', 'ow-sc-body', band, DOWN_BODY.canContinue);
 
-    const actions = el('div', 'ow-sc-actions', card);
-    this.contBtn = el('button', 'ow-btn primary', actions, 'FILE A DISPUTE — CONTINUE');
+    const actions = el('div', 'ow-sc-actions', band);
+    this.contBtn = el('button', 'ow-btn primary', actions, 'REQUEST ONE (1) MORE CHANCE');
     this.contBtn.type = 'button';
     this.contBtn.addEventListener('click', () => {
       if (this._settled) return;
       this._settled = true;
       this.onContinue?.();
     });
-    this.acceptBtn = el('button', 'ow-sc-ghost', actions, 'ACCEPT THE LOSS');
+    this.acceptBtn = el('button', 'ow-sc-ghost', actions, 'ACCEPT THE OUTCOME');
     this.acceptBtn.type = 'button';
     this.acceptBtn.addEventListener('click', () => {
       if (this._settled) return;
       this._settled = true;
-      // Emits nothing per contract — waits for game:over to arrive.
+      // Emits ui:accept; the report arrives with game:over.
       setStyle(this.acceptBtn, 'opacity', '.4');
       setStyle(this.contBtn, 'opacity', '.4');
-      setText(this.acceptBtn, 'SETTLING…');
+      setText(this.acceptBtn, 'FILING REPORT…');
       this.onAccept?.();
     });
 
@@ -174,14 +271,21 @@ export class DeathScreen {
     setStyle(this.root, 'display', 'none');
   }
 
-  /** @param {{canContinue:boolean}} opts */
-  show({ canContinue = true } = {}) {
+  /** @param {{canContinue?:boolean, killer?:string|null}} opts */
+  show({ canContinue = true, killer = null } = {}) {
     this.open = true;
     this._settled = false;
     setStyle(this.contBtn, 'display', canContinue ? '' : 'none');
     setStyle(this.contBtn, 'opacity', '1');
     setStyle(this.acceptBtn, 'opacity', '1');
-    setText(this.acceptBtn, canContinue ? 'ACCEPT THE LOSS' : 'SETTLE THE RUN');
+    setText(this.acceptBtn, canContinue ? 'ACCEPT THE OUTCOME' : 'FILE THE REPORT');
+    setText(this.body, canContinue ? DOWN_BODY.canContinue : DOWN_BODY.final);
+    if (killer) {
+      setText(this.killer, 'KILLED BY  ' + killer);
+      setStyle(this.killer, 'display', '');
+    } else if (killer === null) {
+      setStyle(this.killer, 'display', 'none');
+    }
     setStyle(this.root, 'display', '');
   }
 
@@ -199,127 +303,99 @@ export class DeathScreen {
   }
 }
 
-/* ------------------------------------------------------------ game over --- */
+/* -------------------------------------------------------- after-action --- */
 
 /**
- * RUN SETTLED, plus everything the run turns into: initials → the board →
- * a share card. The card has four states, driven by the UI system:
- *
- *   entry     initials selector armed (the default)
- *   filed     "RANK #12 OF 1,204" + share row
- *   queued    offline; the submit is in localStorage and will drain later
- *   closed    the player skipped, or there is no network at all
- *
- * Only the score/stat block is ever visible in all four — the rest swaps.
+ * Command's assessment. Deterministic from the run's numbers, so the same run
+ * always reads the same report.
  */
+export function assessment(d = {}) {
+  const wave = Math.max(1, Math.round(d.wave ?? 1));
+  const held = wave - 1;
+  const lines = [];
+
+  if (held <= 0) {
+    lines.push(
+      'The square was held for less than one wave against an estimate of about one wave. Command considers the estimate broadly accurate.'
+    );
+  } else if (held === 1) {
+    lines.push('The square was held for one wave, exactly as estimated. Command would like that noted.');
+  } else if (held <= 3) {
+    lines.push(`The square was held for ${held} waves against an estimate of about one. Command considers this within tolerance.`);
+  } else {
+    lines.push(`The square was held for ${held} waves. Command's estimate was "about a wave". Command is not taking questions.`);
+  }
+
+  let acc = d.accuracy;
+  if (acc === null || acc === undefined) {
+    lines.push('No rounds were fired. Command admires the restraint.');
+  } else {
+    if (acc <= 1) acc *= 100;
+    const a = Math.round(acc);
+    if (a < 20) lines.push(`Accuracy was ${a}%. The remaining rounds are being treated as a message.`);
+    else if (a < 45) lines.push(`Accuracy was ${a}%. Ammunition expenditure is within ESF norms, which are generous.`);
+    else lines.push(`Accuracy was ${a}%. Command has asked Doug to stop making everyone else look bad.`);
+  }
+
+  lines.push(
+    d.continued
+      ? 'One (1) additional chance was requested and used. It has been filed under "chances".'
+      : 'No additional chances were requested. Command is unsure whether to be proud.'
+  );
+  return lines;
+}
+
 export class GameOverScreen {
   /**
    * @param {HTMLElement} parent
-   * @param {{onRestart:()=>void, onSubmit:(initials:string)=>void,
-   *          onSkip:()=>void, onShare:()=>void, onCopy:()=>void,
-   *          onBoards:()=>void}} cbs
+   * @param {{onRestart:()=>void, onReturn:()=>void}} cbs
    */
   constructor(parent, cbs = {}) {
-    const { onRestart, onSubmit, onSkip, onShare, onCopy, onBoards } = cbs;
-    this.onRestart = onRestart;
-    this.onBoards = onBoards;
-    this.root = el('div', 'ow-screen nod-modal', parent);
-    const card = el('div', 'ow-screen-card', this.root);
+    const { onRestart, onReturn } = cbs;
+    this.root = el('div', 'ow-screen report', parent);
+    guard(this.root);
+    const card = el('div', 'ow-report', this.root);
 
-    this.kicker = el('div', 'ow-sc-kicker', card, 'THE LEDGER HELD');
-    this.title = el('div', 'ow-sc-title', card, 'RUN SETTLED');
-    this.score = el('div', 'ow-sc-score', card, '0');
+    const head = el('div', 'ow-rp-head', card);
+    el('span', 'ow-rp-kicker', head, 'AFTER-ACTION REPORT');
+    el('span', 'ow-rp-op', head, 'OPERATION TOTAL CONFIDENCE');
+
+    this.title = el('div', 'ow-sc-title', card, 'OPERATION CONCLUDED');
+
+    const sc = el('div', 'ow-rp-score', card);
+    this.score = el('div', 'ow-sc-score', sc, '0');
+    el('div', 'ow-rp-unit', sc, 'POINTS');
     this.delta = el('div', 'ow-sc-delta', card, '');
 
     const stats = el('div', 'ow-sc-stats', card);
     this.stat = {};
-    for (const key of ['WAVE', 'KILLS', 'ACCURACY', 'BEST']) {
+    for (const [key, label] of [
+      ['WAVE', 'WAVE REACHED'],
+      ['KILLS', 'HOSTILES NEUTRALISED'],
+      ['ACCURACY', 'ACCURACY'],
+      ['BEST', 'PERSONAL BEST'],
+    ]) {
       const s = el('div', 'ow-sc-stat', stats);
-      el('div', 'k', s, key);
+      el('div', 'k', s, label);
       this.stat[key] = el('div', 'v', s, '—');
     }
 
-    this.tease = el('div', 'ow-sc-tease', card, 'COMPLIANCE OFFICER — REACH WAVE 8 TO PREVIEW');
-
-    // ---- initials → board ------------------------------------------------
-    this.initials = new InitialsEntry(card, {
-      onSubmit: (v) => onSubmit?.(v),
-      onSkip: () => onSkip?.(),
-    });
-
-    // ---- share row (revealed once the run is filed or queued) ------------
-    this.shareRow = el('div', 'ow-sc-share', card);
-    this.shareBtn = el('button', 'ow-btn', this.shareRow, 'SHARE THE CARD');
-    this.shareBtn.type = 'button';
-    this.shareBtn.addEventListener('click', () => onShare?.());
-    this.copyBtn = el('button', 'ow-btn', this.shareRow, 'COPY LINK');
-    this.copyBtn.type = 'button';
-    this.copyBtn.addEventListener('click', () => onCopy?.());
-    setStyle(this.shareRow, 'display', 'none');
+    const as = el('div', 'ow-rp-assess', card);
+    el('div', 'ow-rp-lbl', as, 'COMMAND ASSESSMENT');
+    this.assess = [];
+    for (let i = 0; i < 3; i++) this.assess.push(el('p', null, as, ''));
 
     const actions = el('div', 'ow-sc-actions', card);
-    this.restartBtn = el('button', 'ow-btn primary', actions, 'RUN IT BACK');
+    this.restartBtn = el('button', 'ow-btn primary', actions, 'REDEPLOY');
     this.restartBtn.type = 'button';
-    this.restartBtn.addEventListener('click', () => this.onRestart?.());
-    this.boardsBtn = el('button', 'ow-sc-ghost', actions, 'SEE THE BOARD');
-    this.boardsBtn.type = 'button';
-    this.boardsBtn.addEventListener('click', () => this.onBoards?.());
+    this.restartBtn.addEventListener('click', () => onRestart?.());
+    this.returnBtn = el('button', 'ow-sc-ghost', actions, 'RETURN TO BASE');
+    this.returnBtn.type = 'button';
+    this.returnBtn.addEventListener('click', () => onReturn?.());
 
     this.open = false;
     this.shown = 0;
     setStyle(this.root, 'display', 'none');
-  }
-
-  /* ------------------------------------------------------ submit states -- */
-
-  /** Arm the initials selector. @param {string|null} lastInitials */
-  armEntry(lastInitials) {
-    setStyle(this.shareRow, 'display', 'none');
-    setStyle(this.tease, 'display', 'none');
-    this.initials.show(lastInitials);
-  }
-
-  /** No network client at all (capture mode) — hide the whole submit block. */
-  disableEntry() {
-    this.initials.hide();
-    setStyle(this.shareRow, 'display', 'none');
-    setStyle(this.tease, 'display', '');
-  }
-
-  setSubmitting() {
-    this.initials.setBusy(true, 'FILING…');
-    this.initials.setStatus('');
-  }
-
-  /** @param {{rank:number,total:number}} r */
-  setFiled({ rank, total }) {
-    const pos = rank ? `RANK #${rank.toLocaleString('en-US')}` : 'FILED';
-    const of = total ? ` OF ${total.toLocaleString('en-US')}` : '';
-    this.initials.settle(`${pos}${of} · ON THE BOARD`, 'ok');
-    setStyle(this.shareRow, 'display', '');
-    setStyle(this.copyBtn, 'display', '');
-  }
-
-  setQueued() {
-    this.initials.settle('QUEUED — IT SETTLES WHEN THE WIFI DOES', 'ok');
-    setStyle(this.shareRow, 'display', '');
-    setStyle(this.copyBtn, 'display', 'none'); // no row id yet, so no link
-  }
-
-  /** @param {string} message uppercase, terse */
-  setRejected(message) {
-    this.initials.setBusy(false, 'FILE IT WITH THE BOARD');
-    this.initials.setStatus(message, 'err');
-  }
-
-  setSkipped() {
-    this.initials.hide();
-    setStyle(this.shareRow, 'display', 'none');
-    setStyle(this.tease, 'display', '');
-  }
-
-  setShareStatus(message) {
-    this.initials.setStatus(message, 'ok');
   }
 
   /** @param {object} d game:over payload */
@@ -329,27 +405,31 @@ export class GameOverScreen {
     const newBest = !!d.newBest;
 
     setClass(this.root, 'best', newBest);
-    setText(this.kicker, newBest ? 'YOU MOVED THE MARKET' : 'THE LEDGER HELD');
-    setText(this.title, newBest ? 'NEW BEST' : 'RUN SETTLED');
-    setText(this.score, score.toLocaleString('en-US'));
+    setText(this.title, newBest ? 'NEW PERSONAL BEST' : 'OPERATION CONCLUDED');
+    setText(this.score, fmt(score));
 
     if (newBest) {
       setClass(this.delta, 'miss', false);
-      this.delta.innerHTML = 'NEW RECORD · <b>BEST SCORE ON THE FLOOR</b>';
+      setText(this.delta, 'COMMAND WILL BE TAKING CREDIT FOR THIS');
     } else {
       const gap = Math.max(0, best - score);
       setClass(this.delta, 'miss', gap > 0);
-      this.delta.innerHTML = gap > 0
-        ? '<b>' + gap.toLocaleString('en-US') + '</b> FROM BEST · ' + best.toLocaleString('en-US')
-        : 'MATCHED YOUR BEST · ' + best.toLocaleString('en-US');
+      setText(this.delta, gap > 0 ? `${fmt(gap)} SHORT OF YOUR BEST` : 'MATCHED YOUR PERSONAL BEST');
     }
 
-    let acc = d.accuracy ?? 0;
-    if (acc <= 1) acc *= 100;
+    let acc = d.accuracy;
+    let accTxt = '—';
+    if (acc !== null && acc !== undefined) {
+      if (acc <= 1) acc *= 100;
+      accTxt = Math.round(acc) + '%';
+    }
     setText(this.stat.WAVE, Math.max(1, Math.round(d.wave ?? 1)));
     setText(this.stat.KILLS, Math.max(0, Math.round(d.kills ?? 0)));
-    setText(this.stat.ACCURACY, Math.round(acc) + '%');
-    setText(this.stat.BEST, best.toLocaleString('en-US'));
+    setText(this.stat.ACCURACY, accTxt);
+    setText(this.stat.BEST, fmt(best));
+
+    const lines = assessment(d);
+    for (let i = 0; i < this.assess.length; i++) setText(this.assess[i], lines[i] ?? '');
   }
 
   show(d) {
@@ -360,17 +440,14 @@ export class GameOverScreen {
 
   hide() {
     this.open = false;
-    this.initials.hide();
   }
 
   update(rawDt) {
     this.shown = damp(this.shown, this.open ? 1 : 0, 15, rawDt);
     fade(this.root, this.shown, this.open);
-    this.initials.update(rawDt);
   }
 
   dispose() {
-    this.initials.dispose();
     this.root.remove();
   }
 }

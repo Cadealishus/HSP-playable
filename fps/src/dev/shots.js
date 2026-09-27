@@ -103,6 +103,35 @@ export const SHOTS = {
     apply: (e) => e.ctx.peek('ui')?.debugState?.('combat'),
     doc: 'Full HUD in combat — layout, typography, readability, hit feedback.',
   },
+
+  // ---- PRESENTATION area (src/ui, src/game): front-end + HUD ----
+  'ui-title': {
+    pos: [12, 1.75, 18],
+    look: [-4, 2.2, -6],
+    fov: 70,
+    time: 17.4,
+    apply: (e) => e.ctx.peek('ui')?.debugState?.('title'),
+    doc: 'Title screen — FLOP OPS wordmark, OPERATION TOTAL CONFIDENCE card, ESF loadout select.',
+  },
+  'ui-hud': {
+    pos: [4, 1.7, 12],
+    look: [-6, 1.7, -4],
+    fov: 80,
+    time: 17.4,
+    apply: (e) => {
+      e.ctx.peek('ai')?.debugStage?.('firefight');
+      e.ctx.peek('ui')?.debugState?.('radio');
+    },
+    doc: 'Mid-wave HUD with a Command radio subtitle up — layout, subtitles, score callouts.',
+  },
+  'ui-death': {
+    pos: [4, 0.42, 12],
+    look: [-6, 1.3, -4],
+    fov: 74,
+    time: 17.4,
+    apply: (e) => e.ctx.peek('ui')?.debugState?.('death'),
+    doc: 'DOUG IS DOWN — death card, killer line, continue offer, Command on the radio.',
+  },
 };
 
 export function installShotApi(engine, { capture, lockstep = false } = {}) {

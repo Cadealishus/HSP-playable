@@ -71,7 +71,7 @@ export class Compass {
         setText(it.node, o.label ?? '');
         setStyle(it.node, 'left', '50%');
         setStyle(it.node, 'transform', `translateX(calc(-50% + ${px.toFixed(1)}px))`);
-        setStyle(it.node, 'background', o.color ?? 'var(--cyan)');
+        setStyle(it.node, 'background', o.color ?? 'var(--acc)');
         setStyle(it.node, 'opacity', Math.abs(rel) > SPAN_DEG * 0.5 ? '0.45' : '1');
       }
     }
@@ -93,15 +93,14 @@ export class Compass {
 }
 
 /**
- * HOLD THE LEDGER run bar — the persistent state that replaces the decorative
- * TDM match bar. Top centre, under the compass:
+ * Objective bar — the persistent run state, top centre under the compass:
  *
- *        WAVE 3  ·  LEGACY CORE INBOUND
- *              012,800        ×4
+ *        WAVE 3  |  HOLD THE SQUARE
+ *            18,450   ×4
  *
- * The score is Loot Gold and TWEENED (damped toward the target) so a settle
- * bonus reads as a spin-up, never a snap. The multiplier chip pulses on gain
- * and turns gold near the cap. Both driven from update() so capture frames stay
+ * The score is TWEENED (damped toward the target) so a wave bonus reads as a
+ * spin-up, never a snap. The multiplier chip punches on gain and fills with the
+ * accent from ×5. Both driven from update() so capture frames stay
  * deterministic — no CSS transitions on the numbers.
  */
 export class RunBar {
@@ -110,7 +109,7 @@ export class RunBar {
     const wave = el('div', 'ow-rb-wave', this.root);
     this.wave = el('b', null, wave, 'WAVE 1');
     el('span', 'dot', wave);
-    this.threat = el('span', 'thr', wave, 'HOLD THE LEDGER');
+    this.threat = el('span', 'thr', wave, 'HOLD THE SQUARE');
     const main = el('div', 'ow-rb-main', this.root);
     this.score = el('div', 'ow-rb-score', main, '0');
     this.mult = el('div', 'ow-rb-mult hidden', main, '×1');
@@ -134,7 +133,7 @@ export class RunBar {
 
     // ---- wave + threat line ---------------------------------------------
     setText(this.wave, 'WAVE ' + Math.max(1, s.wave ?? 1));
-    setText(this.threat, s.waveThreat ?? 'HOLD THE LEDGER');
+    setText(this.threat, s.waveThreat ?? 'HOLD THE SQUARE');
 
     // ---- multiplier chip ------------------------------------------------
     const m = Math.max(1, Math.round(s.mult ?? 1));

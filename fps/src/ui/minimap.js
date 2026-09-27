@@ -29,9 +29,8 @@ export class Minimap {
     for (const c of ['tl', 'tr', 'bl', 'br']) el('div', 'ow-mm-corner ' + c, this.root);
     el('div', 'ow-mm-n', this.root, 'N');
     const tag = el('div', 'ow-mm-tag', this.root);
-    // The map is of ONE place and the whole game is named after it: the NerdCon
-    // plaza with THE LEDGER in it. "ZONE 07" was the last un-themed HUD string.
-    el('span', null, tag, 'LEDGER PLAZA');
+    // The map is of one place, and the mission is named after it.
+    el('span', null, tag, 'TOWN SQUARE');
     this.scaleTag = el('span', null, tag, '60M');
 
     this.rng = rng;
@@ -561,14 +560,14 @@ export class Minimap {
         const o = objs[i];
         const dx = clamp((o.x - cx) * ppm + half, r + 1, S - r - 1);
         const dy = clamp((o.z - cz) * ppm + half, r + 1, S - r - 1);
-        g.fillStyle = 'rgba(0,229,255,.94)';
+        g.fillStyle = 'rgba(237,181,76,.95)';
         g.strokeStyle = 'rgba(4,14,20,.8)';
         g.lineWidth = 1;
         g.beginPath();
         g.rect(dx - r, dy - r, r * 2, r * 2);
         g.fill();
         g.stroke();
-        g.fillStyle = '#03121a';
+        g.fillStyle = '#15110a';
         g.fillText(o.label ?? '', dx, dy + 0.5);
       }
     }
@@ -586,8 +585,8 @@ export class Minimap {
         g.save();
         g.translate(dx, dy);
         g.rotate(((b.heading ?? 0) * Math.PI) / 180);
-        g.fillStyle = enemy ? 'rgba(255,45,120,.96)' : 'rgba(91,140,255,.96)';
-        g.shadowColor = enemy ? 'rgba(255,45,120,.85)' : 'rgba(91,140,255,.7)';
+        g.fillStyle = enemy ? 'rgba(236,62,44,.96)' : 'rgba(150,196,230,.95)';
+        g.shadowColor = enemy ? 'rgba(236,62,44,.8)' : 'rgba(150,196,230,.6)';
         g.shadowBlur = 6 * u;
         g.beginPath();
         g.moveTo(0, -r * 1.5);

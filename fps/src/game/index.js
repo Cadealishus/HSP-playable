@@ -1,26 +1,27 @@
 /**
- * GAME — HOLD THE LEDGER, the wave-holdout loop that turns the sandbox into a
- * game. Subsystem id `game`. Owns only this directory + a one-line registration
- * in src/main.js. Talks to every other subsystem strictly through ctx.get / peek
- * and ctx.events (never an import), so it composes with the UI / AI / WEAPONS /
- * PLAYER agents building in parallel.
+ * GAME — OPERATION TOTAL CONFIDENCE, the wave-holdout loop that turns the
+ * sandbox into a game. Subsystem id `game`. Doug and the Extra Special Forces
+ * hold the town square "for as long as it takes" (Command's estimate: about a
+ * wave). Talks to every other subsystem strictly through ctx.get / peek and
+ * ctx.events (never an import).
  *
  * STATE MACHINE            attract → play → down → over   (see _setState)
  *   attract  before the first ui:startRun. No waves spawn; the loop is inert so
  *            the title screen and the capture harness are undisturbed.
  *   play     a wave is being fought.
- *   down     the player died and a continue is on offer (once per run).
- *   over     run settled; game:over carries the scorecard.
+ *   down     Doug is down and a continue is on offer (once per run).
+ *   over     operation concluded; game:over carries the after-action numbers.
  *
- * EVENTS EMITTED (canonical, NERDCON_CONTRACT.md "Event interface"):
+ * EVENTS EMITTED
  *   game:state {state} · game:wave {wave,count} · game:waveClear {wave,bonus}
  *   game:score {score,delta,mult} · game:mult {mult} · game:continueOffer {}
- *   game:over {score,wave,kills,accuracy,best,bestWave,newBest}
+ *   game:multiKill {count}
+ *   game:over {score,wave,kills,accuracy,best,bestWave,newBest,job,durationS,continued}
  * EVENTS CONSUMED:
- *   ui:startRun {job} · ui:continue · ui:restart · ui:accept (additive)
+ *   ui:startRun {job} · ui:continue · ui:restart · ui:accept · ui:attract
  *   player:death · actor:death · bullet:impact · damage:dealt
  *
- * INTEGRATION NOTES for the parallel agents
+ * INTEGRATION NOTES
  *   - Kills / wave progress are counted from `actor:death` (fires for every enemy
  *     death, all causes). Headshots are read from the `bullet:impact` that lands
  *     immediately before the fatal `damage:dealt` (actor:death carries a
@@ -30,99 +31,59 @@
  *     return count. If that method does not exist yet it falls back to
  *     `ai.populate({squads,perSquad})`. Clearing enemies prefers
  *     `ai.despawnAll/clearAgents/killAll`, else emits lethal damage:dealt.
- *   - Job loadouts set the weapon via `weapons.setWeaponImmediate(id)` and, for
- *     the compliance officer's "max armour", raise the live `player.health.max`
- *     (there is no armour subsystem to hook).
+ *   - Loadouts set the weapon via `weapons.setWeaponImmediate(id)` and, for
+ *     CHARLIE's double plating, raise the live `player.health.max` (there is no
+ *     armour subsystem to hook).
  *
- * LEADERBOARD (added with the launch roadmap)
- *   `game.leaderboard` is the Supabase client (see leaderboard.js). The UI
- *   reaches it through `ctx.peek('game').leaderboard` — never an import, per
- *   ARCHITECTURE.md. A run token is requested at ui:startRun and NOT awaited;
- *   the loop is identical whether or not the network answers. `game:over` now
- *   also carries `job`, `durationS` and `continued`, which is everything
- *   submit-score needs to validate the run.
- *
- * ADDED EVENTS (beyond the contract's canonical set)
- *   `ui:attract` — UI → game. Abandon whatever is on screen and return to the
- *   attract state. Cabinet mode's 60-second idle reset is the only caller.
+ * OFFLINE BY DESIGN
+ *   There is no leaderboard, token, beacon or share-card traffic: the game makes
+ *   no network requests at all. Persistence is the local best score and best
+ *   wave in localStorage, every access try/catch wrapped.
  */
 
 import { Scoring } from './scoring.js';
 import { CONCURRENT_CAP, BREATHER_S, waveGoal, waveIntensity, waveBonus } from './waves.js';
-import { Leaderboard } from './leaderboard.js';
 
-/** job id (normalised) → { weapon id, armour multiplier on base max health }. */
+/**
+ * ESF loadout id → { weapon id, armour multiplier on base max health }.
+ * ALPHA "STANDARD ISSUE" rifle · BRAVO "ROOM SERVICE" SMG ·
+ * CHARLIE "CONTINGENCY" sidearm with double plating.
+ */
 const LOADOUTS = {
-  'fraud-analyst': { weapon: 'rifle', armour: 1 },
-  'payments-engineer': { weapon: 'smg', armour: 1 },
-  'compliance-officer': { weapon: 'pistol', armour: 2 },
+  alpha: { weapon: 'rifle', armour: 1 },
+  bravo: { weapon: 'smg', armour: 1 },
+  charlie: { weapon: 'pistol', armour: 2 },
 };
-const DEFAULT_JOB = 'fraud-analyst';
+const DEFAULT_JOB = 'alpha';
+/** Weapon-class shorthands accepted by FLOP.start() from the console. */
+const LOADOUT_ALIASES = { rifle: 'alpha', smg: 'bravo', pistol: 'charlie' };
 
-const BEST_KEY = 'nod.best';
-const BEST_WAVE_KEY = 'nod.bestWave';
+const BEST_KEY = 'flopops.best';
+const BEST_WAVE_KEY = 'flopops.bestWave';
 
-/** Scoring's internal channel names → the contract's event names. */
+/** Scoring's internal channel names → the bus event names. */
 const SCORING_EVENTS = {
   score: 'game:score',
   mult: 'game:mult',
-  // ADDITIVE (beyond the contract's canonical set): a double kill inside the
-  // 1.2 s window. Consumed by src/ui, which renders the contract's
-  // `BATCH PROCESSED` copy into the KILLFEED — deliberately not the banner,
-  // which is a singleton with no queue and is already contended by the wave
-  // banner and the per-kill score banner.
+  // Two or more kills inside the 1.2 s window. src/ui renders it into the
+  // killfeed and hands it to Command's radio as a streak.
   multiKill: 'game:multiKill',
 };
 
 /* ==================================================================== */
-/* THE SETTLE BEAT                                                      */
+/* THE WAVE-CLEAR BEAT                                                  */
 /* ==================================================================== */
 
 /**
- * THE LEDGER, in level coordinates. Authored at `buildLedger(A, rng, -1.7, 8.6)`
- * in src/world/nerdcon.js — the plaza centrepiece, just west of the street
- * centreline. Converted to world space through the world's own public
- * `levelToWorld()` so the level transform stays owned by src/world; only these
- * two authored numbers are mirrored here, and they are scenery constants.
+ * The town square, in level coordinates: the plaza centre the mission is named
+ * after. Converted to world space through the world's own public
+ * `levelToWorld()` so the level transform stays owned by src/world.
  */
-const LEDGER_LEVEL_X = -1.7;
-const LEDGER_LEVEL_Z = 8.6;
+const SQUARE_LEVEL_X = -1.7;
+const SQUARE_LEVEL_Z = 8.6;
 
-/** Loot Gold #FFD700 in rough linear space, plus the hotter core it decays from. */
-const GOLD = { r: 1.0, g: 0.68, b: 0.05 };
-
-/**
- * A spawn descriptor for `fx.emitLit`.
- *
- * fx's own call sites use the shared `resetSpawn()` singleton out of
- * src/fx/particles.js, but importing another subsystem's module is exactly what
- * ARCHITECTURE.md rule 2 forbids — so this is our own copy of the same field
- * set, built ONCE and refilled in place. `ParticleLayer.emit()` only ever reads
- * named properties off it, so a structurally identical object is a drop-in.
- * Keep in sync with SP in src/fx/particles.js if that gains a field.
- */
-function makeSpawn() {
-  return {
-    x: 0, y: 0, z: 0,
-    vx: 0, vy: 0, vz: 0,
-    size0: 0.2, size1: 0.3, sizeCurve: 1,
-    life: 1, delay: 0, drag: 1.4, gravity: 0,
-    rot: 0, spin: 0, stretch: 0,
-    r0: 1, g0: 1, b0: 1, i0: 1,
-    r1: 1, g1: 1, b1: 1, i1: 0,
-    tile: 0, soft: 0.4, alpha: 1, alphaCurve: 1,
-    turb: 0, turbFreq: 1, seed: 0, flags: 0,
-  };
-}
-
-/**
- * Particle atlas tiles, from src/fx/atlas.js. Mirrored as literals for the same
- * no-cross-import reason as makeSpawn(). CHIP + SPLINTER are the flat angular
- * flakes the impact code throws off masonry; tinted gold and given a slow fall
- * they read as paper — the ledger shedding pages.
- */
-const TILE_CHIP = 8;
-const TILE_SPLINTER = 9;
+/** Signal-flare amber in rough linear space. */
+const FLARE = { r: 1.0, g: 0.46, b: 0.16 };
 
 export class GameSystem {
   static id = 'game';
@@ -162,25 +123,12 @@ export class GameSystem {
     this._runStartedMs = 0;
     this._runDuration = 0;
 
-    // Leaderboard client. Disabled under ?capture=1 so the screenshot harness
-    // is never network-bound. `?cabinet=1` only tags the telemetry.
-    const params = this._params();
-    this.leaderboard = new Leaderboard({
-      enabled: !ctx.config?.deterministic,
-      cabinet: params.get('cabinet') === '1',
-    });
-    /** Last settled run, for the initials/share UI. Null until the first game over. */
+    /** Last concluded run, for the after-action report. Null until the first game over. */
     this.lastRun = null;
 
     this.scoring = new Scoring((type, data) => ctx.events.emit(SCORING_EVENTS[type] ?? 'game:score', data));
 
-    // Settle beat (see _startSettleBeat / _updateSettleBeat). Preallocated: the
-    // whole sequence runs from update() and must not allocate per frame.
-    this._settleT = -1;
-    this._settleStep = 0;
-    this._ledgerPos = null; // resolved once, on the first wave clear
-    /** Reusable particle descriptor — fx.emitLit reads named fields off it. */
-    this._spawn = makeSpawn();
+    this._squarePos = null; // resolved once, on the first wave clear
 
     // Base player max health, captured before any armour override.
     const p = ctx.peek('player');
@@ -191,10 +139,7 @@ export class GameSystem {
     this._installDebugApi();
 
     this._setState('attract');
-    // Anything stranded by a dead network last session goes up now, before the
-    // player has done anything that could compete for bandwidth.
-    this.leaderboard.drain();
-    console.info('[game] HOLD THE LEDGER ready — state=attract');
+    console.info('[game] OPERATION TOTAL CONFIDENCE ready — state=attract');
   }
 
   /** URLSearchParams, or an empty stand-in in a non-browser build step. */
@@ -217,8 +162,8 @@ export class GameSystem {
     on('ui:startRun', (e) => this.startRun(e?.job));
     on('ui:continue', () => this.continueRun());
     on('ui:restart', () => this.restart());
-    on('ui:accept', () => this.accept()); // additive: "ACCEPT THE LOSS" → over
-    on('ui:attract', () => this.attract()); // additive: cabinet idle reset
+    on('ui:accept', () => this.accept()); // "ACCEPT THE OUTCOME" → over
+    on('ui:attract', () => this.attract()); // "RETURN TO BASE" from the report
 
     on('player:death', () => this._onPlayerDeath());
     on('actor:death', (e) => this._onActorDeath(e));
@@ -272,14 +217,13 @@ export class GameSystem {
   /* run lifecycle                                                      */
   /* ================================================================== */
 
-  /** ui:startRun / NOD.start — begin a fresh run with the given job. */
+  /** ui:startRun / FLOP.start — begin a fresh run with the given loadout. */
   startRun(job) {
     const norm = this._normaliseJob(job);
     this.job = norm;
     this._lastJob = norm;
 
     this._endDeathBeat();
-    this._settleT = -1; // a run start cancels any settle still playing out
     this._continueUsed = false;
     this.wave = 0;
     this._waveActive = false;
@@ -297,18 +241,13 @@ export class GameSystem {
     this._runStartedMs = Date.now();
     this._runDuration = 0;
 
-    // Both of these are deliberately un-awaited: the wave spawns on the same
-    // tick whether the network answers in 40 ms or never.
-    this.leaderboard.requestToken();
-    this.leaderboard.drain();
-    this.leaderboard.beacon('run_start', { job: norm });
-
+    this._markSquare(true);
     this._setState('play');
     this._startWave(1);
-    console.info(`[game] deploy — job=${norm} wave 1`);
+    console.info(`[game] deploy — loadout=${norm} wave 1`);
   }
 
-  /** ui:continue / NOD.continueRun — spend the one continue, restart the wave. */
+  /** ui:continue / FLOP.continueRun — REQUEST ONE (1) MORE CHANCE. Restarts the wave. */
   continueRun() {
     if (this.state !== 'down') return;
     if (this._continueUsed) {
@@ -333,16 +272,16 @@ export class GameSystem {
     console.info(`[game] continue — wave ${this.wave} restarts`);
   }
 
-  /** ui:restart / NOD.restart — "RUN IT BACK". Also handles accept-the-loss. */
+  /** ui:restart / FLOP.restart — "REDEPLOY". From the death screen it means accept. */
   restart() {
     if (this.state === 'down') {
-      this._gameOver(); // a restart from the death screen = accept the loss
+      this._gameOver(); // a restart from the death screen = accept the outcome
       return;
     }
     this.startRun(this._lastJob);
   }
 
-  /** ui:accept — "ACCEPT THE LOSS" ghost button on the death screen. */
+  /** ui:accept — "ACCEPT THE OUTCOME" ghost button on the death screen. */
   accept() {
     if (this.state === 'down') this._gameOver();
   }
@@ -382,8 +321,6 @@ export class GameSystem {
 
     this._runDuration = this._runStartedMs ? Math.max(0, Math.round((Date.now() - this._runStartedMs) / 1000)) : 0;
 
-    // Everything submit-score validates, in one object the UI can hand straight
-    // to leaderboard.submit() with only `initials` added.
     this.lastRun = {
       job: this.job ?? this._lastJob ?? DEFAULT_JOB,
       score,
@@ -403,27 +340,20 @@ export class GameSystem {
       best: this._best,
       bestWave: this._bestWave,
       newBest,
-      // additive — the leaderboard/share layer reads these off the same event
+      // additive — the after-action report reads these off the same event
       job: this.lastRun.job,
       durationS: this._runDuration,
       continued: this._continueUsed,
     });
-    this.leaderboard.beacon('run_end', {
-      job: this.lastRun.job,
-      wave: this.lastRun.wave,
-      score: this.lastRun.score,
-    });
-    console.info(`[game] run settled — score=${score} wave=${this.wave} kills=${this.scoring.kills}`);
+    console.info(`[game] operation concluded — score=${score} wave=${this.wave} kills=${this.scoring.kills}`);
   }
 
   /**
-   * ui:attract / NOD.attract — drop everything and go back to the title. Used
-   * by cabinet mode's idle reset; never fires mid-run (the cabinet only arms it
-   * on menus and the game-over card).
+   * ui:attract / FLOP.attract — drop everything and go back to the title.
+   * "RETURN TO BASE" on the after-action report is the only UI caller.
    */
   attract() {
     this._endDeathBeat();
-    this._settleT = -1;
     this._waveActive = false;
     this._breather = 0;
     this.wave = 0;
@@ -431,8 +361,9 @@ export class GameSystem {
     this.scoring.reset();
     this.scoring.announce();
     this.ctx.peek('player')?.setControlEnabled?.(true);
+    this._markSquare(false);
     this._setState('attract');
-    console.info('[game] idle → attract');
+    console.info('[game] return to base → attract');
   }
 
   /* ================================================================== */
@@ -492,130 +423,75 @@ export class GameSystem {
     const bonus = waveBonus(this.wave) * this.scoring.mult;
     this.scoring.addBonus(bonus);
     // NOT resetCombo() here: the kill that cleared the wave may still have a
-    // `BATCH PROCESSED` parked on it. tickCombo runs through the breather, so
+    // multi-kill notice parked on it. tickCombo runs through the breather, so
     // the notice lands and then the window expires on its own.
     this.ctx.events.emit('game:waveClear', { wave: this.wave, bonus });
     this._breather = BREATHER_S; // update() counts this down and starts the next
-    this._startSettleBeat();
-    console.info(`[game] wave ${this.wave} settled +${bonus} — breather ${BREATHER_S}s`);
+    this._startClearBeat();
+    console.info(`[game] wave ${this.wave} held +${bonus} — breather ${BREATHER_S}s`);
   }
 
   /* ================================================================== */
-  /* the settle beat                                                    */
+  /* the wave-clear beat                                                */
   /* ================================================================== */
 
   /**
    * The four-second breather needs a physical moment at the front of it, or the
-   * wave clear is a banner and a number and nothing else. Three cues, all
-   * through other subsystems' PUBLIC APIs, all inside 1.2 s:
+   * wave clear is a banner and a number and nothing else. Two cues, both
+   * through other subsystems' PUBLIC APIs:
    *
-   *   t=0.00  a gold flash at THE LEDGER (fx.lights.flash) — the plaza lights
-   *           up as the books balance. Priority 3 so a stray impact flash can
-   *           not evict it; short decay so it is a pulse, not a lamp.
-   *   t=0.00  player.addCameraShake(0.30) — the sanctioned trauma API. 0.30 is
-   *           roughly a distant explosion: felt, not thrown.
-   *   t=0.06  two small gold confetti bursts, 0.16 s apart, of CHIP/SPLINTER
-   *           tiles on a slow fall. Paper, not a jackpot.
+   *   a short amber pulse high over the square (fx.lights.flash): a signal
+   *   flare popping overhead. Priority 3 so a stray impact flash can not evict
+   *   it; short decay so it is a pulse, not a lamp.
+   *   player.addCameraShake(0.30): roughly a distant explosion. Felt, not thrown.
    *
-   * This is a SETTLE. Restraint is the spec: no screen flash, no full-screen
-   * particles, nothing that competes with the wave banner for the eye.
-   *
-   * `fx.now` is only refreshed inside fx.update(), and the registry runs fx
-   * before game every frame, so `now` is already this frame's elapsed time when
-   * we get here. (Calling from init or an event outside the frame would not be.)
+   * Restraint is the spec: no screen flash, no particles, nothing that competes
+   * with the wave banner or Command's radio line for the eye.
    */
-  _startSettleBeat() {
+  _startClearBeat() {
     if (this.ctx.config?.deterministic) return; // never perturb a capture
     const fx = this.ctx.peek('fx');
     const p = this.ctx.peek('player');
-    const pos = this._ledgerWorldPos();
+    const pos = this._squareWorldPos();
 
     if (fx?.lights?.flash && pos) {
       // (x,y,z, r,g,b, peak, duration, decay, distance, priority)
-      // peak 170 cd sits well under the 420 an explosion asks for — the plaza
-      // lifts, it does not detonate. distance 20 keeps the spill on the
-      // monument and the stone around it.
-      fx.lights.flash(pos.x, pos.y + 1.35, pos.z, GOLD.r, GOLD.g, GOLD.b, 170, 0.55, 4.6, 20, 3);
+      fx.lights.flash(pos.x, pos.y + 9, pos.z, FLARE.r, FLARE.g, FLARE.b, 150, 0.7, 3.8, 26, 3);
     }
     p?.addCameraShake?.(0.3);
-
-    this._settleT = 0;
-    this._settleStep = 0;
-  }
-
-  /** Runs the confetti bursts on the frame clock. Returns nothing, allocates nothing. */
-  _updateSettleBeat(dt) {
-    if (this._settleT < 0) return;
-    this._settleT += dt;
-    if (this._settleStep === 0 && this._settleT >= 0.06) {
-      this._settleStep = 1;
-      this._confetti(0.55);
-    } else if (this._settleStep === 1 && this._settleT >= 0.22) {
-      this._settleStep = 2;
-      this._confetti(0.4);
-    } else if (this._settleStep >= 2 && this._settleT >= 1.2) {
-      this._settleT = -1; // whole beat done well inside the 4s breather
-    }
   }
 
   /**
-   * One restrained gold burst above the Ledger. Count scales with `fx.pScale`
-   * (the quality preset's particle budget) exactly as fx's own emitters do, and
-   * the pool is a ring — emitting never allocates.
+   * Put (or take down) the objective marker on the square: compass pip,
+   * minimap square and the world-space DEFEND marker, all through ui's public
+   * setObjectives(). Called on deploy and on return to the title.
    */
-  _confetti(strength) {
-    const fx = this.ctx.peek('fx');
-    const pos = this._ledgerWorldPos();
-    if (!fx?.emitLit || !pos) return;
-    const rng = this.ctx.rng; // deterministic stream, never Math.random
-    const s = this._spawn;
-    const n = Math.round(16 * (fx.pScale ?? 1) * strength) + 5;
-
-    for (let i = 0; i < n; i++) {
-      const a = rng.float() * 6.283;
-      const r = 0.2 + rng.float() * 0.55;
-      s.x = pos.x + Math.cos(a) * r;
-      s.y = pos.y + 1.1 + rng.float() * 0.4;
-      s.z = pos.z + Math.sin(a) * r;
-      s.vx = Math.cos(a) * (0.6 + rng.float() * 1.5);
-      s.vy = 1.8 + rng.float() * 2.1;
-      s.vz = Math.sin(a) * (0.6 + rng.float() * 1.5);
-      s.tile = i % 3 ? TILE_CHIP : TILE_SPLINTER;
-      s.size0 = 0.055 + rng.float() * 0.05;
-      s.size1 = s.size0 * 0.85; // flakes do not grow
-      s.sizeCurve = 1;
-      s.life = 1.2 + rng.float() * 0.8;
-      s.delay = 0;
-      s.drag = 2.1;      // enough air resistance to flutter rather than arc
-      s.gravity = -2.6;
-      s.rot = rng.float() * 6.283;
-      s.spin = (rng.float() - 0.5) * 7;
-      s.stretch = 0;
-      // Loot Gold ramping to a duller leaf as it falls out of the light. The
-      // lit layer is sun-shaded, so intensity carries the gold through the
-      // plaza's shadow side — without it the flakes read as grey litter.
-      s.r0 = 1.0; s.g0 = 0.74; s.b0 = 0.1; s.i0 = 2.4;
-      s.r1 = 0.5; s.g1 = 0.34; s.b1 = 0.06; s.i1 = 0.9;
-      s.alpha = 0.92;
-      s.alphaCurve = 1.5;
-      s.soft = 0.2;
-      s.turb = 0.22; s.turbFreq = 2.6;
-      s.seed = rng.float();
-      s.flags = 0;
-      fx.emitLit(s);
+  _markSquare(on) {
+    const ui = this.ctx.peek('ui');
+    if (typeof ui?.setObjectives !== 'function') return;
+    const pos = on ? this._squareWorldPos() : null;
+    if (!pos) {
+      ui.setObjectives([]);
+      return;
     }
+    if (!this._squareObj) {
+      // Head height over the square, allocated once per session.
+      this._squareObj = { position: pos.clone(), label: 'A', name: 'DEFEND' };
+      this._squareObj.position.y += 1.6;
+    }
+    ui.setObjectives([this._squareObj]);
   }
 
-  /** THE LEDGER in world space. Resolved once, from world's public transform. */
-  _ledgerWorldPos() {
-    if (this._ledgerPos) return this._ledgerPos;
+  /** The town square in world space. Resolved once, from world's public transform. */
+  _squareWorldPos() {
+    if (this._squarePos) return this._squarePos;
     const world = this.ctx.peek('world');
     if (typeof world?.levelToWorld !== 'function') return null;
     // One allocation, once per session — not a per-frame path.
-    const v = world.levelToWorld(LEDGER_LEVEL_X, 0, LEDGER_LEVEL_Z);
+    const v = world.levelToWorld(SQUARE_LEVEL_X, 0, SQUARE_LEVEL_Z);
     const gy = world.groundHeight?.(v.x, v.z);
     if (Number.isFinite(gy)) v.y = gy;
-    this._ledgerPos = v;
+    this._squarePos = v;
     return v;
   }
 
@@ -631,7 +507,6 @@ export class GameSystem {
     }
 
     if (this._deathBeatUntil && ctx.time.raw >= this._deathBeatUntil) this._endDeathBeat();
-    this._updateSettleBeat(dt);
     this.scoring.tickCombo(dt); // outside every state gate — see Scoring.tickCombo
 
     if (this._god) {
@@ -725,7 +600,7 @@ export class GameSystem {
     const p = this.ctx.peek('player');
     if (p?.respawn) p.respawn(0); // fresh spawn + full heal to base
     if (p?.health) {
-      p.health.max = this._baseMaxHealth * kit.armour; // compliance = max armour
+      p.health.max = this._baseMaxHealth * kit.armour; // CHARLIE: double plating
       p.health.value = p.health.max;
       p.health.dead = false;
     }
@@ -749,7 +624,8 @@ export class GameSystem {
 
   _normaliseJob(job) {
     if (!job) return this._lastJob ?? DEFAULT_JOB;
-    const key = String(job).trim().toLowerCase().replace(/[\s_]+/g, '-');
+    let key = String(job).trim().toLowerCase().replace(/[\s_]+/g, '-');
+    key = LOADOUT_ALIASES[key] ?? key;
     return LOADOUTS[key] ? key : DEFAULT_JOB;
   }
 
@@ -785,19 +661,6 @@ export class GameSystem {
       if (b != null) this._best = Number(b) || 0;
       const w = localStorage.getItem(BEST_WAVE_KEY);
       if (w != null) this._bestWave = Number(w) || 0;
-
-      // One-time migration: an earlier game hosted on this domain stored its high
-      // score under the plain-integer key 'nod_best'. If it beats our best, adopt
-      // it, then drop the legacy key so this runs at most once.
-      const legacy = localStorage.getItem('nod_best');
-      if (legacy != null) {
-        const lv = Number(legacy);
-        if (Number.isFinite(lv) && lv > this._best) {
-          this._best = lv;
-          localStorage.setItem(BEST_KEY, String(this._best));
-        }
-        localStorage.removeItem('nod_best');
-      }
     } catch {
       /* private mode / disabled storage — best stays 0 */
     }
@@ -813,7 +676,7 @@ export class GameSystem {
   }
 
   /* ================================================================== */
-  /* debug API (window.NOD, exactly per contract)                       */
+  /* debug API (window.FLOP)                                      */
   /* ================================================================== */
 
   _snapshot() {
@@ -828,8 +691,12 @@ export class GameSystem {
       aliveEnemies: this._aliveInWave,
       job: this.job,
       durationS: this._runStartedMs ? Math.round((Date.now() - this._runStartedMs) / 1000) : 0,
-      queued: this.leaderboard?.queued ?? 0,
     };
+  }
+
+  /** Local best, for the title screen footer. */
+  bestRecord() {
+    return { score: this._best, wave: this._bestWave };
   }
 
   god(on) {
@@ -858,7 +725,7 @@ export class GameSystem {
   _installDebugApi() {
     const self = this;
     try {
-      window.NOD = {
+      const api = {
         get state() {
           return self._snapshot();
         },
@@ -868,13 +735,12 @@ export class GameSystem {
         skipToWave: (n) => self.skipToWave(n),
         god: (b) => self.god(b),
         killAll: () => self._killAllLive(),
-        // launch-roadmap additions (leaderboard / share / cabinet verification)
         attract: () => self.attract(),
         get lastRun() {
           return self.lastRun;
         },
-        leaderboard: self.leaderboard,
       };
+      window.FLOP = api;
     } catch {
       /* no window (headless build step) — the loop still runs */
     }
@@ -886,7 +752,8 @@ export class GameSystem {
     this._endDeathBeat();
     this._pendingHead.clear();
     try {
-      if (window.NOD) delete window.NOD;
+      if (window.FLOP) delete window.FLOP;
+
     } catch {
       /* ignore */
     }

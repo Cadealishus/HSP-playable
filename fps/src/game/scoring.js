@@ -1,7 +1,7 @@
 /**
- * Arcade scoring: running score, kill count and the streak multiplier.
+ * Scoring: running score, kill count and the streak multiplier.
  *
- * Rules (NERDCON_CONTRACT.md):
+ * Rules:
  *   - kill +100, headshot +150, everything × the current multiplier.
  *   - multiplier climbs +1 for every (3 + mult) kills, capped at ×9.
  *   - it decays one step per 10s without a kill.
@@ -11,15 +11,15 @@
  * This class holds no engine references. It reports changes through the `emit`
  * callback it is constructed with — `emit('score', {score, delta, mult})` /
  * `emit('mult', {mult})` / `emit('multiKill', {count})` — so index.js can
- * forward them onto ctx.events as the canonical game:score / game:mult (and
+ * forward them onto ctx.events as game:score / game:mult (and
  * game:multiKill) without this file knowing about the bus.
  */
 
 import { KILL_SCORE, HEADSHOT_SCORE, MULT_CAP, MULT_DECAY_S } from './waves.js';
 
 /**
- * Double-kill window, seconds. Two kills inside it are `BATCH PROCESSED`
- * (NERDCON_CONTRACT copy bible); a third inside the *same* rolling window keeps
+ * Double-kill window, seconds. Two kills inside it are a multi-kill
+ * (Command notices); a third inside the *same* rolling window keeps
  * extending the run, so a genuine spray-down reports ×3 / ×4 rather than firing
  * three separate double-kill notices.
  */
@@ -27,7 +27,7 @@ const DOUBLE_WINDOW_S = 1.2;
 
 /**
  * Quiet time before a burst is reported. Kills that land on the SAME frame — a
- * grenade, an explosion, NOD.killAll() — would otherwise fire one notice per
+ * grenade, an explosion, FLOP.killAll() — would otherwise fire one notice per
  * kill from the second onward and flood a six-row killfeed. Waiting a beat and
  * reporting the final count instead means a burst is always exactly one line.
  */
@@ -65,7 +65,7 @@ export class Scoring {
 
     // Double kill, evaluated BEFORE the timers reset. The notice is not emitted
     // here: it is parked and reported from tickCombo() once the burst has gone
-    // quiet, so a burst of any size is exactly one `BATCH PROCESSED` line
+    // quiet, so a burst of any size is exactly one multi-kill line
     // carrying its final count.
     this._dblRun = this._dblSince <= DOUBLE_WINDOW_S ? this._dblRun + 1 : 1;
     this._dblSince = 0;
@@ -84,7 +84,7 @@ export class Scoring {
     }
   }
 
-  /** Flat points (wave-clear settle bonus). Caller has already applied ×mult. */
+  /** Flat points (wave-clear bonus). Caller has already applied ×mult. */
   addBonus(points) {
     if (!points) return;
     this.score += points;

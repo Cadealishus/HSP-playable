@@ -1,7 +1,7 @@
 /**
- * HOLD THE LEDGER — wave tuning (pure functions + constants).
+ * OPERATION TOTAL CONFIDENCE — wave tuning (pure functions + constants).
  *
- * The numbers are the contract's (NERDCON_CONTRACT.md, "Game mode spec"); this
+ * The numbers are the original wave-holdout spec; this
  * file is the single place they live so the loop in index.js stays about flow,
  * not arithmetic.
  */

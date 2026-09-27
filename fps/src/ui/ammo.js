@@ -40,7 +40,7 @@ function flashIcon(parent) {
  * Ammo / weapon readout, bottom right.
  *
  *              ▲ 2   ✦ 1     equipment — its OWN row
- *   [AUTO]        RULES ENGINE MK4
+ *   [AUTO]        ASSAULT RIFLE
  *              28 / 210
  *   ▮▮▮▮▮▮▮▮▮▮▯▯▯▯▯▯▯        magazine state, one pip per round
  *
@@ -67,7 +67,7 @@ export class AmmoPanel {
 
     const head = el('div', 'ow-ammo-head', this.root);
     this.mode = el('div', 'ow-ammo-mode', head, 'AUTO');
-    this.name = el('div', 'ow-ammo-name', head, 'RULES ENGINE MK4');
+    this.name = el('div', 'ow-ammo-name', head, 'ASSAULT RIFLE');
 
     const row = el('div', 'ow-ammo-row', this.root);
     this.cur = el('div', 'ow-ammo-cur', row, '30');
@@ -107,7 +107,7 @@ export class AmmoPanel {
       setText(this.cur, ammo);
     }
     setText(this.res, Math.max(0, s.reserve | 0));
-    this._fitName(String(s.weaponName ?? s.name ?? 'RULES ENGINE MK4'));
+    this._fitName(String(s.weaponName ?? s.name ?? 'ASSAULT RIFLE'));
     setText(this.mode, s.fireMode ?? 'AUTO');
 
     this.punch = Math.max(0, this.punch - dt * 6.5);

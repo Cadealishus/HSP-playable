@@ -38,7 +38,7 @@ export class CombatDemo {
     s.magSize = 30;
     s.reloading = false;
     s.reloadProgress = 0;
-    s.weaponName = 'RULES ENGINE MK4';
+    s.weaponName = 'ASSAULT RIFLE';
     s.fireMode = 'AUTO';
     s.lethalCount = 2;
     s.tacticalCount = 1;
@@ -46,12 +46,12 @@ export class CombatDemo {
     s.sprint = false;
     s.crouch = false;
     s.ads = false;
-    // HOLD THE LEDGER run state — mid-run, on a streak.
-    s.mode = 'HOLD THE LEDGER';
+    // Mid-run, on a streak.
+    s.mode = 'OPERATION TOTAL CONFIDENCE';
     s.wave = 3;
     s.score = 18450;
     s.mult = 4;
-    s.waveThreat = 'LEGACY CORE SECURITY';
+    s.waveThreat = 'HOLD THE SQUARE';
     s.simulate = true;
 
     ui.health.hurt = 0.13; // start already bloodied rather than fading in
@@ -59,23 +59,26 @@ export class CombatDemo {
     ui.arcs.clear();
     ui.hit.clear();
     ui.markers.clear();
+    ui.scorePop.clear();
 
     // Killfeed seeded with three rows at different ages so the column shows the
     // full fade ramp instead of three identical rows.
     const seed = [
-      { attacker: 'YOU', victimVariant: 'ENFORCER', victim: 'COBOL', headshot: false, age: 3.2, mine: true },
-      { attacker: 'YOU', victimVariant: 'AUDITOR', victim: 'MAINFRAME', headshot: true, age: 1.9, mine: true },
-      { attacker: 'YOU', victimVariant: 'CONSULTANT', victim: 'T+2', headshot: false, age: 0.55, mine: true },
+      { attacker: 'DOUG', victimVariant: 'RIFLEMAN', victim: 'VIPER 2', headshot: false, age: 3.2, mine: true },
+      { attacker: 'DOUG', victimVariant: 'BREACHER', victim: 'HAMMER', headshot: true, age: 1.9, mine: true },
+      { attacker: 'DOUG', victimVariant: 'GUNNER', victim: 'KEITH', headshot: false, age: 0.55, mine: true },
     ];
     for (const e of seed) {
       const it = ui.killfeed.push(e);
       it.t = e.age;
     }
 
+    // Score callouts under the reticle, staggered so both rows are legible.
+    ui.scorePop.push('HOSTILE NEUTRALISED', 400, 'kill').t = 0.9;
+    ui.scorePop.push('HEADSHOT. NOTED.', 600, 'head').t = 0.25;
+
     ui.setObjectives([
-      { position: new THREE.Vector3(-6.5, 1.4, -2.5), label: 'L', name: 'THE LEDGER' },
-      { position: new THREE.Vector3(15.5, 1.4, -11), label: 'S', name: 'SPAWN' },
-      { position: new THREE.Vector3(-19, 1.4, 25), label: 'V', name: 'VAULT' },
+      { position: new THREE.Vector3(-6.5, 1.4, -2.5), label: 'A', name: 'THE SQUARE' },
     ]);
 
     // Enemy / friendly contacts around the player for the minimap.
@@ -87,9 +90,8 @@ export class CombatDemo {
       { x: 8, z: 22, kind: 'friend', heading: 340 },
     ]);
 
-    // The Ledger is a set piece to defend, not a capture point — no hold-to-%
-    // progress (the real game/ loop is a wave holdout, it ships no such mechanic).
-    ui.setPrompt({ key: 'F', text: 'Defend · The Ledger', sub: 'objective' });
+    // The square is a position to hold, not a capture point — no hold-to-%
+    // progress (the real game/ loop is a wave holdout; it ships no such mechanic).
   }
 
   stop(ui) {
@@ -126,8 +128,8 @@ export class CombatDemo {
         ui.arcs.spawn(-0.72, 0.69, 0.8); // behind-left
         break;
       case 40:
-        ui.banner.show('CARD DECLINED', '+100', 1.6, 'kill');
-        s.score += 100;
+        ui.scorePop.push('HOSTILE NEUTRALISED', 400, 'kill');
+        s.score += 400;
         break;
       case 50:
         ui.markers.spawnGrenade(this._worldPoint(ui, 9, -3.4, -1.3), 2.6);
@@ -139,9 +141,9 @@ export class CombatDemo {
         break;
       case 100:
         ui.killfeed.push({
-          attacker: 'YOU',
-          victimVariant: 'AUDITOR',
-          victim: 'PDF_STMT',
+          attacker: 'DOUG',
+          victimVariant: 'RIFLEMAN',
+          victim: 'LARRY',
           headshot: true,
           mine: true,
         });
@@ -149,7 +151,7 @@ export class CombatDemo {
         break;
       case 128:
         ui.hitmarker('kill');
-        ui.banner.show('SAR FILED', '+150', 1.6, 'kill');
+        ui.scorePop.push('HEADSHOT. NOTED.', 600, 'head');
         ui.damageNumber(this._worldPoint(ui, 13, 1.1, 0.2), 118, 'kill');
         s.score += 150;
         break;
