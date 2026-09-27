@@ -81,6 +81,10 @@ const SLEEP_TIME = 0.6;
  */
 const SWEEP_STEP = 0.05;
 const SWEEP_MARGIN = 0.04;
+/** Attachment-link stiffness: soft enough not to fight the cone limits (a
+ *  stiffer link makes a settled corpse twitch), firm enough that a blast
+ *  stretches a shoulder or hip by at most ~6 cm in flight. */
+const LINK_STIFF = 0.25;
 /** Below this a doll is outside the level; stop simulating it. */
 const KILL_Y = -80;
 /** Per-step velocity retention while airborne (≈ 0.7/s): real air drag on a
@@ -207,6 +211,30 @@ export class Ragdoll {
       if (this.boneLen[i] < 1e-4) this.boneLen[i] = 1e-4;
       this._initUp(i);
     }
+
+    // Attachment links. A rig built from a real skeleton (specFromSkeleton) is
+    // not a clean chain: the upper arms and thighs start at the shoulder / hip
+    // sockets, not at the end of their parent bone, so they share NO particle
+    // with it. Joint separation is then held only by the cone limit, which
+    // constrains direction, not position — harmless at a bullet's shove, but a
+    // blast or a spin tears the limbs off and stretches the skinned mesh into
+    // spikes. So every bone whose head is not one of its parent's particles is
+    // pinned to both of them at its bind-pose distances (a rigid triangle).
+    const links = [];
+    for (let i = 0; i < nb; i++) {
+      const p = this.boneParent[i];
+      if (p < 0) continue;
+      const a = this.boneHead[i];
+      const ph = this.boneHead[p], pt = this.boneTail[p];
+      if (a === ph || a === pt) continue;
+      for (const q of [ph, pt]) {
+        const d = Math.hypot(this.px[q] - this.px[a], this.py[q] - this.py[a], this.pz[q] - this.pz[a]);
+        links.push(a, q, Math.max(1e-4, d));
+      }
+    }
+    this.linkA = Int32Array.from(links.filter((_, k) => k % 3 === 0));
+    this.linkB = Int32Array.from(links.filter((_, k) => k % 3 === 1));
+    this.linkLen = Float64Array.from(links.filter((_, k) => k % 3 === 2));
 
     // skeleton binding (filled by adoptSkeleton)
     this.bones3D = null;
@@ -461,6 +489,26 @@ export class Ragdoll {
       const d = Math.hypot(dx, dy, dz);
       if (d < 1e-9) continue;
       const diff = (d - this.boneLen[i]) / d / w;
+      this.px[a] += dx * diff * wa;
+      this.py[a] += dy * diff * wa;
+      this.pz[a] += dz * diff * wa;
+      this.px[c] -= dx * diff * wc;
+      this.py[c] -= dy * diff * wc;
+      this.pz[c] -= dz * diff * wc;
+    }
+    // attachment links (see constructor)
+    const la = this.linkA, lb = this.linkB, ll = this.linkLen;
+    for (let k = 0; k < la.length; k++) {
+      const a = la[k], c = lb[k];
+      const wa = this.invMass[a], wc = this.invMass[c];
+      const w = wa + wc;
+      if (w === 0) continue;
+      const dx = this.px[c] - this.px[a];
+      const dy = this.py[c] - this.py[a];
+      const dz = this.pz[c] - this.pz[a];
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1e-9) continue;
+      const diff = ((d - ll[k]) / d / w) * LINK_STIFF;
       this.px[a] += dx * diff * wa;
       this.py[a] += dy * diff * wa;
       this.pz[a] += dz * diff * wa;

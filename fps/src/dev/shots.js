@@ -110,7 +110,7 @@ export const SHOTS = {
     fov: 70,
     time: 16.5,
     apply: (e) => e.ctx.peek('ai')?.debugStage?.('flop'),
-    doc: 'Frozen frame 0.27 s after a grenade lands in a squad — ragdolls and rubble mid-air.',
+    doc: 'Frozen frame 0.5 s after a grenade lands in a squad — ragdolls and rubble mid-air (capture with --settle=40).',
   },
   hud: {
     pos: [12, 1.75, 18],

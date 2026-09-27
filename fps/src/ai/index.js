@@ -62,9 +62,9 @@ import { RadioNet, FACTION, callsign } from './radio.js';
 export { CALLSIGNS, FACTION, RADIO } from './radio.js';
 
 /** Frames from detonation to the frozen still in the `flop` capture tableau:
- *  0.37 s at 60 Hz — bodies near the top of their arc, fireball burnt down.
- *  Capture it with --settle >= 30 so the shutter lands after the freeze. */
-const FLOP_FREEZE = 22;
+ *  0.5 s at 60 Hz — bodies at the top of their arc, fireball burnt down.
+ *  Capture it with --settle >= 40 so the shutter lands after the freeze. */
+const FLOP_FREEZE = 30;
 
 export class AiSystem {
   static id = 'ai';
@@ -1293,6 +1293,10 @@ export class AiSystem {
     const pos = this._levelFloor(0.2, 33.0);
     const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.38;
     const a = this.spawn('vanguard', pos, yaw);
+    console.info(
+      `[ai] closeup cam ${cam.position.toArray().map((v) => v.toFixed(2))} fov ${cam.fov} ` +
+        `man ${pos.toArray().map((v) => v.toFixed(2))} d=${cam.position.distanceTo(pos).toFixed(2)}`
+    );
     a.staged = {
       crouch: false,
       speed: 0,
