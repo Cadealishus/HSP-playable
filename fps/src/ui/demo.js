@@ -78,7 +78,7 @@ export class CombatDemo {
     ui.scorePop.push('HEADSHOT. NOTED.', 600, 'head').t = 0.25;
 
     ui.setObjectives([
-      { position: new THREE.Vector3(-6.5, 1.4, -2.5), label: 'A', name: 'THE SQUARE' },
+      { position: new THREE.Vector3(-13, 1.6, 9.5), label: 'A', name: 'DEFEND' },
     ]);
 
     // Enemy / friendly contacts around the player for the minimap.

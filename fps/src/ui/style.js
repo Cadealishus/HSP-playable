@@ -186,7 +186,7 @@ const CSS = `
    it can never be mistaken for health. */
 .ow-vitals {
   position:absolute; left:var(--pad); bottom:var(--pad);
-  width: calc(204px * var(--k));
+  width: calc(220px * var(--k));
   isolation:isolate;
 }
 .ow-vitals::before {
@@ -200,7 +200,7 @@ const CSS = `
   margin-bottom: calc(var(--u) * 1.2);
 }
 .ow-vt-lbl {
-  font-size: calc(11px * var(--k)); letter-spacing:.24em; color: var(--ink-2); font-weight:600;
+  font-size: calc(12.5px * var(--k)); letter-spacing:.22em; color: var(--ink-2); font-weight:600;
   text-shadow: var(--sh-o1);
 }
 .ow-vt-num {
@@ -240,7 +240,7 @@ const CSS = `
   display:flex; align-items:center; gap: calc(var(--u) * 1.6);
   margin-top: calc(var(--u) * 1.6);
 }
-.ow-armour .ow-vt-lbl { color: var(--ink-3); font-size: calc(10px * var(--k)); }
+.ow-armour .ow-vt-lbl { color: var(--ink-2); font-size: calc(11.5px * var(--k)); }
 .ow-arm-plates { display:flex; gap: calc(var(--u) * .8); flex:1; }
 .ow-plate {
   flex:1; height: calc(4px * var(--k));
@@ -513,7 +513,7 @@ const CSS = `
 }
 .ow-mm-tag {
   position:absolute; left:0; top:calc(100% + var(--u) * 1.4); display:flex; gap:calc(var(--u)*1.5);
-  font-size: calc(11px * var(--k)); font-weight:600; letter-spacing:.2em; color:var(--ink-2); text-shadow:var(--sh-o1);
+  font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.18em; color:var(--ink-2); text-shadow:var(--sh-o1);
 }
 
 /* ========================================================= world markers */
