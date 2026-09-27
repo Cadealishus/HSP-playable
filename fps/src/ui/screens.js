@@ -26,6 +26,7 @@ import { el, svg, setText, setStyle, setClass, damp, ease } from './util.js';
 export const LOADOUTS = [
   {
     id: 'alpha',
+    weapon: 'rifle',
     idx: '01',
     code: 'ALPHA',
     name: 'STANDARD ISSUE',
@@ -35,6 +36,7 @@ export const LOADOUTS = [
   },
   {
     id: 'bravo',
+    weapon: 'smg',
     idx: '02',
     code: 'BRAVO',
     name: 'ROOM SERVICE',
@@ -44,6 +46,7 @@ export const LOADOUTS = [
   },
   {
     id: 'charlie',
+    weapon: 'pistol',
     idx: '03',
     code: 'CHARLIE',
     name: 'CONTINGENCY',
@@ -134,13 +137,18 @@ export class AttractScreen {
     el('span', 'ow-lo-hint', lh, 'CLICK OR PRESS 1 – 3 TO DEPLOY');
     const cards = el('div', 'ow-lo-cards', lo);
     this.cards = [];
+    this.kitEls = [];
     LOADOUTS.forEach((L, i) => {
       const card = el('div', 'ow-lo-card', cards);
       const t = el('div', 'ow-lo-top', card);
       el('span', 'ow-lo-idx', t, L.idx);
       el('span', 'ow-lo-code', t, L.code);
+      const tick = el('div', 'ow-lo-tick', card);
+      const ts = svg('svg', { viewBox: '0 0 20 20' }, tick);
+      svg('rect', { x: 0.75, y: 0.75, width: 18.5, height: 18.5, fill: 'none', stroke: '#E9B64A', 'stroke-width': 1.5 }, ts);
+      svg('path', { d: 'M5 10.4 8.4 13.6 15 6.6', fill: 'none', stroke: '#E9B64A', 'stroke-width': 2 }, ts);
       el('div', 'ow-lo-name', card, L.name);
-      el('div', 'ow-lo-kit', card, L.kit);
+      this.kitEls.push(el('div', 'ow-lo-kit', card, L.kit));
       el('div', 'ow-lo-desc', card, L.desc);
       const st = el('div', 'ow-lo-stats', card);
       for (const key in L.stats) {
@@ -149,6 +157,7 @@ export class AttractScreen {
         const bar = el('i', null, r);
         const fill = el('b', null, bar);
         fill.style.transform = `scaleX(${L.stats[key].toFixed(3)})`;
+        el('em', null, r, String(Math.round(L.stats[key] * 100)));
       }
       el('div', 'ow-lo-cta', card, 'DEPLOY');
       card.addEventListener('mouseenter', () => this._focus(i));
@@ -192,6 +201,19 @@ export class AttractScreen {
     if (!this.open || !LOADOUTS[i]) return;
     this._focus(i);
     this.onSelect?.(LOADOUTS[i].id);
+  }
+
+  /**
+   * Weapon designations from src/weapons (`loadoutInfo()` → def.displayName),
+   * so the card reads `HARRIER 556 · ASSAULT RIFLE` from the same source as
+   * the HUD. @param {Array<{id:string, displayName:string}>|null} info
+   */
+  setWeaponNames(info) {
+    if (!Array.isArray(info)) return;
+    LOADOUTS.forEach((L, i) => {
+      const w = info.find((x) => x.id === L.weapon);
+      if (w?.displayName) setText(this.kitEls[i], `${w.displayName} · ${L.kit}`);
+    });
   }
 
   /** Local best, shown bottom-left. @param {{score:number, wave:number}|null} b */

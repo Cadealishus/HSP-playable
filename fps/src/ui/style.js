@@ -45,18 +45,19 @@ const CSS = `
 
   /* ---- palette ---- */
   --ink:   rgba(243,241,235,.96);
-  --ink-2: rgba(232,229,221,.66);
-  --ink-3: rgba(222,218,208,.40);
+  --ink-2: #c4c1ba;
+  --ink-3: #9f9c96;               /* floor for micro-labels: never dimmer */
   --hair:  rgba(255,255,255,.16);
   --hair-2:rgba(255,255,255,.07);
 
-  --acc:    #EDB54C;              /* the one warm accent */
+  --acc:    #E9B64A;              /* the one warm accent (gold) */
   --acc-2:  rgba(237,181,76,.55);
   --acc-3:  rgba(237,181,76,.14);
   --red:    #E4412E;              /* threat, damage, empty */
   --enemy:  #F2654F;              /* threat as TEXT: one step brighter */
   --blood:  #7d100b;
   --friend: #A9C6DC;              /* friendlies: a cool, quiet steel */
+  --hostile:#C4675A;              /* hostile callsigns on the radio: muted red */
   --amber:  var(--acc);           /* caution reads in the accent */
   --plate:  rgba(9,10,11,.50);    /* backing plate for HUD blocks */
 
@@ -106,7 +107,7 @@ const CSS = `
 }
 
 .ow-hud .lbl {
-  font-size: calc(11.5px * var(--k));
+  font-size: max(10px, calc(11.5px * var(--k)));
   letter-spacing: .2em;
   color: var(--ink-2);
   text-shadow: var(--sh);
@@ -200,7 +201,7 @@ const CSS = `
   margin-bottom: calc(var(--u) * 1.2);
 }
 .ow-vt-lbl {
-  font-size: calc(12.5px * var(--k)); letter-spacing:.22em; color: var(--ink-2); font-weight:600;
+  font-size: max(10px, calc(12.5px * var(--k))); letter-spacing:.22em; color: var(--ink-2); font-weight:600;
   text-shadow: var(--sh-o1);
 }
 .ow-vt-num {
@@ -210,7 +211,7 @@ const CSS = `
   will-change: color, transform;
 }
 .ow-vt-num i {
-  font-style:normal; font-family: var(--ff); font-size: calc(13px * var(--k)); font-weight:500;
+  font-style:normal; font-family: var(--ff); font-size: max(10px, calc(13px * var(--k))); font-weight:500;
   color: var(--ink-3); letter-spacing:.08em; margin-left: calc(2px * var(--k));
 }
 .ow-vt-track {
@@ -240,7 +241,7 @@ const CSS = `
   display:flex; align-items:center; gap: calc(var(--u) * 1.6);
   margin-top: calc(var(--u) * 1.6);
 }
-.ow-armour .ow-vt-lbl { color: var(--ink-2); font-size: calc(11.5px * var(--k)); }
+.ow-armour .ow-vt-lbl { color: var(--ink-2); font-size: max(10px, calc(11.5px * var(--k))); }
 .ow-arm-plates { display:flex; gap: calc(var(--u) * .8); flex:1; }
 .ow-plate {
   flex:1; height: calc(4px * var(--k));
@@ -275,13 +276,13 @@ const CSS = `
   column-gap: var(--gut); margin-bottom:calc(var(--u) * 1.2);
 }
 .ow-ammo-name {
-  font-size: calc(14px * var(--k)); letter-spacing:.16em; font-weight:600;
+  font-size: max(10px, calc(14px * var(--k))); letter-spacing:.16em; font-weight:600;
   color: var(--ink); text-shadow: var(--sh-o1);
   white-space:nowrap; overflow:hidden; text-overflow:clip;
   max-width: calc(var(--ammo-w) - 52px * var(--k));
 }
 .ow-ammo-mode {
-  font-size: calc(10.5px * var(--k)); letter-spacing:.18em; color: var(--ink-2); font-weight:600;
+  font-size: max(10px, calc(10.5px * var(--k))); letter-spacing:.18em; color: var(--ink-2); font-weight:600;
   border:1px solid var(--hair); padding: calc(1.5px * var(--k)) calc(4px * var(--k));
   background: rgba(8,9,10,.34);
   text-shadow: var(--sh-hard); white-space:nowrap;
@@ -317,7 +318,7 @@ const CSS = `
 
 .ow-reload {
   margin-top: calc(var(--u) * 1.6);
-  font-size: calc(12px * var(--k)); letter-spacing:.26em; color: var(--acc); font-weight:600;
+  font-size: max(10px, calc(12px * var(--k))); letter-spacing:.26em; color: var(--acc); font-weight:600;
   text-shadow: var(--sh-o1);
 }
 .ow-reload-bar {
@@ -338,7 +339,7 @@ const CSS = `
 }
 .ow-slot svg { width: calc(13px * var(--k)); height: calc(16.5px * var(--k)); display:block;
   filter: drop-shadow(0 0 calc(2px * var(--k)) rgba(0,0,0,.95)); }
-.ow-slot span { font-size: calc(13px * var(--k)); color: var(--ink-2); font-weight:600; text-shadow: var(--sh-o1);
+.ow-slot span { font-size: max(10px, calc(13px * var(--k))); color: var(--ink-2); font-weight:600; text-shadow: var(--sh-o1);
   min-width: calc(7px * var(--k)); text-align:left; }
 .ow-slot.empty { opacity:.34; }
 
@@ -369,7 +370,7 @@ const CSS = `
 .ow-kf-row.mine .ow-kf-a { color: var(--ink); }
 /* Role prefix — RIFLEMAN ▸ before the callsign. Dimmer and a size down so the
    eye lands on the name; the role is context, not the headline. */
-.ow-kf-vv { color: var(--ink-3); letter-spacing:.12em; font-size: calc(12.5px * var(--k)); font-weight:500; }
+.ow-kf-vv { color: var(--ink-3); letter-spacing:.12em; font-size: max(10px, calc(12.5px * var(--k))); font-weight:500; }
 /* Multi-kill note row: your gain, so the accent. */
 .ow-kf-note { color: var(--acc); font-weight:600; letter-spacing:.18em; }
 .ow-kf-row.note { border-right-color: var(--acc); }
@@ -412,7 +413,7 @@ const CSS = `
   font-size: calc(15px * var(--k)); letter-spacing:.08em; font-weight:600;
   color: var(--ink); text-shadow: var(--sh-o1);
 }
-.ow-tick-l.sub { font-size: calc(11px * var(--k)); font-weight:600; color: var(--ink-2);
+.ow-tick-l.sub { font-size: max(10px, calc(11px * var(--k))); font-weight:600; color: var(--ink-2);
   top: calc(3px * var(--k)); }
 .ow-compass-base {
   position:absolute; left:0; right:0; top: calc(18px * var(--k)); height:1px;
@@ -429,7 +430,7 @@ const CSS = `
 }
 .ow-compass-obj {
   position:absolute; top: calc(27px * var(--k)); transform:translateX(-50%);
-  font-size: calc(10.5px * var(--k)); font-weight:700; letter-spacing:.04em;
+  font-size: max(10px, calc(10.5px * var(--k))); font-weight:700; letter-spacing:.04em;
   width: calc(14px * var(--k)); height: calc(14px * var(--k));
   display:flex; align-items:center; justify-content:center;
   color:#15110a; background: var(--acc);
@@ -457,7 +458,7 @@ const CSS = `
 }
 .ow-rb-wave {
   display:flex; align-items:center; gap: calc(var(--u) * 2);
-  font-size: calc(13px * var(--k)); letter-spacing:.22em; color: var(--ink); font-weight:600;
+  font-size: max(10px, calc(13px * var(--k))); letter-spacing:.22em; color: var(--ink); font-weight:600;
 }
 .ow-rb-wave b { color: var(--acc); font-weight:700; letter-spacing:.2em; }
 .ow-rb-wave .thr { color: var(--ink); }
@@ -509,11 +510,11 @@ const CSS = `
 .ow-mm-corner.br::before { bottom:0; right:0; } .ow-mm-corner.br::after { right:0; }
 .ow-mm-n {
   position:absolute; left:50%; top:calc(-15px * var(--k)); transform:translateX(-50%);
-  font-size: calc(11px * var(--k)); font-weight:600; letter-spacing:.2em; color:var(--ink-2); text-shadow:var(--sh);
+  font-size: max(10px, calc(11px * var(--k))); font-weight:600; letter-spacing:.2em; color:var(--ink-2); text-shadow:var(--sh);
 }
 .ow-mm-tag {
   position:absolute; left:0; top:calc(100% + var(--u) * 1.4); display:flex; gap:calc(var(--u)*1.5);
-  font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.18em; color:var(--ink-2); text-shadow:var(--sh-o1);
+  font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.18em; color:var(--ink-2); text-shadow:var(--sh-o1);
 }
 
 /* ========================================================= world markers */
@@ -527,14 +528,14 @@ const CSS = `
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.85)); }
 .ow-mk-letter {
   position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-  font-size: calc(10.5px * var(--k)); color:#15110a; font-weight:700;
+  font-size: max(10px, calc(10.5px * var(--k))); color:#15110a; font-weight:700;
 }
 .ow-mk-dist {
   margin-top: calc(var(--u) * .6);
-  font-size: calc(11.5px * var(--k)); font-weight:600; letter-spacing:.1em; color: var(--ink);
+  font-size: max(10px, calc(11.5px * var(--k))); font-weight:600; letter-spacing:.1em; color: var(--ink);
   text-shadow: var(--sh);
 }
-.ow-mk-name { font-size: calc(10.5px * var(--k)); font-weight:600; letter-spacing:.16em; color: var(--ink-2); text-shadow:var(--sh); }
+.ow-mk-name { font-size: max(10px, calc(10.5px * var(--k))); font-weight:600; letter-spacing:.16em; color: var(--ink-2); text-shadow:var(--sh); }
 .ow-mk.threat .ow-mk-dist { color: var(--red); }
 
 .ow-nade { position:absolute; left:0; top:0; will-change: transform, opacity; }
@@ -551,7 +552,7 @@ const CSS = `
 .ow-nade-core svg { width:100%; height:100%; display:block; filter:drop-shadow(0 1px 2px rgba(0,0,0,.9)); }
 .ow-nade-label {
   position:absolute; left:50%; top:calc(13px * var(--k)); transform:translateX(-50%);
-  font-size: calc(10.5px * var(--k)); font-weight:600; letter-spacing:.22em; color:var(--red); white-space:nowrap;
+  font-size: max(10px, calc(10.5px * var(--k))); font-weight:600; letter-spacing:.22em; color:var(--red); white-space:nowrap;
   text-shadow: var(--sh);
 }
 
@@ -570,7 +571,7 @@ const CSS = `
    Just below-right of the reticle, newest on top. Small on purpose: the
    information is "that counted", not a celebration. */
 .ow-xp {
-  position:absolute; left: calc(50% + 30px * var(--k)); top: calc(50% + 30px * var(--k));
+  position:absolute; left: calc(50% + 40px); top: calc(50% + 24px);
   display:flex; flex-direction:column; align-items:flex-start;
   gap: calc(var(--u) * .5);
 }
@@ -581,7 +582,7 @@ const CSS = `
 }
 .ow-xp-row b { font-family: var(--fd); font-weight:700; font-size: calc(20px * var(--k));
   color: var(--acc); letter-spacing:.02em; min-width: calc(44px * var(--k)); }
-.ow-xp-row span { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.16em; color: var(--ink); }
+.ow-xp-row span { font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.16em; color: var(--ink); }
 .ow-xp-row:not(:first-child) b { color: var(--acc-2); }
 .ow-xp-row:not(:first-child) span { color: var(--ink-2); }
 
@@ -596,14 +597,14 @@ const CSS = `
   min-width: calc(24px * var(--k)); height: calc(24px * var(--k));
   padding: 0 calc(var(--u) * 1.2);
   display:flex; align-items:center; justify-content:center;
-  font-size: calc(13px * var(--k)); font-weight:700; letter-spacing:.04em;
+  font-size: max(10px, calc(13px * var(--k))); font-weight:700; letter-spacing:.04em;
   border: 1px solid rgba(255,255,255,.55); border-radius: calc(2px * var(--k));
   background: rgba(9,10,11,.45);
   box-shadow: 0 1px 3px rgba(0,0,0,.7);
   text-shadow: var(--sh-hard);
 }
-.ow-prompt-txt { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.18em; text-shadow: var(--sh-o1); }
-.ow-prompt-sub { font-size: calc(11px * var(--k)); font-weight:600; letter-spacing:.2em; color:var(--ink-2); text-shadow: var(--sh-o1); }
+.ow-prompt-txt { font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.18em; text-shadow: var(--sh-o1); }
+.ow-prompt-sub { font-size: max(10px, calc(11px * var(--k))); font-weight:600; letter-spacing:.2em; color:var(--ink-2); text-shadow: var(--sh-o1); }
 .ow-prompt-arc { position:absolute; left:calc(-6px * var(--k)); top:50%; }
 
 /* ================================================================ banner
@@ -629,7 +630,7 @@ const CSS = `
 }
 .ow-banner-s {
   margin-top: calc(var(--u) * 1.8);
-  font-size: calc(14px * var(--k)); letter-spacing:.28em; color: var(--acc); font-weight:600;
+  font-size: max(10px, calc(14px * var(--k))); letter-spacing:.28em; color: var(--acc); font-weight:600;
   text-shadow: var(--sh-o1);
 }
 .ow-banner.threat .ow-banner-s { color: var(--enemy); }
@@ -653,7 +654,8 @@ const CSS = `
 .ow-radio-line {
   display:inline-block;
   padding: calc(var(--u) * 1.6) calc(var(--u) * 3.6);
-  background: rgba(6,7,8,.62);
+  max-width: 62ch;
+  background: rgba(0,0,0,.85);
   font-family: var(--fs); text-transform:none; letter-spacing:.005em;
   font-size: calc(21px * var(--k)); font-weight:450; line-height:1.4; color: var(--ink);
   text-shadow: 0 1px 2px rgba(0,0,0,.6);
@@ -663,7 +665,8 @@ const CSS = `
   font-size: calc(19px * var(--k)); letter-spacing:.12em; color: var(--acc);
   margin-right: calc(var(--u) * 2.5);
 }
-.ow-radio-line.doug .ow-radio-who { color: var(--friend); }
+.ow-radio-line.hostile .ow-radio-who { color: var(--hostile); }
+.ow-radio-line.hostile { color: var(--ink-2); }
 
 /* ================================================================== menu */
 .ow-menu {
@@ -685,7 +688,7 @@ const CSS = `
   text-shadow: 0 2px 6px rgba(0,0,0,.8);
 }
 .ow-menu .sub {
-  margin-top: calc(var(--u) * 1.6); font-size: calc(12px * var(--k)); font-weight:600;
+  margin-top: calc(var(--u) * 1.6); font-size: max(10px, calc(12px * var(--k))); font-weight:600;
   letter-spacing:.26em; color: var(--acc);
 }
 .ow-menu .rule {
@@ -697,14 +700,14 @@ const CSS = `
   gap: calc(var(--u) * 4); padding: calc(var(--u) * 3.2) 0;
   border-bottom: 1px solid var(--hair-2);
 }
-.ow-row > .name { font-size: calc(13.5px * var(--k)); font-weight:600; letter-spacing:.18em; color: var(--ink); }
-.ow-row > .val { font-family: var(--fd); font-size: calc(14px * var(--k)); font-weight:600; color: var(--acc);
+.ow-row > .name { font-size: max(10px, calc(13.5px * var(--k))); font-weight:600; letter-spacing:.18em; color: var(--ink); }
+.ow-row > .val { font-family: var(--fd); font-size: max(10px, calc(14px * var(--k))); font-weight:600; color: var(--acc);
   letter-spacing:.04em; min-width: calc(46px * var(--k)); text-align:right; }
 .ow-seg { display:flex; gap:0; }
 .ow-seg button {
   appearance:none; border:1px solid var(--hair); border-right:0; background:rgba(255,255,255,.03);
   color: var(--ink-2); font-family:var(--ff); font-weight:600; text-transform:uppercase;
-  font-size: calc(12px * var(--k)); letter-spacing:.14em;
+  font-size: max(10px, calc(12px * var(--k))); letter-spacing:.14em;
   padding: calc(var(--u) * 1.3) calc(var(--u) * 2.2);
   cursor:pointer; position:relative; transition: color .12s, background .12s;
 }
@@ -732,7 +735,7 @@ const CSS = `
 .ow-btn {
   appearance:none; border:1px solid var(--hair); background: rgba(255,255,255,.05);
   color: var(--ink); font-family: var(--ff); font-weight:600; text-transform:uppercase;
-  font-size: calc(14px * var(--k)); letter-spacing:.16em;
+  font-size: max(10px, calc(14px * var(--k))); letter-spacing:.16em;
   padding: calc(var(--u) * 2.6) calc(var(--u) * 6);
   cursor:pointer; transition: background .12s, border-color .12s, color .12s;
 }
@@ -740,7 +743,7 @@ const CSS = `
 .ow-btn.primary { background: var(--acc); border-color: var(--acc); color:#15110a; }
 .ow-btn.primary:hover { background:#f6c870; border-color:#f6c870; }
 .ow-menu .hint {
-  margin-top: calc(var(--u) * 4); font-size: calc(11px * var(--k)); font-weight:600;
+  margin-top: calc(var(--u) * 4); font-size: max(10px, calc(11px * var(--k))); font-weight:600;
   letter-spacing:.18em; color: var(--ink-3);
 }
 
@@ -751,15 +754,17 @@ const CSS = `
 .ow-attract {
   position:absolute; inset:0; pointer-events:auto; overflow:hidden; cursor:default;
   background:
-    linear-gradient(0deg, rgba(8,8,8,.92) 0%, rgba(8,8,8,.62) 26%, rgba(8,8,8,0) 52%),
-    linear-gradient(90deg, rgba(8,8,8,.9) 0%, rgba(8,8,8,.74) 30%, rgba(8,8,8,.22) 60%, rgba(8,8,8,.08) 100%);
+    linear-gradient(0deg, rgba(0,0,0,.86) 0%, rgba(0,0,0,.55) 28%, rgba(0,0,0,0) 54%),
+    linear-gradient(90deg, rgba(0,0,0,.70) 0%, rgba(0,0,0,.70) 38%, rgba(0,0,0,.28) 62%, rgba(0,0,0,.06) 100%);
+  -webkit-backdrop-filter: blur(7px) saturate(.85);
+          backdrop-filter: blur(7px) saturate(.85);
   color: var(--ink);
   opacity:0; will-change:opacity;
 }
 .ow-att-top {
   position:absolute; left: calc(var(--u) * 18); right: calc(var(--u) * 18); top: calc(var(--u) * 9);
   display:flex; align-items:center; justify-content:space-between;
-  font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.28em; color: var(--ink);
+  font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.28em; color: var(--ink);
 }
 .ow-att-unit { display:flex; align-items:center; gap: calc(var(--u) * 2.5); }
 .ow-crest { width: calc(22px * var(--k)); height: calc(22px * var(--k)); color: var(--acc); display:block; }
@@ -780,7 +785,7 @@ const CSS = `
 .ow-att-rule { width: calc(72px * var(--k)); height: calc(4px * var(--k)); background: var(--acc);
   margin: calc(var(--u) * 7) 0 calc(var(--u) * 6); }
 .ow-ms-head { display:flex; align-items:center; gap: calc(var(--u) * 2.5);
-  font-size: calc(13px * var(--k)); font-weight:600; letter-spacing:.3em; }
+  font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; }
 .ow-ms-tag { color: var(--acc); }
 .ow-ms-tag.dim { color: var(--ink-3); }
 .ow-ms-sep { width:1px; height: calc(12px * var(--k)); background: var(--hair); }
@@ -794,7 +799,7 @@ const CSS = `
   padding-top: calc(var(--u) * 4); border-top: 1px solid var(--hair);
   align-items:baseline;
 }
-.ow-ms-grid .k { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.22em; color: var(--ink-2); }
+.ow-ms-grid .k { font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.22em; color: var(--ink-2); }
 .ow-ms-grid .v { font-family: var(--fs); text-transform:none; letter-spacing:0;
   font-size: calc(17px * var(--k)); line-height:1.35; color: var(--ink); font-weight:400; }
 
@@ -804,10 +809,10 @@ const CSS = `
 }
 .ow-lo-head {
   display:flex; align-items:baseline; justify-content:space-between;
-  font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink);
+  font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--ink);
   margin-bottom: calc(var(--u) * 3);
 }
-.ow-lo-hint { font-size: calc(13.5px * var(--k)); letter-spacing:.2em; color: var(--ink-2); }
+.ow-lo-hint { font-size: max(10px, calc(13.5px * var(--k))); letter-spacing:.2em; color: var(--ink-2); }
 .ow-lo-cards { display:grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 3); }
 .ow-lo-card {
   position:relative; cursor:pointer; text-align:left;
@@ -824,24 +829,32 @@ const CSS = `
 .ow-lo-card.on::before { background: var(--acc); }
 .ow-lo-top { display:flex; align-items:baseline; gap: calc(var(--u) * 2.5); }
 .ow-lo-idx { font-family: var(--fd); font-weight:600; font-size: calc(15px * var(--k)); color: var(--ink-3); }
-.ow-lo-code { font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink-2); }
+.ow-lo-code { font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--ink-2); }
 .ow-lo-card.on .ow-lo-code { color: var(--acc); }
 .ow-lo-name { font-family: var(--fd); font-weight:600; font-size: calc(32px * var(--k));
   letter-spacing:.05em; line-height:1; margin: calc(var(--u) * 2.5) 0 calc(var(--u) * 1.4); }
-.ow-lo-kit { font-size: calc(14px * var(--k)); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
+.ow-lo-kit { font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
 .ow-lo-desc { font-family: var(--fs); text-transform:none; letter-spacing:0; font-weight:400;
   font-size: calc(15px * var(--k)); line-height:1.4; color: var(--ink-2);
   margin: calc(var(--u) * 3) 0 calc(var(--u) * 3.5); min-height: calc(42px * var(--k)); }
 .ow-lo-stats { display:grid; gap: calc(var(--u) * 1.6); }
-.ow-lo-stat { display:grid; grid-template-columns: calc(104px * var(--k)) 1fr; align-items:center;
-  font-size: calc(12.5px * var(--k)); font-weight:600; letter-spacing:.16em; color: var(--ink-2); }
-.ow-lo-stat i { display:block; height: calc(3px * var(--k)); background: rgba(255,255,255,.10); position:relative; }
+.ow-lo-stat { display:grid; grid-template-columns: calc(104px * var(--k)) 1fr calc(30px * var(--k)); align-items:center;
+  column-gap: calc(var(--u) * 2);
+  font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.16em; color: var(--ink-2); }
+.ow-lo-stat i { display:block; height:3px; position:relative; }
+.ow-lo-stat i::before { content:''; position:absolute; left:0; right:0; top:1px; height:1px; background:#333; }
 .ow-lo-stat b { position:absolute; inset:0; background: var(--ink-2); transform-origin:left center; }
+.ow-lo-stat em { font-style:normal; text-align:right; color: var(--ink-2); font-family: var(--fd); letter-spacing:.02em; }
+.ow-lo-card.on .ow-lo-stat em { color: var(--ink); }
+.ow-lo-tick { position:absolute; right: calc(var(--u) * 4); top: calc(var(--u) * 4.5);
+  width: calc(20px * var(--k)); height: calc(20px * var(--k)); display:none; }
+.ow-lo-tick svg { width:100%; height:100%; display:block; }
+.ow-lo-card.on .ow-lo-tick { display:block; }
 .ow-lo-card.on .ow-lo-stat b { background: var(--ink); }
 .ow-lo-cta {
   margin-top: calc(var(--u) * 4); padding-top: calc(var(--u) * 3);
   border-top: 1px solid var(--hair-2);
-  font-size: calc(13px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink-3);
+  font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--ink-3);
 }
 .ow-lo-card.on .ow-lo-cta { color: var(--acc); }
 .ow-lo-card.on .ow-lo-cta::after { content:'  ▸'; }
@@ -849,7 +862,7 @@ const CSS = `
 .ow-att-foot {
   position:absolute; left: calc(var(--u) * 18); right: calc(var(--u) * 18); bottom: calc(var(--u) * 8);
   display:flex; justify-content:space-between; align-items:baseline;
-  font-size: calc(13.5px * var(--k)); font-weight:600; letter-spacing:.22em;
+  font-size: max(10px, calc(13.5px * var(--k))); font-weight:600; letter-spacing:.22em;
 }
 .ow-att-best { color: var(--ink-2); white-space:pre; }
 .ow-att-build { color: var(--ink-2); }
@@ -860,7 +873,7 @@ const CSS = `
   display:flex; align-items:center; justify-content:center;
   color: var(--ink); opacity:0; will-change:opacity;
 }
-.ow-sc-kicker { font-size: calc(13px * var(--k)); font-weight:600; letter-spacing:.34em; color: var(--ink-3); }
+.ow-sc-kicker { font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.34em; color: var(--ink-3); }
 .ow-sc-title {
   font-family: var(--fd); font-weight:700; letter-spacing:.08em; line-height:.95;
   font-size: calc(44px * var(--k)); margin: calc(var(--u) * 2.5) 0; color: var(--ink);
@@ -874,7 +887,7 @@ const CSS = `
 .ow-sc-ghost {
   appearance:none; background:transparent; border:1px solid var(--hair);
   color: var(--ink-2); font-family: var(--ff); font-weight:600; text-transform:uppercase;
-  font-size: calc(14px * var(--k)); letter-spacing:.16em;
+  font-size: max(10px, calc(14px * var(--k))); letter-spacing:.16em;
   padding: calc(var(--u) * 2.6) calc(var(--u) * 6); cursor:pointer;
   transition: color .12s, border-color .12s;
 }
@@ -921,7 +934,7 @@ const CSS = `
   content:''; position:absolute; left:-1px; right:-1px; top:-1px; height: calc(4px * var(--k)); background: var(--acc);
 }
 .ow-rp-head { display:flex; justify-content:space-between; align-items:baseline;
-  font-size: calc(13px * var(--k)); font-weight:600; letter-spacing:.3em;
+  font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em;
   padding-bottom: calc(var(--u) * 4); border-bottom: 1px solid var(--hair); }
 .ow-rp-kicker { color: var(--acc); }
 .ow-rp-op { color: var(--ink-3); }
@@ -932,7 +945,7 @@ const CSS = `
   color: var(--acc); line-height:.9;
 }
 .ow-rp-unit { font-size: calc(15px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--ink-3); }
-.ow-sc-delta { font-size: calc(13.5px * var(--k)); font-weight:600; letter-spacing:.2em; color: var(--ink-2);
+.ow-sc-delta { font-size: max(10px, calc(13.5px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2);
   margin: calc(var(--u) * 2.5) 0 calc(var(--u) * 7); }
 .ow-sc-delta.miss { color: var(--enemy); }
 .ow-screen.best .ow-sc-title { color: var(--acc); }
@@ -941,12 +954,12 @@ const CSS = `
   margin: 0 0 calc(var(--u) * 7);
 }
 .ow-sc-stat { border-top:1px solid var(--hair); padding-top: calc(var(--u) * 2.5); }
-.ow-sc-stat .k { font-size: calc(11.5px * var(--k)); font-weight:600; letter-spacing:.2em; color: var(--ink-3); }
+.ow-sc-stat .k { font-size: max(10px, calc(11.5px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-3); }
 .ow-sc-stat .v { font-family: var(--fd); font-weight:600; font-size: calc(34px * var(--k));
   color: var(--ink); margin-top: calc(var(--u) * 1.2); letter-spacing:.02em; line-height:1; }
 .ow-rp-assess { padding: calc(var(--u) * 5) calc(var(--u) * 6); background: rgba(255,255,255,.035);
   border-left: calc(2px * var(--k)) solid var(--acc); margin-bottom: calc(var(--u) * 8); }
-.ow-rp-lbl { font-size: calc(12px * var(--k)); font-weight:600; letter-spacing:.3em; color: var(--acc);
+.ow-rp-lbl { font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc);
   margin-bottom: calc(var(--u) * 3); }
 .ow-rp-assess p { font-family: var(--fs); text-transform:none; letter-spacing:0; font-weight:400;
   font-size: calc(16px * var(--k)); line-height:1.5; color: var(--ink-2); }
