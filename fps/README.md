@@ -1,31 +1,28 @@
-# NERD OF DUTY
+# FLOP OPS
 
-**A FINTECH NERDCON GAME**
+**A legitimate modern military shooter trapped inside an increasingly stupid universe.**
 
-![Nerd of Duty — dusk over the plaza](docs/hero.png)
+A browser FPS about Doug, an absurdly capable special-operations soldier, and the Extra Special Forces (ESF), who are sent on dangerous missions with ridiculous plans and maximum confidence. The presentation is completely serious. The plans are not.
 
-A browser FPS about defending fintech from the enemy it still hasn't beaten: the legacy core.
+Desktop, mouse and keyboard. One click to deploy. Runs fully offline.
 
-**Play it now: [nerd-of-duty.vercel.app](https://nerd-of-duty.vercel.app)** on desktop with a mouse. One click to deploy.
+## Mission 01: OPERATION TOTAL CONFIDENCE
 
-## HOLD THE LEDGER
+ESF has been ordered to hold the town square of a war-torn border town "for as long as it takes". Command has estimated this at "about a wave". Waves of hostiles escalate until Doug goes down.
 
-The gold Ledger stands in the plaza. LEGACY CORE SECURITY, the private security force of Legacy Core Banking (est. 1959), wants it back. Waves escalate until you fall.
+- Kills score `HOSTILE NEUTRALISED +100`, headshots `HEADSHOT. NOTED. +150`, all through a streak multiplier that climbs to ×9 and only fully resets when Doug goes down.
+- Clear a wave, take the wave bonus, and listen to Command revise its estimate during a four-second breather.
+- When `DOUG IS DOWN`, you may `REQUEST ONE (1) MORE CHANCE` once per run. After that, Command files an after-action report.
+- Command talks to you over the radio throughout. Doug replies in four words or fewer.
+- Your best score and best wave are kept locally in the browser.
 
-- Kills score `CARD DECLINED +100`, headshots `SAR FILED +150`, all through a chain multiplier that climbs to ×9 and only fully resets when you die.
-- Clear a wave, bank the settle bonus, catch your breath for four seconds.
-- Death means `INSUFFICIENT FUNDS`. You get one `FILE A DISPUTE — CONTINUE` per run. After that, the run is settled.
-- Your best score and best wave persist locally. The game remembers what you did last quarter.
+## Loadouts
 
-![Title screen](docs/title.png)
-
-## Jobs
-
-| Job | Loadout | Trade-off |
+| Loadout | Kit | Command's notes |
 |---|---|---|
-| **FRAUD ANALYST** | RULES ENGINE MK4 (rifle) | The all-rounder. Pattern recognition at 800 RPM. |
-| **PAYMENTS ENGINEER** | VELOCITY-9 (SMG) | Fast, loud, occasionally sprays outside the spec. |
-| **COMPLIANCE OFFICER** | SIDECAR (pistol) + max armour | One calibre, zero exceptions, hardest to kill. |
+| **ALPHA · STANDARD ISSUE** | Assault rifle | Accurate at range. Command's first choice, and also its second. |
+| **BRAVO · ROOM SERVICE** | Submachine gun | High rate of fire. Recommended for rooms, corridors and disagreements. |
+| **CHARLIE · CONTINGENCY** | Sidearm, double plating | One pistol, twice the armour. Command calls it a contingency. Doug calls it a pistol. |
 
 ## Controls
 
@@ -43,21 +40,17 @@ The gold Ledger stands in the plaza. LEGACY CORE SECURITY, the private security 
 | `F` | Use |
 | `G` | Grenade |
 | `1` `2` `Tab` | Swap weapon |
-| `Esc` | Release cursor |
+| `Esc` | Pause / release cursor |
+
+On the title screen, `1`–`3` deploys with a loadout directly.
 
 ## Under the hood
 
-Nerd of Duty is a fork of [mshumer/Claude-of-Duty](https://github.com/mshumer/Claude-of-Duty) (MIT), a ~55k-line three.js FPS in which every asset is procedural. Geometry, textures, audio and animation are all generated at load time. There are no art files in this repo, and the only runtime dependency is `three`.
+A three.js FPS in which every asset is procedural: geometry, textures, audio and animation are all generated at load time, and the only runtime dependency is `three`. The only binary assets are the two UI typefaces (Barlow Condensed and Inter, SIL Open Font License, self-hosted in `src/ui/fonts/`).
 
-The NerdCon conversion kept the engine and added:
-
-- `src/game/`: the HOLD THE LEDGER wave loop, scoring, and continue flow
-- Arcade Terminal UI: the [Fintech NerdCon](https://fintechnerdcon.com) brand system as a HUD
-- LEGACY CORE SECURITY: retextured enemy faction with killfeed callsigns (`COBOL`, `BATCH`, `FAX`, `T+2`…)
-- Fintech world dressing: MT-103 CAFÉ, KYC BODEGA, STABLECOIN LIQUORS, and the Ledger monument
-- A dusk blue-hour grade, because compliance deadlines land at end of day
-
-The conversion itself was agent-built: contract-first fleets with single-owner subsystems, adversarial verifier passes, and a deterministic screenshot harness (`tools/capture.mjs`) gating every change. `ARCHITECTURE.md` and `NERDCON_CONTRACT.md` are the law the agents worked under.
+- `src/game/`: the wave loop, scoring, the continue flow and local best-score persistence. No network code.
+- `src/ui/`: the HUD, the title and loadout screens, the death and report screens, and Command's radio subtitles (`src/ui/radio.js`).
+- `docs/FLOP_OPS.md`: the creative bible. `ARCHITECTURE.md`: the engine contract every subsystem works under.
 
 ## Development
 
@@ -68,14 +61,12 @@ npm run build    # production build → dist/
 npm run shot     # deterministic captures (tools/capture.mjs --list for shots)
 ```
 
-Debug API in the console: `window.NOD` (`state`, `start(job)`, `skipToWave(n)`, `god(true)`, `killAll()`).
+Debug API in the console: `window.FLOP` (`state`, `start('alpha'|'bravo'|'charlie')`, `skipToWave(n)`, `god(true)`, `killAll()`, `continueRun()`, `restart()`).
 
-## Fintech NerdCon
+## Credits
 
-**NOV 19–20 · SAN DIEGO · [FINTECHNERDCON.COM](https://fintechnerdcon.com)**
-
-The conference for people who read bank rails documentation for fun. The game is the warm-up.
+Flop Ops is built on **Nerd of Duty**, which is itself a fork of **[Claude of Duty](https://github.com/mshumer/Claude-of-Duty)** by mshumer. Both are released under the MIT License, which this project keeps; see `LICENSE`.
 
 ## License
 
-MIT. Original engine and game by [Matt Shumer](https://github.com/mshumer). Thank you for open-sourcing something this good. NerdCon conversion by Fintech NerdCon.
+MIT. See `LICENSE`. The bundled typefaces are under the SIL Open Font License 1.1; see `src/ui/fonts/`.

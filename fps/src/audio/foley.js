@@ -770,7 +770,7 @@ export function uiSound(actx, bank, rng, kind, o = {}) {
       break;
     }
 
-    /* --- HOLD THE LEDGER wave stingers ----------------------------- */
+    /* --- wave-loop stingers ----------------------------------------- */
 
     case 'wave_start': {
       // Escalating minor arpeggio (root, m3, 5, octave), each step louder and
@@ -805,11 +805,11 @@ export function uiSound(actx, bank, rng, kind, o = {}) {
     }
 
     case 'wave_clear': {
-      // The settle chime. This one plays every single wave, so it has to stay
+      // The wave-clear chime. This one plays every single wave, so it has to stay
       // welcome after fifty hearings: a major arpeggio (root, M3, 5, octave) on
       // triangles — the `kill` chime's family, a register down so a wave clear
       // reads bigger than a single kill — top note left ringing, plus two
-      // struck bell partials for the gold. Coin-adjacent, not a slot machine:
+      // struck bell partials on top. Restrained, not a slot machine:
       // it resolves and stops instead of trilling.
       const root = 392;                     // G4
       const steps = [0, 4, 7, 12];
@@ -831,7 +831,7 @@ export function uiSound(actx, bank, rng, kind, o = {}) {
         { f: 2640, q: 26, g: 0.075 * lvl, decay: 0.4 },
         { f: 3960, q: 22, g: 0.042 * lvl, decay: 0.26 },
       ], 0.0035).connect(out);
-      // Low root underneath: the "settled" weight the bonus number lands on.
+      // Low root underneath: the weight the bonus number lands on.
       const b = osc(actx, 'sine', root * 0.5);
       const bg = gain(actx, 0);
       b.connect(bg); bg.connect(out);
@@ -842,9 +842,9 @@ export function uiSound(actx, bank, rng, kind, o = {}) {
     }
 
     case 'run_over': {
-      // INSUFFICIENT FUNDS. A descending minor figure that lands on a flat,
+      // DOUG IS DOWN. A descending minor figure that lands on a flat,
       // detuned low dyad and sags a few cents while the lowpass shuts — the
-      // sound of a terminal declining you. Deliberately NOT the cartoon
+      // sound of a plan not working. Deliberately NOT the cartoon
       // trombone: no glissando, no vibrato, nothing funny about it.
       const root = 392;
       const steps = [0, -3, -8];

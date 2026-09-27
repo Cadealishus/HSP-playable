@@ -127,8 +127,8 @@ export const BARKS = {
    * jitter: authority, not panic. Combat barks are the opposite of all four.
    * -------------------------------------------------------------------- */
 
-  /* "LEGACY CORE INBOUND" — 3 + 3, phrase break before the noun, lifts into
-     "CORE" and lands flat. The announcer is reading a status board. */
+  /* "HOSTILES INBOUND, SQUARE" — 3 + 3, phrase break before the noun, lifts
+     in the middle and lands flat. Command is reading a status board. */
   pa_wave: {
     f0: 0.92, drive: 0.8, breath: 0.1, jitter: 0.006, syl: [
       { v: 'e', d: 0.15, a: 0.9, p: 1.0, g: 0.02 },
@@ -140,7 +140,7 @@ export const BARKS = {
     ],
   },
 
-  /* "WAVE SETTLED — STAND BY" — opens on the stressed long vowel, sags through
+  /* "SQUARE HOLDING — STAND BY" — opens on the stressed long vowel, sags through
      the middle, resolves down. This is the breather beat: it must sound relieved
      without sounding cheerful. */
   pa_settled: {
@@ -153,7 +153,7 @@ export const BARKS = {
     ],
   },
 
-  /* "RUN SETTLED — CLEAR THE FLOOR" — slower than the other two, a full tone
+  /* "OPERATION CONCLUDED — STAND DOWN" — slower than the other two, a full tone
      lower, and the last syllable drops away instead of landing. The verdict. */
   pa_over: {
     f0: 0.82, drive: 0.7, breath: 0.16, jitter: 0.004, syl: [

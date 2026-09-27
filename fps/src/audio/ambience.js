@@ -130,10 +130,7 @@ export class Ambience {
     this._timers.gust = r.range(4, 14);
     this._timers.volley = r.range(3, 11);
     this._timers.boom = r.range(14, 44);
-    // Tighter than the war-zone original: the conference district's one-shot
-    // table is mostly crowd and PA, and those need to arrive often enough to
-    // read as a continuous population rather than as punctuation.
-    this._timers.oneshot = r.range(3, 12);
+    this._timers.oneshot = r.range(5, 17);
     this._timers.chatter = r.range(18, 50);
   }
 
@@ -172,7 +169,7 @@ export class Ambience {
 
     T.oneshot -= dt;
     if (T.oneshot <= 0) {
-      T.oneshot = r.range(4.5, 14);
+      T.oneshot = r.range(6, 20);
       api?.oneShot?.();
     }
 
@@ -213,33 +210,24 @@ export class Ambience {
 /* Positioned ambient one-shots                                       */
 /* ------------------------------------------------------------------ */
 
-/** Every one-shot the synth can build. Order is not significance — see WEIGHTS. */
-export const ONE_SHOTS = [
-  'dog', 'siren', 'creak', 'settle', 'birds', 'vehicle', 'heli', 'shout',
-  'pa_chime', 'crowd_murmur', 'badge_beep',
-];
-
 /**
- * Relative pick weights for the scheduler.
- *
- * This is a conference district at dusk, not a war zone: the thing you should
- * hear most is fifteen hundred people in a hall you cannot see. `dog` and
- * `siren` are city-at-war tells and read wrong here, so they are pushed down
- * near the floor rather than deleted — the capability stays, and a single
- * distant siren every few minutes is exactly right for downtown San Diego.
+ * The scheduler's one-shot table: a war-damaged border town, mostly empty.
+ * The synth can also build 'pa_chime', 'crowd_murmur' and 'badge_beep' (see
+ * ambientOneShot); they are not in the table because nothing in this town has
+ * a PA system, a crowd or a door that beeps.
  */
+export const ONE_SHOTS = ['dog', 'siren', 'creak', 'settle', 'birds', 'vehicle', 'heli', 'shout'];
+
+/** Relative pick weights for the scheduler. */
 export const ONE_SHOT_WEIGHTS = {
-  crowd_murmur: 5.0,   // the bed of the whole district
-  pa_chime: 2.4,       // the plaza PA clearing its throat somewhere else
-  vehicle: 2.0,
-  birds: 1.6,
-  shout: 1.2,
-  settle: 1.2,
-  creak: 1.0,
-  badge_beep: 0.8,     // rare by design: a scanner at a door you walked past
-  heli: 0.8,
-  siren: 0.5,
-  dog: 0.35,
+  settle: 1.4,   // rubble and roof tin shifting
+  creak: 1.2,
+  vehicle: 1.2,
+  shout: 1.1,
+  birds: 1.0,
+  dog: 1.0,
+  heli: 1.0,
+  siren: 0.8,
 };
 
 /** Metres from the listener a one-shot is placed at: [min, max]. */
@@ -248,7 +236,7 @@ export const ONE_SHOT_RANGE = {
   heli: [90, 260],
   siren: [120, 300],
   pa_chime: [45, 150],
-  crowd_murmur: [28, 70],   // "a room of 1500 people at 40 m"
+  crowd_murmur: [28, 70],
   badge_beep: [6, 22],      // a door, not a skyline
 };
 

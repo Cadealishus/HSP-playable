@@ -584,7 +584,7 @@ export class AudioSystem {
     // Emitted by `ai` from real intent (spot / reload / grenade / flank / copy).
     on('ai:bark', (p) => this.bark(p?.kind ?? 'spot', p?.position, { voice: p?.voice ?? 0 }));
 
-    /* ---- HOLD THE LEDGER: the PA announcer ------------------------ */
+    /* ---- the wave loop: Command's radio call ----------------------- */
     // The UI plays the stinger on these same events; we answer it with the
     // voice a beat later. `game:waveClear` opens the 4 s breather, which is the
     // only window in the run where a two-second announcement can breathe.
@@ -828,8 +828,8 @@ export class AudioSystem {
     if (!this.running) return;
     const rng = this.rng;
     const lp = this.field.listenerPos;
-    // Weighted, not uniform: this is a conference district, so crowd and PA
-    // dominate and the city-at-war tells sit near the floor. See ambience.js.
+    // Weighted, not uniform: a war-damaged town, mostly rubble settling and
+    // distant traffic. See ambience.js.
     const which = pickOneShot(rng);
     const far = ONE_SHOT_FAR.has(which);
     const range = ONE_SHOT_RANGE[which] ?? ONE_SHOT_RANGE.default;
@@ -903,7 +903,7 @@ export class AudioSystem {
     for (const w of ONE_SHOTS) {
       this._playAt('ambient', lp.x + 20, lp.y + 2, lp.z - 20, { which: w, level: 0.6 }, 'ambience', 0.1);
     }
-    // HOLD THE LEDGER: the wave stingers as the ui subsystem fires them, and
+    // The wave loop: the wave stingers as the ui subsystem fires them, and
     // all three PA calls (forced past their own cooldown).
     for (const k of ['wave_start', 'wave_clear', 'run_over']) this.ui(k, 0.8);
     for (const k of ['wave', 'waveClear', 'over']) this.announce(k, { force: true, delay: 0 });

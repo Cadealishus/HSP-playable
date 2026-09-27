@@ -682,6 +682,7 @@ export class UiSystem {
       this._pin = 'title';
       this.attract.setBest({ score: 18450, wave: 4 });
       this.attract.show(true);
+      this.hudVisible = 0;
       return { state: 'title' };
     }
     if (!this.demo) this.demo = new CombatDemo();
