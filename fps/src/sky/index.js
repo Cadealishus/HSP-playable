@@ -186,7 +186,7 @@ export class SkySystem {
        * a warm cast and a bright aureole and to lift the horizon, not so much
        * that the zenith goes milky.
        */
-      turbidity: 1.75,
+      turbidity: 1.45,
       /** Fewer, deeper cumulus. Below ~0.34 the deck breaks into discrete
        *  masses with clean blue between them instead of one lumpy sheet. */
       cloudCoverage: 0.30,
@@ -228,11 +228,11 @@ export class SkySystem {
        * volumetrics.js) rather than grey — distance reads as colour temperature,
        * which is how it reads in a photograph.
        */
-      // Dust in the air: a little denser than a clean-air street so the far end
-      // of the street and the gate lift and warm, still keeping ~90% of a 60 m
-      // facade's own light.
-      scatter: 4.0e-3, // 1/m at the fog base
-      extinction: 1.7e-3, // 1/m at the fog base
+      // Light dust in the air. Kept UNDER the clean-air values: haze that lifts
+      // the whole frame washes out the directional shadows, and the depth
+      // layering has to come from crisp sun/shade breaks first, haze second.
+      scatter: 2.8e-3, // 1/m at the fog base
+      extinction: 1.25e-3, // 1/m at the fog base
       /**
        * 18 m of e-folding, not 30. Dust and exhaust settle: the bottom of a
        * street is measurably hazier than roof height, and that vertical
@@ -261,7 +261,7 @@ export class SkySystem {
        * Kept well under the key gain: the shafts are all contrast, and a strong
        * ambient term is exactly what washes that contrast out.
        */
-      ambientGain: 0.22,
+      ambientGain: 0.18,
       noise: 0.55,
       noiseScale: 0.045,
       phaseForward: 0.76,
@@ -848,6 +848,11 @@ export class SkySystem {
     // stays inside the part of the tone curve that still has a gradient in it.
     this.exposureBias =
       1.35 * (1 - THREE.MathUtils.smoothstep(altDeg, 1.0, 13.0)) * beamAlive +
+      // A third of a stop down in full afternoon sun: the meter averages a
+      // frame that is half sunlit plaster and half shade, and exposing for that
+      // average lifts the shade into a milky wash. Holding it down keeps the
+      // sunlit faces off the shoulder and the shadows crisp and directional.
+      0.33 * THREE.MathUtils.smoothstep(altDeg, 8.0, 18.0) * beamAlive +
       // ...and half a stop after dark. The meter is (correctly) weighted onto
       // the geometry, and once the only key is a moon plus twenty-two sodium
       // lamps it opens up until a midnight street reads as an overcast evening.
