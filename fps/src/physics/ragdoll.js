@@ -70,9 +70,38 @@ export function humanoidSpec(height = 1.8, scaleMass = 82) {
 
 /* ------------------------------------------------------------------ */
 
-const MAX_PARTICLE_STEP = 0.35; // metres per fixed step, anti-explosion clamp
+const MAX_PARTICLE_STEP = 0.2; // metres per fixed step (24 m/s), anti-explosion clamp
 const SLEEP_MOTION = 0.0022;
 const SLEEP_TIME = 0.6;
+/**
+ * Continuous-collision threshold: a particle travelling further than this in
+ * one fixed step (6 m/s) is swept against the world with a ray, because the
+ * discrete capsule contact only sees walls thinner than the step it jumps.
+ * Below it the capsule radius already covers the travel.
+ */
+const SWEEP_STEP = 0.05;
+const SWEEP_MARGIN = 0.04;
+/** Below this a doll is outside the level; stop simulating it. */
+const KILL_Y = -80;
+/** Per-step velocity retention while airborne (≈ 0.7/s): real air drag on a
+ *  tumbling body is small, so a launched doll carries its arc instead of
+ *  floating to a stop mid-air the way the old ground-tuned 0.985 made it. */
+const AIR_DAMPING = 0.997;
+
+/**
+ * FLOP OPS blast response — "too much force", tuned so it reads as comedy and
+ * never as a bug. Velocities in m/s at the blast centre, falling off linearly
+ * to `minFalloff` at the rim (the rim still lifts you a little). With
+ * gravity -20.6 a doll at the centre peaks ~2.7 m up and lands ~4 m out,
+ * cartwheeling; MAX_PARTICLE_STEP, the swept contacts and gravity bound it.
+ */
+export const BLAST = {
+  speed: 7.0,
+  lift: 10.5,
+  spin: 6.5,
+  minFalloff: 0.25,
+  maxStrength: 1.5,
+};
 
 let _nextRagdollId = 1;
 
@@ -92,6 +121,13 @@ export class Ragdoll {
     this.iterations = opts.iterations ?? 6;
     this.mask = opts.mask ?? MASK.DEBRIS;
     this.linearDamping = opts.damping ?? 0.985;
+    this.airDamping = opts.airDamping ?? AIR_DAMPING;
+    /** Swing-limit correction stiffness (see limp()). */
+    this.coneStiff = 0.65;
+    /** Dev: a frozen doll keeps its pose and skips simulation (capture stills). */
+    this.frozen = false;
+    this._touching = true;
+    this._hit = { hit: false, t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0, tri: -1 };
     this.friction = opts.friction ?? 0.72;
     this.userData = opts.userData ?? null;
     this.actor = opts.actor ?? null;
@@ -260,17 +296,90 @@ export class Ragdoll {
     this.wake();
   }
 
+  /** Add a uniform velocity change (m/s) to every particle. */
+  addVelocity(vx, vy, vz, dt = 1 / 120) {
+    for (let i = 0; i < this.particleCount; i++) {
+      this.qx[i] -= vx * dt;
+      this.qy[i] -= vy * dt;
+      this.qz[i] -= vz * dt;
+    }
+    this.wake();
+  }
+
+  /**
+   * Add a rigid spin of `w` rad/s about the axis (ax, ay, az) through the
+   * centre of mass: v_i = w·axis × (p_i − com). Momentum-free, so it tumbles
+   * the body without moving it.
+   */
+  addSpin(ax, ay, az, w, dt = 1 / 120) {
+    const al = Math.hypot(ax, ay, az);
+    if (al < 1e-9 || w === 0) return;
+    const k = (w / al) * dt;
+    ax *= k; ay *= k; az *= k;
+    let cx = 0, cy = 0, cz = 0, m = 0;
+    for (let i = 0; i < this.particleCount; i++) {
+      const im = this.invMass[i];
+      if (im === 0) continue;
+      const pm = 1 / im;
+      cx += this.px[i] * pm; cy += this.py[i] * pm; cz += this.pz[i] * pm; m += pm;
+    }
+    if (m <= 0) return;
+    cx /= m; cy /= m; cz /= m;
+    for (let i = 0; i < this.particleCount; i++) {
+      const rx = this.px[i] - cx, ry = this.py[i] - cy, rz = this.pz[i] - cz;
+      // q -= (omega x r) * dt
+      this.qx[i] -= ay * rz - az * ry;
+      this.qy[i] -= az * rx - ax * rz;
+      this.qz[i] -= ax * ry - ay * rx;
+    }
+    this.wake();
+  }
+
+  /**
+   * Soften the joints: 0 keeps the stock swing-limit stiffness, 1 all but
+   * removes it. Bone lengths and world contacts are untouched, so a limp doll
+   * folds further but can never stretch or sink into the floor.
+   */
+  limp(k) {
+    const c = k < 0 ? 0 : k > 1 ? 1 : k;
+    this.coneStiff = 0.65 * (1 - 0.7 * c);
+  }
+
+  /**
+   * Launch the whole doll away from a blast at (x, y, z): bulk velocity out
+   * and up plus a cartwheel about the horizontal axis perpendicular to the
+   * throw, so the legs are swept out from under it. `strength` 1 is a frag
+   * grenade. Deterministic (the tumble magnitude is derived from the id).
+   */
+  blast(x, y, z, radius, strength = 1) {
+    const b = this.aabb;
+    const cx = (b.minx + b.maxx) * 0.5, cy = (b.miny + b.maxy) * 0.5, cz = (b.minz + b.maxz) * 0.5;
+    let dx = cx - x, dz = cz - z;
+    const dh = Math.hypot(dx, dz);
+    if (dh > 1e-3) { dx /= dh; dz /= dh; } else { dx = 0; dz = 1; }
+    const d = Math.hypot(cx - x, cy - y, cz - z);
+    if (d > radius) return;
+    const s = Math.min(BLAST.maxStrength, Math.max(0, strength));
+    const f = Math.max(BLAST.minFalloff, 1 - d / Math.max(0.1, radius)) * s;
+    this.addVelocity(dx * BLAST.speed * f, BLAST.lift * f, dz * BLAST.speed * f);
+    const vary = 0.7 + 0.6 * (((this.id * 2654435761) >>> 0) / 4294967296);
+    this.addSpin(-dz, 0, dx, -BLAST.spin * f * vary);
+  }
+
   wake() {
     this.sleeping = false;
     this.sleepTimer = 0;
   }
 
   step(dt) {
-    if (!this.alive || this.sleeping) return;
+    if (!this.alive || this.sleeping || this.frozen) return;
     this.age += dt;
     const n = this.particleCount;
     const g = this.gravity * dt * dt;
-    const damp = this.linearDamping;
+    // Ground-tuned damping only while something is touching the world; in the
+    // air the doll keeps its arc (see AIR_DAMPING).
+    const damp = this._touching ? this.linearDamping : this.airDamping;
+    this._touching = false;
     let motion = 0;
 
     // --- Verlet integration ---
@@ -293,6 +402,11 @@ export class Ragdoll {
       motion += vx * vx + vy * vy + vz * vz;
     }
 
+    // --- continuous collision on the predicted positions (see _sweep) ---
+    // Before the solve, so the constraints below always start from particles
+    // on the correct side of every wall and can repair bone lengths after it.
+    this._sweep();
+
     // --- Gauss-Seidel constraint solve ---
     for (let it = 0; it < this.iterations; it++) {
       this._solveDistance();
@@ -302,9 +416,21 @@ export class Ragdoll {
     // One self-collision pass per step: enough to stop an arm sinking through
     // the chest, cheap enough to run on every corpse on screen.
     this._solveSelf();
+    // A hard landing ends the loop on a contact push; one last length pass
+    // stops the light neck/head pair visibly squashing for a frame (a 10 m/s
+    // head-first landing otherwise shortens the neck by ~4 cm for 2-3 steps).
+    this._solveDistance();
+    // ...and a second sweep after it, because the solve itself can drag a
+    // particle across a thin partition (a limb pulled through by the body).
+    this._sweep();
 
     this._transportUp();
     this._updateAabb();
+    if (this.aabb.maxy < KILL_Y) {
+      // fell out of the level: park it rather than integrate for ever
+      this.sleeping = true;
+      return;
+    }
 
     // --- sleep ---
     const avg = motion / Math.max(1, n);
@@ -400,7 +526,7 @@ export class Ragdoll {
       const tz = az * ca + cross_z * sa + kz * kdot * (1 - ca);
 
       // desired tail position, blended for stability
-      const stiff = 0.65;
+      const stiff = this.coneStiff;
       const gx = this.px[a] + tx * bl;
       const gy = this.py[a] + ty * bl;
       const gz = this.pz[a] + tz * bl;
@@ -432,6 +558,7 @@ export class Ragdoll {
         r, this.mask, 0
       );
       if (n === 0) continue;
+      this._touching = true;
       const cts = w.contacts;
       let pushx = 0, pushy = 0, pushz = 0;
       let fric = 0.7;
@@ -479,6 +606,38 @@ export class Ragdoll {
         this._frictionAt(a, pushx, pushy, pushz, mu);
         this._frictionAt(c, pushx, pushy, pushz, mu);
       }
+    }
+  }
+
+  /**
+   * Continuous collision for fast particles. The contact pass above is
+   * discrete: a particle that crosses a wall thinner than its own step in one
+   * tick is never seen overlapping it, and the next contact pass then pushes it
+   * out on the far side. So any particle that moved more than SWEEP_STEP this
+   * step is ray-cast from where it was to where it is; on a hit it is put back
+   * on the near side and its normal velocity is removed (the body splats and
+   * slides down the wall instead of passing through it).
+   */
+  _sweep() {
+    const w = this.world;
+    if (!w || w.triCount === 0) return;
+    const hit = this._hit;
+    for (let i = 0; i < this.particleCount; i++) {
+      const ox = this.qx[i], oy = this.qy[i], oz = this.qz[i];
+      let dx = this.px[i] - ox, dy = this.py[i] - oy, dz = this.pz[i] - oz;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < SWEEP_STEP) continue;
+      dx /= len; dy /= len; dz /= len;
+      if (!w.raycast(ox, oy, oz, dx, dy, dz, len + SWEEP_MARGIN, this.mask, hit)) continue;
+      const adv = Math.max(0, hit.t - SWEEP_MARGIN);
+      const nx = ox + dx * adv, ny = oy + dy * adv, nz = oz + dz * adv;
+      // remaining velocity, minus its into-the-wall component
+      let vx = this.px[i] - ox, vy = this.py[i] - oy, vz = this.pz[i] - oz;
+      const vn = vx * hit.nx + vy * hit.ny + vz * hit.nz;
+      if (vn < 0) { vx -= hit.nx * vn; vy -= hit.ny * vn; vz -= hit.nz * vn; }
+      this.px[i] = nx; this.py[i] = ny; this.pz[i] = nz;
+      this.qx[i] = nx - vx * 0.5; this.qy[i] = ny - vy * 0.5; this.qz[i] = nz - vz * 0.5;
+      this._touching = true;
     }
   }
 

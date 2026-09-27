@@ -227,61 +227,66 @@ function bakeDetail(size, fn, aniso, normalScale = 1) {
  */
 export const CLOTH_TILE = 0.78;
 
-/**
- * LEGACY CORE SECURITY faction cloth. The keys keep their old names (the three
- * variants still reference `arid`/`woodland`/`urban` in soldier.js) but the
- * families are re-hued to one coherent private-security wardrobe, distinguished
- * by VALUE tier rather than pattern so the three read as one company:
- *
- *   arid     → ENFORCER    cool graphite / gunmetal, mid value  (mean 0.088)
- *   woodland → CONSULTANT  cool dark-greige, a hair the lightest (mean 0.088)
- *   urban    → AUDITOR     neutral near-black, the darkest        (mean 0.062)
- *
- * The two-scale blotch machinery is untouched — it still supplies the surface
- * value variation the quality bar demands (no flat slabs), just in low-chroma
- * corporate greys instead of camo tan/olive. `budget` is the mean the finished
- * map is remapped onto (see CLOTH_BUDGET); the five families only set hue+ratio.
- */
 export const CAMO = {
+  // family luminances: pale 0.335 / base 0.275 / mid 0.205 / dark 0.125 /
+  // olive 0.19 — a 2.7:1 macro value ratio inside the 0.18-0.32 window real
+  // printed multicam occupies, with the dark blotches allowed below it. The
+  // families are the *pattern*; `budget` is what the finished map is remapped
+  // onto (see CLOTH_BUDGET), so these five numbers only set hue and ratio.
   arid: {
-    // ENFORCER: charcoal gunmetal — neutral grey with only a whisper of cool
-    budget: 0.088,
-    pale: [0.314, 0.318, 0.328],
-    base: [0.242, 0.246, 0.256],
-    mid: [0.176, 0.180, 0.190],
-    dark: [0.102, 0.105, 0.113],
-    olive: [0.152, 0.155, 0.162],
+    // desert multicam is the pale one: it gets the top of the window
+    budget: 0.104,
+    pale: [0.382, 0.318, 0.212],
+    base: [0.320, 0.256, 0.163],
+    mid: [0.241, 0.186, 0.116],
+    dark: [0.146, 0.111, 0.072],
+    olive: [0.176, 0.190, 0.116],
+    macro: 2,
+    warp: 0.15,
+  },
+  woodland: {
+    // olive drab in the field sits well under desert tan
+    budget: 0.092,
+    pale: [0.354, 0.340, 0.230],
+    base: [0.246, 0.259, 0.170],
+    mid: [0.174, 0.190, 0.126],
+    dark: [0.104, 0.110, 0.083],
+    olive: [0.210, 0.196, 0.132],
+    macro: 3,
+    warp: 0.17,
+  },
+  urban: {
+    // wolf grey / near-black urban kit: the darkest of the three, and the one
+    // that reads as a plaster mannequin if it is allowed anywhere near 0.2
+    budget: 0.083,
+    pale: [0.330, 0.334, 0.342],
+    base: [0.226, 0.230, 0.239],
+    mid: [0.150, 0.154, 0.163],
+    dark: [0.078, 0.079, 0.088],
+    olive: [0.190, 0.188, 0.182],
     macro: 2,
     warp: 0.14,
   },
-  woodland: {
-    // CONSULTANT: cool dark-greige. Neutralised from the old warm business
-    // greige/taupe, which read as tan and dissolved into the sand street; the
-    // families are now faintly COOL (B >= R) and the mean is pulled from 0.112
-    // down onto the corporate charcoal band so all three variants share one
-    // dark value. Kept a hair lighter than ENFORCER so the bare-headed
-    // silhouette still separates by relative tone.
-    budget: 0.088,
-    pale: [0.316, 0.320, 0.330],
-    base: [0.236, 0.240, 0.250],
-    mid: [0.166, 0.169, 0.177],
-    dark: [0.100, 0.102, 0.109],
-    olive: [0.196, 0.199, 0.207],
-    macro: 3,
-    warp: 0.16,
-  },
-  urban: {
-    // AUDITOR: neutral near-black heavy armour, the darkest kit in the faction
-    budget: 0.074,
-    pale: [0.258, 0.260, 0.264],
-    base: [0.173, 0.175, 0.180],
-    mid: [0.120, 0.121, 0.125],
-    dark: [0.073, 0.074, 0.078],
-    olive: [0.137, 0.138, 0.141],
-    macro: 2,
-    warp: 0.13,
-  },
 };
+
+/**
+ * Field-worn fabric. Printed camo straight off the bolt is far more saturated
+ * than anything that has spent a season in the sun and the dust: the dyes
+ * bleach, the grime settles into the weave, and at combat range a patrol reads
+ * as a set of desaturated earth greys with only a lean toward tan or olive.
+ * Each family is pulled `CAMO_DESAT` of the way toward its own Rec.709
+ * luminance, so the value structure (and therefore `budget`) is untouched and
+ * only the chroma drops. Urban kit is already neutral and barely moves.
+ */
+export const CAMO_DESAT = { arid: 0.34, woodland: 0.3, urban: 0.1 };
+export function desaturate(c, k) {
+  const l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+  return [c[0] + (l - c[0]) * k, c[1] + (l - c[1]) * k, c[2] + (l - c[2]) * k];
+}
+for (const [name, fam] of Object.entries(CAMO)) {
+  const k = CAMO_DESAT[name] ?? 0;
+  for (const key of ['pale', 'base', 'mid', 'dark', 'olive']) fam[key] = desaturate(fam[key], k);
+}
 
 /**
  * Distance from the centre of a repeating cell, in cell units: 0 on the line,
@@ -953,39 +958,6 @@ export class SoldierMaterials {
     // bloom into the sky, not enough to kill the sheen that makes it read glass.
     this._attachShader(m, null, 0.5);
     this.materials.set('glass', m);
-    return m;
-  }
-
-  /**
-   * LEGACY CORE SECURITY faction accent — Boss Magenta (#FF2D78) trim: helmet
-   * stripes, plate edges, the consultant's tie, the auditor's visor. A single
-   * shared material (like glass), keyed 'accent'. It reuses the plate set's
-   * normal + roughness so the trim is not a flat slab, carries a modest emissive
-   * so the thin band still reads as THREAT at gameplay distance (and catches the
-   * scene bloom), and takes the edge-darkening term at 0.6× so it stays bright
-   * without blooming into the sky at a silhouette. Values are linear working
-   * space, matching how the variant tints are authored.
-   */
-  accent() {
-    let m = this.materials.get('accent');
-    if (m) return m;
-    const set = this.sets.plate;
-    m = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(0.85, 0.030, 0.220),
-      emissive: new THREE.Color(0.92, 0.055, 0.305),
-      emissiveIntensity: 0.7,
-      normalMap: set.normal,
-      roughnessMap: set.orm,
-      metalnessMap: set.orm,
-      roughness: 0.6,
-      metalness: 0.0,
-      vertexColors: true,
-      dithering: true,
-    });
-    m.normalScale.set(0.6, 0.6);
-    m.name = 'ai_accent';
-    this._attachShader(m, null, 0.6);
-    this.materials.set('accent', m);
     return m;
   }
 

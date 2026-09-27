@@ -259,20 +259,43 @@ export class RigidBodyWorld {
     this.bodies.length = 0;
   }
 
-  /** Wake and shove everything inside a blast radius. */
-  applyRadialImpulse(x, y, z, radius, strength) {
+  /**
+   * Wake and shove everything inside a blast radius. `strength` is the
+   * velocity change (m/s) at the centre, independent of mass (a blast moves a
+   * magazine and a crate lid the same way; light props already read as
+   * lighter because they tumble faster). `spin` adds a tumble (rad/s at the
+   * centre) and `maxSpeed` caps the result so nothing is sent to orbit.
+   */
+  applyRadialImpulse(x, y, z, radius, strength, spin = 0, maxSpeed = Infinity) {
     const r2 = radius * radius;
     for (const b of this.bodies) {
+      if (b.invMass === 0) continue;
       const dx = b.position.x - x, dy = b.position.y - y, dz = b.position.z - z;
       const d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > r2) continue;
       const d = Math.sqrt(d2) || 1e-4;
+      // softer than quadratic so the rim of the blast still visibly moves things
       const falloff = 1 - d / radius;
-      const j = strength * falloff * falloff * b.mass;
+      const f = falloff * (0.5 + 0.5 * falloff);
+      const j = strength * f * b.mass;
       b.applyImpulse(
-        (dx / d) * j, (dy / d) * j + j * 0.35, (dz / d) * j,
+        (dx / d) * j, (dy / d) * j + j * 1.1, (dz / d) * j,
         b.position.x + dx * 0.05, b.position.y + dy * 0.05, b.position.z + dz * 0.05
       );
+      if (spin > 0) {
+        // tumble about the horizontal axis perpendicular to the throw, with a
+        // per-body twist so a pile of props does not rotate in lockstep
+        const w = spin * f;
+        const h = Math.hypot(dx, dz) || 1;
+        const tw = ((b.id * 0.618034) % 1) - 0.5;
+        b.angularVelocity.x += (-dz / h) * w;
+        b.angularVelocity.y += tw * w;
+        b.angularVelocity.z += (dx / h) * w;
+      }
+      const v = b.linearVelocity.length();
+      if (v > maxSpeed) b.linearVelocity.multiplyScalar(maxSpeed / v);
+      b.sleeping = false;
+      b.sleepTimer = 0;
     }
   }
 

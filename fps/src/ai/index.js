@@ -34,7 +34,9 @@
  * EVENTS consumed: weapon:fire, bullet:impact, damage:dealt, explosion,
  *   player:footstep
  * EVENTS emitted: weapon:fire (enemy muzzle), weapon:shell, bullet:tracer,
- *   damage:dealt (enemy hitting the player), actor:death
+ *   damage:dealt (enemy hitting the player), actor:death, ai:bark (audio),
+ *   ai:radio { enemy, kind: 'spot'|'cover'|'grenade'|'mandown', text } — a
+ *   short deadpan radio line for the UI to subtitle (see radio.js)
  */
 
 import * as THREE from 'three';
@@ -45,18 +47,16 @@ import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
+import { RadioNet, FACTION, callsign } from './radio.js';
 
 /**
- * LEGACY CORE SECURITY killfeed callsigns (NERDCON_CONTRACT copy bible). Assigned
- * per soldier in spawn(); once the pool is exhausted it recycles with a numeric
- * suffix (COBOL, …, LEDGERLOCK, COBOL-2, BATCH-2, …). The UI killfeed reads the
- * agent's `.name` straight off the `damage:dealt` / `actor:death` payloads, so a
- * name on the Agent IS the display name — no separate provider needed.
+ * Enemy names live in radio.js: FACTION (the opposing force's name for the UI),
+ * CALLSIGNS (killfeed, assigned per soldier in spawn(), recycled as GARY II,
+ * GARY III ...) and the RADIO subtitle lines. The UI killfeed reads the agent's
+ * `.name` / `.variantDisplay` straight off the `damage:dealt` / `actor:death`
+ * payloads, so a name on the Agent IS the display name.
  */
-export const CALLSIGNS = [
-  'COBOL', 'BATCH', 'FAX', 'MAINFRAME', 'T+2',
-  'MT-103', 'MICR', 'IVR', 'PDF_STMT', 'LEDGERLOCK',
-];
+export { CALLSIGNS, FACTION, RADIO } from './radio.js';
 
 export class AiSystem {
   static id = 'ai';
@@ -89,6 +89,10 @@ export class AiSystem {
     this.forcePopulate = false;
     /** running index into CALLSIGNS for the killfeed display name */
     this._callsignSeq = 0;
+    /** The opposing force, for UI copy: `{ name, short }`. */
+    this.faction = FACTION;
+    /** Enemy radio net: emits `ai:radio { enemy, kind, text }` for subtitles. */
+    this.radio = new RadioNet(ctx);
     /** hard ceiling on concurrent live actors, so a runaway caller can never
      *  blow the frame budget. The game self-limits waves well under this. */
     this.maxAlive = 20;
@@ -117,6 +121,8 @@ export class AiSystem {
       flashScale: 0.8,
     };
     this._shellEvent = { position: new THREE.Vector3(), velocity: new THREE.Vector3() };
+    /** scratch blast descriptor handed to Agent.applyDamage by explosions */
+    this._blast = { position: null, radius: 6, strength: 1 };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
     this._grenades = [];
     this._grenadeGeo = null;
@@ -355,7 +361,12 @@ export class AiSystem {
         const f = 1 - d / radius;
         this._v.copy(a.position).sub(e.position).normalize();
         a.suppress(1.4 * f);
-        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v);
+        // `blast` rides along so a kill launches the doll from the charge
+        // (physics has already shoved everything that was dead before it)
+        this._blast.position = e.position;
+        this._blast.radius = radius;
+        this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
+        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast);
       }
     });
 
@@ -493,15 +504,12 @@ export class AiSystem {
   }
 
   /**
-   * Next killfeed callsign from the contract pool, recycling with a numeric
-   * suffix once exhausted. Public so a peer can pre-read the next name if needed;
+   * Next killfeed callsign from the pool (radio.js), recycling with a regnal
+   * number once exhausted. Public so a peer can pre-read the next name if needed;
    * normally callers just spawn and read `agent.name`.
    */
   nextCallsign() {
-    const i = this._callsignSeq++;
-    const base = CALLSIGNS[i % CALLSIGNS.length];
-    const cycle = (i / CALLSIGNS.length) | 0;
-    return cycle === 0 ? base : `${base}-${cycle + 1}`;
+    return callsign(this._callsignSeq++);
   }
 
   /**
@@ -574,7 +582,7 @@ export class AiSystem {
   }
 
   /* ================================================================== */
-  /* wave interface (HOLD THE LEDGER) — called by `src/game`            */
+  /* wave interface — called by `src/game`                             */
   /* ================================================================== */
 
   /**
@@ -691,7 +699,7 @@ export class AiSystem {
   }
 
   /**
-   * Retire the oldest settled corpses so a long HOLD THE LEDGER run cannot grow
+   * Retire the oldest settled corpses so a long wave run cannot grow
    * `this.agents` (and its ragdolls) without bound. Only bodies that have been
    * down long enough to have finished their death beat are disposed; the most
    * recent `keep` are always left on the ground.
@@ -840,6 +848,7 @@ export class AiSystem {
     const phys = this.phys;
     if (!phys) return;
     agent.bark('grenade');
+    agent.radio('grenade');
     this._ensureGrenade();
     const mesh = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
     this.root.add(mesh);

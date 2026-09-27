@@ -24,6 +24,28 @@ import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
 
+/**
+ * FLOP OPS death tuning. Deaths are the comedy; the physics stays honest.
+ * Impulses are N·s multipliers on the round's own, velocities are m/s.
+ */
+export const DEATH = {
+  /** body/limb hits: a touch more shove than the sim-accurate 1.0 */
+  bodyMul: 1.25,
+  /** headshots snap the head back and fold the body over it */
+  headshotMul: 2.1,
+  headshotLift: 1.2,
+  /** joint looseness: wider limits than the old 74°/38° */
+  cone: 84,
+  twist: 46,
+  /** 0..1 softening of the swing-limit correction (0 = rigid, 1 = rag) */
+  limp: 0.3,
+  /** the rare theatrical death */
+  dramaticChance: 0.05,
+  dramaticSpin: 11.0,
+  dramaticHop: 2.4,
+  dramaticLimp: 0.55,
+};
+
 const STATE = {
   IDLE: 'idle',
   PATROL: 'patrol',
@@ -99,7 +121,7 @@ export class Agent {
     const def = ai.variant(this.variantName);
     this.def = def;
     this.scale = def.variant.scale ?? 1;
-    /** Themed faction name for UI (killfeed etc), e.g. "AUDITOR". See
+    /** Rank shown by the UI killfeed, e.g. "RIFLEMAN". See
      *  VARIANTS[name].display in soldier.js — runtime id stays `variantName`. */
     this.variantDisplay = def.variant.display ?? this.variantName.toUpperCase();
 
@@ -409,6 +431,11 @@ export class Agent {
     this.ctx.events.emit('ai:bark', { kind, agent: this, position: this.position, voice: this.id });
   }
 
+  /** Say a subtitle line on the enemy radio net (`ai:radio`, see radio.js). */
+  radio(kind, about = null) {
+    return this.ai.radio?.say(this, kind, about) ?? null;
+  }
+
   /* ================================================================== */
   /* behaviour                                                          */
   /* ================================================================== */
@@ -513,6 +540,7 @@ export class Agent {
     // (target briefly lost then reacquired), so it never repeats within a few
     // seconds of the first shout.
     this.bark('spot');
+    this.radio('spot');
   }
 
   _combat(dt) {
@@ -576,6 +604,9 @@ export class Agent {
     const atCover = this.cover
       ? this.position.distanceTo(this.coverPos) < 0.85
       : false;
+    // arriving in cover (not every peek shuffle inside it) is the radio beat
+    if (atCover && !this._inCover) this.radio('cover');
+    this._inCover = atCover;
 
     if (this.cover && !atCover) {
       // moving into position: run, weapon down, no shooting
@@ -872,7 +903,7 @@ export class Agent {
    * @param point   world impact point
    * @param dir     incident direction (unit)
    */
-  applyDamage(amount, part, point, dir) {
+  applyDamage(amount, part, point, dir, blast = null) {
     if (!this.alive) return;
     this.health -= amount;
     this.alertness = 1;
@@ -888,7 +919,7 @@ export class Agent {
     if (this.state === STATE.IDLE || this.state === STATE.PATROL) this._setState(STATE.ALERT);
 
     if (this.health <= 0) {
-      this.die(point, dir, amount);
+      this.die(point, dir, amount, part, blast);
       return;
     }
     this.bark('hurt');
@@ -910,7 +941,15 @@ export class Agent {
     return dx * Math.cos(this.yaw) - dz * Math.sin(this.yaw);
   }
 
-  die(point, dir, amount = 30) {
+  /**
+   * @param point   world hit point (defaults to the chest)
+   * @param dir     incident direction (defaults to +Z)
+   * @param amount  the killing blow's damage
+   * @param part    'head' | 'torso' | 'arm' | 'leg' — a headshot throws harder
+   * @param blast   `{ position, radius, strength }` when an explosion did it:
+   *                the doll is launched from the blast centre (see _launch)
+   */
+  die(point, dir, amount = 30, part = 'torso', blast = null) {
     if (!this.alive) return;
     this.alive = false;
     this.state = STATE.DEAD;
@@ -925,28 +964,89 @@ export class Agent {
     // Impulse is N·s, and the ragdoll turns it into a velocity change on the
     // particles it lands near: a 5.56 round carries ~4 N·s, so anything in the
     // hundreds launches the body across the street instead of dropping it.
+    // FLOP OPS: a headshot is a *little* too much — it snaps the head back and
+    // folds the body over it — but still a drop, never a launch.
+    const headshot = part === 'head';
     this.group.updateMatrixWorld(true);
     const impulse = this._v2
       .copy(dir ?? this._v.set(0, 0, 1))
       .normalize()
-      .multiplyScalar(Math.min(5.5, 1.5 + amount * 0.02));
+      .multiplyScalar(Math.min(5.5, 1.5 + amount * 0.02) * (headshot ? DEATH.headshotMul : DEATH.bodyMul));
+    if (headshot) impulse.y += DEATH.headshotLift;
     const hitPoint = point ?? this._v.copy(this.position).setY(this.position.y + 1.2);
 
     // Own the hand-off: build the capsule spec from the *live* animated pose,
     // hand it to the solver and let it drive the skeleton from here. Setting
     // __ragdoll stops physics creating a second one off our death event.
-    const rd = this._makeRagdoll(impulse, hitPoint);
+    const rd = this._makeRagdoll(impulse, hitPoint, headshot);
     if (rd) {
       this.__ragdoll = rd;
       this.ragdoll = rd;
+      if (blast) this._launch(rd, blast);
+      else this._maybeDramatic(rd, impulse);
     }
     this.ctx.events.emit('actor:death', {
       actor: this,
       point: hitPoint,
       impulse,
-      headshot: false,
+      headshot,
+      blast: !!blast,
+      dramatic: !!this.dramaticDeath,
     });
     this.deadTime = 0;
+    this._squadReport();
+  }
+
+  /**
+   * Explosion death: throw the whole doll away from the blast, up and
+   * cartwheeling (Ragdoll.blast, tuned in physics as BLAST). Deliberately too
+   * much — a grenade at 1 m puts a man's boots 1.7 m off the ground — but
+   * bounded: the solver clamps per-step travel and sweeps fast particles
+   * against the world, so nothing leaves the level or passes through a wall.
+   */
+  _launch(rd, blast) {
+    const p = blast.position;
+    rd.blast(p.x, p.y, p.z, blast.radius ?? 6, blast.strength ?? 1);
+  }
+
+  /**
+   * The rare theatrical death (DEATH.dramaticChance): the man spins on the
+   * spot, arms out, and goes down in a long pirouette-and-fold, as if the
+   * round had personally offended him. Deterministic per actor (derived from
+   * id, no RNG draw) so captures and replays are stable.
+   */
+  _maybeDramatic(rd, impulse) {
+    // cheap integer hash of the actor id -> [0,1)
+    let h = (this.id * 2654435761) >>> 0;
+    h ^= h >>> 15;
+    h = Math.imul(h, 2246822519) >>> 0;
+    h ^= h >>> 13;
+    const u = (h >>> 0) / 4294967296;
+    if (!(u < DEATH.dramaticChance || this.forceDramatic)) return;
+    this.dramaticDeath = true;
+    // spin about the vertical (a pirouette) plus a little stagger along the
+    // shot direction and a hop so the feet leave the floor for the turn
+    const sgn = (h & 1) ? 1 : -1;
+    rd.addSpin(0, 1, 0, DEATH.dramaticSpin * sgn);
+    rd.addVelocity(impulse.x * 0.35, DEATH.dramaticHop, impulse.z * 0.35);
+    rd.limp(DEATH.dramaticLimp);
+  }
+
+  /**
+   * Tell the squad a man is down: the nearest surviving squadmate says so on
+   * the radio (and the audio bark fires as a 'copy'). Deterministic pick.
+   */
+  _squadReport() {
+    const sq = this.squad;
+    if (!sq) return;
+    let best = null;
+    let bestD = Infinity;
+    for (const m of sq.members) {
+      if (m === this || !m.alive) continue;
+      const d = m.position.distanceToSquared(this.position);
+      if (d < bestD) { bestD = d; best = m; }
+    }
+    if (best) best.radio('mandown', this);
   }
 
   /**
@@ -955,7 +1055,7 @@ export class Agent {
    * animator left — the death has no pop. `radiusRatio` fattens the capsules
    * (its default is thin enough that a settled body reads as a pancake).
    */
-  _makeRagdoll(impulse, point) {
+  _makeRagdoll(impulse, point, headshot = false) {
     const phys = this.phys;
     if (!phys) return null;
     // Fat capsules that start half-buried in the floor tunnel straight through
@@ -969,8 +1069,11 @@ export class Agent {
       actor: this,
       mass: this.mass,
       radiusRatio: 0.42,
-      cone: 74,
-      twist: 38,
+      // FLOP OPS: looser joints than a sim-accurate body. Wider swing and twist
+      // limits and softer limit correction (see Ragdoll.limp) are what make a
+      // body fold over a crate instead of landing like a dropped mannequin.
+      cone: DEATH.cone,
+      twist: DEATH.twist,
       iterations: 8,
       velocity: { x: this.velocity.x * 0.6, y: 0, z: this.velocity.z * 0.6 },
     });
@@ -980,8 +1083,10 @@ export class Agent {
     if (impulse && point) {
       // wide radius: a tight one dumps all of it into whichever light bone is
       // nearest and whips the limb across the street
-      rd.applyImpulse(point.x, point.y, point.z, impulse.x, impulse.y, impulse.z, 0.85);
+      // a headshot uses a tighter radius so the head and shoulders take it
+      rd.applyImpulse(point.x, point.y, point.z, impulse.x, impulse.y, impulse.z, headshot ? 0.5 : 0.85);
     }
+    rd.limp(DEATH.limp);
     if (this.ai.debugLog) {
       console.info(
         `[ai] ragdoll ${rd.boneCount} bones / ${rd.particleCount} particles, ` +
