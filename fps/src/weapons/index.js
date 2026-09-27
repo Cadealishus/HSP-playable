@@ -187,6 +187,14 @@ export class WeaponSystem {
       ctx.events.on('player:land', (e) => this.viewmodel.land(Math.abs(e?.velocity ?? 3)))
     );
     this._off.push(ctx.events.on('player:jump', () => this.viewmodel.jump()));
+    /**
+     * Hide the viewmodel while a full-screen state is up (title/attract, the
+     * death beat, the run report). The gun was drawing through those screens.
+     * `game:state` is re-broadcast by the game once after init, so a late
+     * subscriber still syncs. No game system (preview harness) = always shown.
+     */
+    this._gameState = null;
+    this._off.push(ctx.events.on('game:state', (e) => { this._gameState = e?.state ?? null; }));
 
     this.stats = { tris, drawCalls: 0, live: 0, fired: 0 };
     console.info(
@@ -684,6 +692,9 @@ export class WeaponSystem {
   lateUpdate(dt, ctx) {
     const vm = this.viewmodel;
     if (!vm) return;
+    const gs = this._gameState;
+    // The capture harness (debugMode) always shows the gun, whatever the state.
+    vm.anchor.visible = this.debugMode !== null || !(gs === 'attract' || gs === 'down' || gs === 'over');
     vm.update(dt, this._state);
 
     // ---- muzzle flash / audio, now that the pose is final ---------------
