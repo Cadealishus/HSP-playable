@@ -130,6 +130,9 @@ export class AttractScreen {
       el('div', 'v', grid, v);
     }
 
+    /** Empty slot under the mission card, reserved for a map / mission picker. */
+    this.slot = el('div', 'ow-att-slot', left);
+
     // ---- loadout select ----------------------------------------------------
     const lo = el('div', 'ow-att-loadouts', this.root);
     const lh = el('div', 'ow-lo-head', lo);
