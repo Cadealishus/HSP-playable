@@ -1174,6 +1174,10 @@ export class AiSystem {
     if (this.inspect) return this._stageInspect();
     if (this._navPending) this._buildNav();
 
+    // The shared `combat` pose now sits on a market stall with another stall
+    // filling the frame; frame the firefight ourselves, from the open north end
+    // of the main street looking south down it, jersey barriers as cover.
+    this._frameLevel(1.0, 40.0, 1.7, -0.5, 22.0, 1.3);
     const cam = this.ctx.camera;
     // A firefight the critic can actually see: drop the sun low enough to rake
     // down the street so the characters are lit, not silhouetted. This shot is
