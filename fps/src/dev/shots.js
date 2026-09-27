@@ -53,9 +53,10 @@ export const SHOTS = {
   'world-square': {
     // Eye level in the square, the ESF supply crate (the objective) at 5 m,
     // the north street, HESCO and the ESF truck behind it. Level (1.0, 6.2)
-    // looking at (-1.3, 10.0); see src/world/flopops.js OBJECTIVE.
+    // looking at (-2.7, 9.6), so the crate sits left of the viewmodel; see
+    // src/world/flopops.js OBJECTIVE.
     pos: [5.17, 1.62, 5.95],
-    look: [5.36, 0.85, 10.38],
+    look: [3.98, 0.9, 10.83],
     fov: 62,
     time: 17.2,
     doc: 'The objective in the square at eye level — crate, stencils, tank traps, north street.',

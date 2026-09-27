@@ -358,18 +358,25 @@ function bladeSign(A, root, disp, rng, sign, aniso) {
 
   const texture = signTexture(sign, rng, aniso);
   const geo = new THREE.PlaneGeometry(w, h);
+  // Painted both sides, and read correctly from both: two front-facing planes
+  // back to back, 1 cm apart, rather than one double-sided plane that mirrors
+  // the lettering for anybody walking the other way down the street.
   const mat = new THREE.MeshStandardMaterial({
     map: texture,
     roughness: 0.78,
     metalness: 0.0,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = `flop_sign_${sign.id}`;
-  mesh.matrix.copy(worldMatrix(A, newTrs(cx, cy, z, 0)));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  addStandalone(root, disp, mesh, geo, mat, texture);
+  for (const face of [0, 1]) {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = `flop_sign_${sign.id}_${face}`;
+    mesh.matrix.copy(worldMatrix(A, newTrs(cx, cy, z + (face ? -0.006 : 0.006), face * Math.PI)));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    addStandalone(root, disp, mesh, face ? null : geo, face ? null : mat, face ? null : texture);
+  }
+  // the board's edge thickness between the two faces
+  A.addBox('sign_board', BOX_FINE(A), cx, cy, z, 0, w, h, 0.01, { masks: [0.6, 0.5, 0.3] });
 
   // a timber frame round the board, so it has an edge and a thickness
   const fr = 0.035;
