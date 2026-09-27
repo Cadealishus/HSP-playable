@@ -1268,7 +1268,12 @@ export class AiSystem {
     cam.position.copy(c);
     cam.lookAt(t);
     cam.updateMatrixWorld(true);
-    this.ctx.peek('player')?.teleport?.(cam.position, cam.rotation);
+    const player = this.ctx.peek('player');
+    player?.teleport?.(cam.position, cam.rotation);
+    // The game loop re-enables player control on its idle -> attract hop, and
+    // a controlled player writes its own eye and its config FOV (80) onto the
+    // camera every frame. Take the camera back for the tableau.
+    player?.setControlEnabled?.(false);
     return { cam, c, t };
   }
 
@@ -1281,7 +1286,7 @@ export class AiSystem {
   }
 
   /**
-   * `debugStage('closeup')` — one rifleman about 4.4 m from the camera on the
+   * `debugStage('closeup')` — one rifleman about 3.6 m from the camera on the
    * open north end of the main street (clear of stalls and the gate), up and
    * aiming just past the lens: the distance a player meets a man coming round
    * a corner.
@@ -1289,14 +1294,11 @@ export class AiSystem {
   _stageCloseup() {
     if (this._navPending) this._buildNav();
     this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
-    const { cam } = this._frameLevel(0.6, 28.6, 1.62, 0.2, 33.2, 1.2);
-    const pos = this._levelFloor(0.2, 33.0);
+    // left of centre, so the viewmodel does not cover his legs
+    const { cam } = this._frameLevel(0.8, 28.4, 1.62, -0.1, 32.0, 1.15);
+    const pos = this._levelFloor(-0.5, 31.8);
     const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.38;
     const a = this.spawn('vanguard', pos, yaw);
-    console.info(
-      `[ai] closeup cam ${cam.position.toArray().map((v) => v.toFixed(2))} fov ${cam.fov} ` +
-        `man ${pos.toArray().map((v) => v.toFixed(2))} d=${cam.position.distanceTo(pos).toFixed(2)}`
-    );
     a.staged = {
       crouch: false,
       speed: 0,

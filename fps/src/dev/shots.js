@@ -107,7 +107,7 @@ export const SHOTS = {
   'ai-flop': {
     pos: [4, 2.0, 12],
     look: [-6, 1.6, -4],
-    fov: 70,
+    fov: 80,
     time: 16.5,
     apply: (e) => e.ctx.peek('ai')?.debugStage?.('flop'),
     doc: 'Frozen frame 0.5 s after a grenade lands in a squad — ragdolls and rubble mid-air (capture with --settle=40).',
