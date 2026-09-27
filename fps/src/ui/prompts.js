@@ -156,9 +156,10 @@ export class ScorePop {
       }
       const inT = clamp01(it.t / 0.12);
       const outT = clamp01((it.t - (it.life - 0.4)) / 0.4);
-      const x = (1 - ease.outCubic(inT)) * -10;
+      // 120 ms fade-in; the line rises 12 px as it settles.
+      const y = (1 - ease.outCubic(clamp01(it.t / 0.45))) * 12;
       const a = ease.outQuad(inT) * (1 - ease.inQuad(outT));
-      setStyle(it.node, 'transform', `translateX(${x.toFixed(2)}px)`);
+      setStyle(it.node, 'transform', `translateY(${y.toFixed(2)}px)`);
       setStyle(it.node, 'opacity', a.toFixed(3));
     }
   }

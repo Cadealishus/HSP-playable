@@ -188,6 +188,7 @@ export class RadioSubs {
     setText(this.who, SPEAKER[speaker] ?? String(speaker).toUpperCase());
     setText(this.txt, text);
     setClass(this.line, 'doug', speaker === 'doug');
+    setClass(this.line, 'hostile', speaker !== 'doug' && speaker !== 'command');
   }
 
   clear() {

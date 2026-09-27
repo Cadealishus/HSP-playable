@@ -25,6 +25,9 @@ import { RadioSubs } from './radio.js';
 
 const MAX_BLIPS = 48;
 
+/** Title backdrop dolly: start point and unit direction down the main street. */
+const TITLE_CAM = { from: [12, 1.9, 18], dir: [-0.5547, 0, -0.8321], fov: 62 };
+
 /** How stale the last enemy round may be and still be blamed for your death. */
 const ATTACKER_MEMORY_S = 6;
 
@@ -159,6 +162,9 @@ export class UiSystem {
     this._hurtArmed = true;
     /** Shot pinned by debugState so `shot:applied` does not clear it. */
     this._pin = null;
+    /** Front-end screen that owns the frame (see _syncScreen). */
+    this._screen = undefined;
+    this._dolly = 0;
 
     this.menu = new PauseMenu(this.root, ctx);
 
@@ -498,6 +504,18 @@ export class UiSystem {
     this._hurtArmed = true;
   }
 
+  /** Weapon designations from src/weapons (def.displayName). Menu-time only. */
+  _loadoutInfo() {
+    const w = this.ctx.peek('weapons');
+    if (typeof w?.loadoutInfo !== 'function') return null;
+    if (!this._loadoutCache) this._loadoutCache = w.loadoutInfo();
+    return this._loadoutCache;
+  }
+
+  _weaponName(id) {
+    return this._loadoutInfo()?.find((x) => x.id === id)?.displayName ?? null;
+  }
+
   /** Local best from src/game, for the title footer. */
   _bestRecord() {
     const g = this.ctx.peek('game');
@@ -524,7 +542,7 @@ export class UiSystem {
     this._resetRunState();
     const L = LOADOUTS.find((l) => l.id === id) ?? LOADOUTS[0];
     this.state.job = L.id;
-    this.state.weaponName = L.kit;
+    this.state.weaponName = this._weaponName(L.weapon) ?? L.kit;
     this.ctx.events.emit('ui:startRun', { job: this.state.job });
     // Hand off to the game's click-to-lock flow (this call is inside the gesture).
     this.ctx.input?.requestPointerLock?.();
@@ -539,6 +557,7 @@ export class UiSystem {
         this.radio.clear();
         this._resetRunState();
         this.attract.setBest(this._bestRecord());
+        this.attract.setWeaponNames(this._loadoutInfo());
         this.attract.show();
         this._releasePointer();
         break;
@@ -683,6 +702,7 @@ export class UiSystem {
     if (name === 'title') {
       this._pin = 'title';
       this.attract.setBest({ score: 18450, wave: 4 });
+      this.attract.setWeaponNames(this._loadoutInfo());
       this.attract.show(true);
       this.hudVisible = 0;
       return { state: 'title' };
@@ -813,6 +833,10 @@ export class UiSystem {
     // ---- ai blips --------------------------------------------------------
     this._collectBlips();
 
+    // ---- front-end screen state -------------------------------------------
+    this._syncScreen(ctx);
+    if (this._screen === 'title') this._titleCamera(ctx, rawDt);
+
     // ---- camera basis ----------------------------------------------------
     const m = ctx.camera.matrixWorld.elements;
     let rx = m[0];
@@ -828,13 +852,14 @@ export class UiSystem {
     const heading = (Math.atan2(fx, -fz) * 180) / Math.PI;
 
     // ---- widgets ---------------------------------------------------------
-    // The title is a front-end screen, not a match: minimap, compass, vitals
-    // and ammo have no business on it, so the HUD fades out while it is up.
-    // DOUG IS DOWN and the report are cards over a run in progress, and the HUD
-    // reading through them is correct.
-    const titleScreen = this.attract.open;
-    const hudGoal = this.hudTarget * (this.menu.open ? 0.15 : 1) * (titleScreen ? 0 : 1);
-    this.hudVisible = damp(this.hudVisible, hudGoal, 10, rawDt);
+    // Any front-end screen (title, DOUG IS DOWN, the report) owns the frame:
+    // killfeed, minimap, markers, score, vitals and ammo all fade to nothing in
+    // ~250 ms (damp rate 12 on unscaled time, so the death slow-mo does not
+    // stretch it). The damage vignette lives on hurtLayer and is untouched.
+    const screen = this._screen;
+    const titleScreen = screen === 'title';
+    const hudGoal = this.hudTarget * (this.menu.open ? 0.15 : 1) * (screen ? 0 : 1);
+    this.hudVisible = damp(this.hudVisible, hudGoal, screen ? 12 : 10, rawDt);
     setStyle(this.chromeLayer, 'opacity', this.hudVisible.toFixed(3));
     setStyle(this.worldLayer, 'opacity', this.hudVisible.toFixed(3));
     setStyle(this.centreLayer, 'opacity', this.hudVisible.toFixed(3));
@@ -921,6 +946,53 @@ export class UiSystem {
       b.heading = (Math.atan2(Math.sin(y), -Math.cos(y)) * 180) / Math.PI;
     }
     this._blipCount = n;
+  }
+
+  /**
+   * Publish which front-end screen owns the frame: `ui:screen {name}` with
+   * name 'title' | 'death' | 'report' | null, emitted on change only.
+   * src/weapons hides the first-person viewmodel on it. Until a subsystem
+   * claims that job (`weapons.setViewmodelHidden`), the UI falls back to
+   * hiding the whole view scene, which only ever holds the viewmodel.
+   */
+  _syncScreen(ctx) {
+    const name = this.attract.open ? 'title' : this.death.open ? 'death' : this.over.open ? 'report' : null;
+    if (name === this._screen) return;
+    const was = this._screen;
+    this._screen = name;
+    if (name === 'title' && was !== 'title') this._dolly = 0;
+    ctx.events.emit('ui:screen', { name });
+    const w = ctx.peek('weapons');
+    if (typeof w?.setViewmodelHidden === 'function') w.setViewmodelHidden(!!name);
+    else if (ctx.viewScene) ctx.viewScene.visible = !name;
+  }
+
+  /**
+   * Title backdrop: a composed, slow dolly down the main street instead of
+   * whatever the idle player camera is looking at. 0.3 m/s over 8 m, easing
+   * through each turnaround so it never visibly stops. Written after every
+   * update() and before render, so it simply wins the frame; deploying
+   * respawns the player, who takes the camera back.
+   */
+  _titleCamera(ctx, rawDt) {
+    const SPEED = 0.3;
+    const LEN = 8;
+    this._dolly = (this._dolly ?? 0) + rawDt * SPEED;
+    const period = LEN * 2;
+    const u = (this._dolly % period) / LEN; // 0..2
+    const lin = u <= 1 ? u : 2 - u;
+    const d = lin * lin * (3 - 2 * lin) * LEN; // smoothstep turnarounds
+    const cam = ctx.camera;
+    const o = TITLE_CAM.from;
+    const f = TITLE_CAM.dir;
+    cam.position.set(o[0] + f[0] * d, o[1] + f[1] * d, o[2] + f[2] * d);
+    this._tmp.set(cam.position.x + f[0] * 10, cam.position.y + f[1] * 10 + 0.18, cam.position.z + f[2] * 10);
+    cam.lookAt(this._tmp);
+    if (cam.fov !== TITLE_CAM.fov) {
+      cam.fov = TITLE_CAM.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
   }
 
   _screenOpen() {

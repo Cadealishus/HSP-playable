@@ -360,7 +360,7 @@ export class GameSystem {
     this._clearAI();
     this.scoring.reset();
     this.scoring.announce();
-    this.ctx.peek('player')?.setControlEnabled?.(true);
+    this.ctx.peek('player')?.setControlEnabled?.(false);
     this._markSquare(false);
     this._setState('attract');
     console.info('[game] return to base → attract');
