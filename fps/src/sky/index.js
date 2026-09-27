@@ -51,61 +51,42 @@ const SUN_KEY_GAIN = 1.55;
  */
 const SKY_AMBIENT_FRACTION = 0.15;
 
-/**
- * Cool night hue for the published ambient — moonlight after the Purkinje shift,
- * pulled off pure blue toward violet. A city's night ambient is not the moon
- * alone: it is the moon plus the whole sky the city is lighting, and here that
- * sky is magenta (see CITY_GLOW). Green comes down rather than red going up, so
- * the level is unchanged and only the hue moves.
- */
-const NIGHT_AMBIENT_HUE = [0.42, 0.40, 1.0];
+/** Cool night hue for the published ambient — moonlight after the Purkinje shift. */
+const NIGHT_AMBIENT_HUE = [0.35, 0.5, 1.0];
 
 /**
  * The ambient's warm target once the solar disc is under the horizon.
  *
  * The `warm` term in _updateCelestial lerps toward the SUN LIGHT's own colour,
  * and below the horizon that colour is the transmittance at negative elevation:
- * (1.00, 0.27, 0.02) — pure sodium orange. Civil twilight is not orange. The
- * anti-solar sky at -4 degrees is the Belt of Venus, which is magenta over
- * violet, and over a neon street it is more so. Crossfading the warm TARGET to
- * this as the disc sets is both closer to the physics and the single biggest
- * reason the shipping dusk grade now reads as cyber-dusk rather than desert-dusk.
+ * (1.00, 0.27, 0.02) — pure sodium orange. Civil twilight is not orange: the
+ * anti-solar sky a few degrees after sunset is the Belt of Venus, a dusty rose
+ * over the blue of the earth's shadow. Crossfading the warm TARGET to that as
+ * the disc sets keeps the dusk ambient physical instead of lamp-coloured.
  */
-const TWILIGHT_HUE = [1.0, 0.42, 0.72];
+const TWILIGHT_HUE = [1.0, 0.66, 0.62];
 
 /**
  * Urban skyglow, in scene radiance at the horizon. See `skCityGlow` in luts.js
  * for what it is and why it lives inside the sky-view LUT.
  *
- * Levels are set against the sky the LUT actually produces at the shipping hour
- * (20.2): the twilight remnant on the western horizon measures ~0.05-0.07 scene
- * radiance there. `scaleDeg` is the e-folding height in degrees of elevation.
- *
- * The first pass at these ran 0.030/3.2 and 0.013/13, which was invisible: this
- * street is a canyon, so almost none of the 0-5 degree band is on screen, and by
- * the time the sky clears the rooftops (10-15 degrees) a 3.2-degree e-folding has
- * decayed to nothing. The band therefore has to be authored for the elevation the
- * PLAYER can actually see sky at, not for where a photometer would put it.
+ * A war-damaged border town on a mix of sodium street lamps and generators: the
+ * glow is a thin amber band over the rooftops that only exists after sunset, and
+ * it is weak — half the town is dark. `scaleDeg` is the e-folding height in
+ * degrees of elevation. It has to reach the 10-15 degree strip of sky a street
+ * canyon actually shows, and die long before the zenith, or it is a gel rather
+ * than skyglow.
  */
 const CITY_GLOW = {
-  // Boss Magenta #FF2D78 pulled off the pure primary: a saturated primary reads
-  // as a gel over the lens, a broadened one reads as light in the air.
-  lowHue: [1.0, 0.30, 0.60],
-  lowLevel: 0.050,
+  // Low-pressure sodium broadened by the haze: amber, not orange.
+  lowHue: [1.0, 0.58, 0.26],
+  lowLevel: 0.022,
   lowScaleDeg: 4.5,
-  // The wide violet lift that carries the band up off the rooftops instead of
-  // stopping at a hard stripe.
-  //
-  // 0.022 at 18 degrees, NOT 0.030 at 26. A 26-degree e-folding still has 40% of
-  // its horizon value at the zenith, and 0.030 of violet against a 0.017 night
-  // zenith is not a glow band, it is a repaint: the whole dome came back lilac
-  // and the frame stopped being blue hour at all. The band has to die inside the
-  // bottom third of the sky or it is not skyglow, it is a gel. 18 degrees puts
-  // it under a fiftieth of its horizon value at the zenith while still reaching
-  // the strip of sky a street canyon actually shows.
-  highHue: [0.62, 0.34, 1.0],
-  highLevel: 0.022,
-  highScaleDeg: 18.0,
+  // The wide, much weaker lift that carries the band up off the rooftops instead
+  // of stopping at a hard stripe. Neutral-warm so it greys into the blue hour.
+  highHue: [0.9, 0.72, 0.66],
+  highLevel: 0.008,
+  highScaleDeg: 16.0,
 };
 
 /**
@@ -188,21 +169,24 @@ export class SkySystem {
     const q = ctx.config.q;
 
     this.celestial = new Celestial();
-    // Default GAMEPLAY time of day. NERD OF DUTY holds a fixed dusk / blue-hour
-    // grade: the sun sits ~3-4 deg under the horizon (sunset here is 19.71), so
-    // the sky keeps a deep blue zenith and a warm western remnant while the
-    // street's practicals (world's lamps/bulbs ramp fully on below -2.9 deg) and
-    // the neon/Ledger emissives become the readable key. Combat legibility is
-    // held by those practicals + the elevation-driven indirect budget, not by
-    // daylight. Shots that pin their own time (sunset 19.2, night 1.5, the
-    // 16.5 interior/detail set) override this and are unaffected.
-    this.hour = 20.2;
+    // Default GAMEPLAY time of day: late afternoon. At 17.2 the sun stands at
+    // +24.6 deg, azimuth 279 (just north of due west), which is low enough for a
+    // warm key and long raking shadows across the square, and high enough that
+    // the street floor is still sunlit between the facades rather than all in
+    // shade. Shots that pin their own time (sunset 19.2, night 1.5, the 16.5
+    // interior/detail set) override this.
+    this.hour = 17.2;
     this.timeRate = 0;
 
     // ---- weather / atmosphere state ---------------------------------------
     this.weather = {
-      /** Aerosol multiplier. 1 clear, 2-3 hazy, 5 dust storm. */
-      turbidity: 1.35,
+      /**
+       * Aerosol multiplier. 1 clear, 2-3 hazy, 5 dust storm. A dry, dusty
+       * afternoon over a town that has been shelled: enough Mie to give the sun
+       * a warm cast and a bright aureole and to lift the horizon, not so much
+       * that the zenith goes milky.
+       */
+      turbidity: 1.75,
       /** Fewer, deeper cumulus. Below ~0.34 the deck breaks into discrete
        *  masses with clean blue between them instead of one lumpy sheet. */
       cloudCoverage: 0.30,
@@ -244,8 +228,11 @@ export class SkySystem {
        * volumetrics.js) rather than grey — distance reads as colour temperature,
        * which is how it reads in a photograph.
        */
-      scatter: 3.6e-3, // 1/m at the fog base
-      extinction: 1.45e-3, // 1/m at the fog base
+      // Dust in the air: a little denser than a clean-air street so the far end
+      // of the street and the gate lift and warm, still keeping ~90% of a 60 m
+      // facade's own light.
+      scatter: 4.0e-3, // 1/m at the fog base
+      extinction: 1.7e-3, // 1/m at the fog base
       /**
        * 18 m of e-folding, not 30. Dust and exhaust settle: the bottom of a
        * street is measurably hazier than roof height, and that vertical
@@ -272,26 +259,20 @@ export class SkySystem {
       shaftGain: 2.6,
       /**
        * Kept well under the key gain: the shafts are all contrast, and a strong
-       * ambient term is exactly what washes that contrast out. Up from 0.22 —
-       * the haze's ambient is now sampled off a sky that carries the city's
-       * magenta skyglow, so this is the knob that decides whether the signage
-       * light visibly *travels* down the street or stops at the sign. A sixth of
-       * a stop is enough to see it and not enough to milk the 200 m view.
+       * ambient term is exactly what washes that contrast out.
        */
-      ambientGain: 0.26,
+      ambientGain: 0.22,
       noise: 0.55,
       noiseScale: 0.045,
       phaseForward: 0.76,
       phaseBackward: -0.36,
       phaseBackWeight: 0.34,
       /**
-       * Blue-biased so distant geometry loses red first, as Rayleigh does —
-       * now with green pulled under red as well, so the axis distance travels
-       * along is blue-VIOLET rather than blue-cyan. Rayleigh alone would put
-       * green between the two; a city's aerosol column, lit by its own magenta
-       * skyglow, does not. Costs nothing: it is the same three multiplies.
+       * Blue-biased so distant geometry loses blue first, as Rayleigh does —
+       * but only gently: this is dust, and mineral aerosol extinguishes nearly
+       * neutrally, so distance reads as a warm lift rather than a blue wash.
        */
-      extinctionTint: new THREE.Vector3(1.0, 0.94, 1.30),
+      extinctionTint: new THREE.Vector3(0.95, 1.0, 1.14),
     };
 
     // ---- shared uniform objects -------------------------------------------
@@ -419,10 +400,10 @@ export class SkySystem {
     /** Indirect-light budget for this sun elevation, 0..1. See _updateCelestial. */
     this.indirectScale = 1;
     /**
-     * 0..1 — how much of the frame's light is the CITY rather than the sun.
+     * 0..1 — how much of the frame's light is the TOWN rather than the sun.
      * 1 once the disc is under the horizon, 0 by the time it is 7 degrees up.
-     * Published so `render` can pay for the street's neon bounce off the same
-     * curve the skyglow rides, instead of both being separately hand-timed.
+     * Published so `render` can pay for the street's practical-light bounce off
+     * the same curve the skyglow rides, instead of both being separately timed.
      */
     this.neonAmount = 0;
     /** EV of exposure compensation for this sun elevation; + is darker. */
@@ -778,7 +759,7 @@ export class SkySystem {
     // ---- city vs sun -------------------------------------------------------
     // One curve for everything that belongs to the CITY rather than to the sun:
     // the skyglow bands below, the twilight target for the ambient's warm end,
-    // and (published as `neonAmount`) the street's neon bounce in `render`.
+    // and (published as `neonAmount`) the street's practical bounce in `render`.
     // 1 the moment the disc touches the horizon, 0 by 7 degrees of elevation —
     // so the 16.5 interior/detail/weapon/combat set and the 19.2 sunset anchor
     // are untouched and only the shipping dusk and the night frame move.

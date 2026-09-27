@@ -419,9 +419,8 @@ export const SET_PIECES = {
   ],
   /**
    * Overhead cable spans: [x0, y0, z0, x1, y1, z1, sag]
-   * 0-3 cross the street and carry the NerdCon banners; 4 and 5 run ALONG a
-   * facade (constant x). 5 spans the east alley mouth and carries the ticker
-   * ribbon (see nerdcon.js `tickerBoard`).
+   * 0-3 cross the street (0 carries the festival banner, see flopops.js); 4
+   * and 5 run ALONG a facade (constant x).
    */
   cables: [
     [-6.4, 7.2, 10.0, 6.4, 6.6, 12.5, 1.1],

@@ -15,10 +15,10 @@ export const SHOTS = {
     look: [-4, 2.2, -6],
     fov: 75,
     // Tracks the DEFAULT gameplay time (see SkySystem.hour): the establishing
-    // shot must read the shipping dusk grade — signage glow, Ledger presence,
-    // blue-hour sky. sunset(19.2)/night(1.5) stay the dedicated TOD anchors.
-    time: 20.2,
-    doc: 'Wide establishing shot down the main street — reads overall art direction (dusk default).',
+    // shot must read the shipping late-afternoon grade. sunset(19.2)/night(1.5)
+    // stay the dedicated TOD anchors.
+    time: 17.2,
+    doc: 'Wide establishing shot down the main street — reads overall art direction (late-afternoon default).',
   },
   interior: {
     pos: [-8.5, 1.7, 3.2],
@@ -47,6 +47,18 @@ export const SHOTS = {
     fov: 75,
     time: 1.5,
     doc: 'Night — artificial lights, exposure adaptation, shadow quality in the dark.',
+  },
+
+  // ---- WORLD + LOOK (flop ops) ----
+  'world-square': {
+    // Eye level in the square, the ESF supply crate (the objective) at 5 m,
+    // the north street, HESCO and the ESF truck behind it. Level (1.0, 6.2)
+    // looking at (-1.3, 10.0); see src/world/flopops.js OBJECTIVE.
+    pos: [5.17, 1.62, 5.95],
+    look: [5.36, 0.85, 10.38],
+    fov: 62,
+    time: 17.2,
+    doc: 'The objective in the square at eye level — crate, stencils, tank traps, north street.',
   },
 
   // ---- weapon / viewmodel ----
