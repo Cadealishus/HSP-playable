@@ -328,3 +328,81 @@ export function airCutoff(dist) {
   // long-range gunfire recordings: 50 m still bright, 300 m is all boom.
   return clamp(20500 / (1 + dist * 0.055), 260, 20000);
 }
+
+/* ------------------------------------------------------------------ */
+/* Offline (JS-side) rendering helpers                                */
+/* ------------------------------------------------------------------ */
+// Used at start() only, to pre-render buffers (radio texture, airport
+// one-shots) so the runtime cost of those voices is one buffer source and a
+// gain node.
+
+/**
+ * In-place RBJ biquad over a Float32Array. `type` is 'lowpass' | 'highpass' |
+ * 'bandpass' (0 dB peak). `wrap` runs the filter over the buffer twice and
+ * writes only on the second pass, so a looped buffer has no seam: the state
+ * entering sample 0 is the state leaving the last sample.
+ */
+export function filterBuffer(d, type, freq, q, sr, wrap = false) {
+  const w0 = (2 * Math.PI * clamp(freq, 10, sr * 0.49)) / sr;
+  const cs = Math.cos(w0), sn = Math.sin(w0);
+  const alpha = sn / (2 * q);
+  let b0, b1, b2;
+  if (type === 'highpass') {
+    b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = (1 + cs) / 2;
+  } else if (type === 'bandpass') {
+    b0 = alpha; b1 = 0; b2 = -alpha;
+  } else {
+    b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = (1 - cs) / 2;
+  }
+  const a0 = 1 + alpha;
+  b0 /= a0; b1 /= a0; b2 /= a0;
+  const c1 = (-2 * cs) / a0, c2 = (1 - alpha) / a0;
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  const n = d.length;
+  const passes = wrap ? 2 : 1;
+  for (let p = 0; p < passes; p++) {
+    const write = p === passes - 1;
+    for (let i = 0; i < n; i++) {
+      const x = d[i];
+      const y = b0 * x + b1 * x1 + b2 * x2 - c1 * y1 - c2 * y2;
+      x2 = x1; x1 = x; y2 = y1; y1 = y;
+      if (write) d[i] = y;
+    }
+  }
+  return d;
+}
+
+/** Band-limit in place: `order` cascaded 2-pole HP at lo and LP at hi. */
+export function bandLimit(d, lo, hi, sr, order = 2, wrap = false) {
+  for (let k = 0; k < order; k++) {
+    if (lo > 0) filterBuffer(d, 'highpass', lo, 0.7071, sr, wrap);
+    if (hi > 0) filterBuffer(d, 'lowpass', hi, 0.7071, sr, wrap);
+  }
+  return d;
+}
+
+/** Scale so the absolute peak is `target`. */
+export function normalisePeak(d, target) {
+  let p = 1e-9;
+  for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > p) p = a; }
+  const g = target / p;
+  for (let i = 0; i < d.length; i++) d[i] *= g;
+  return d;
+}
+
+/** Scale so the RMS is `target`. */
+export function normaliseRms(d, target) {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) s += d[i] * d[i];
+  const r = Math.sqrt(s / Math.max(1, d.length)) || 1e-9;
+  const g = target / r;
+  for (let i = 0; i < d.length; i++) d[i] *= g;
+  return d;
+}
+
+/** Wrap a mono Float32Array in a one-channel AudioBuffer. */
+export function toBuffer(actx, d) {
+  const buf = actx.createBuffer(1, Math.max(1, d.length), actx.sampleRate);
+  buf.getChannelData(0).set(d);
+  return buf;
+}

@@ -30,13 +30,13 @@ import { IR_SPECS, generateIR } from './ir.js';
  *
  *  combat   — gunfire and explosions. Get the world out of the way of the
  *             transient; weapons and ui are never touched.
- *  announce — the PA speaks. The exact inverse: dip the fight a little, and
- *             leave `voice` completely alone so the announcement is the one
- *             thing in the mix that did not move.
+ *  radio    — Command keys the net. The inverse: dip the fight a little and
+ *             leave `voice` alone, so the transmission is the one thing in
+ *             the mix that did not move.
  */
 const DUCK_PROFILES = {
   combat:   { ambience: 1, foley: 0.55, voice: 0.4 },
-  announce: { weapons: 0.35, foley: 0.45, ambience: 0.6 },
+  radio:    { weapons: 0.35, foley: 0.45, ambience: 0.6 },
 };
 
 const BUS_DEFS = {
@@ -134,12 +134,14 @@ export class Mixer {
     this.sendHP.connect(this.sendLP);
 
     this.spaces = {};
-    this.spaceNames = Object.keys(IR_SPECS);
+    // The hall IR (4.4 s, the most expensive to render and to convolve) is
+    // only built for maps that have halls.
+    this.spaceNames = Object.keys(IR_SPECS).filter((k) => k !== 'hall' || opts.hall);
     this.reverbReturn = gain(actx, 0.9);
     this.reverbReturn.connect(this.worldSum);
     this._irReady = false;
 
-    this.spaceWeights = { tight: 0, room: 0, street: 0.35, tunnel: 0, open: 0.65 };
+    this.spaceWeights = { tight: 0, room: 0, street: 0.35, tunnel: 0, open: 0.65, hall: 0 };
 
     /* ---- tinnitus (built on demand, torn down when silent) -------- */
     this._tin = null;
@@ -210,7 +212,7 @@ export class Mixer {
   /**
    * Sidechain duck. `amount` 0..1 of gain reduction, `hold` seconds before it
    * starts floating back, `profile` one of DUCK_PROFILES. Called on every
-   * gunshot and explosion (combat) and on every PA announcement (announce).
+   * gunshot and explosion (combat) and on every Command transmission (radio).
    */
   duck(amount, hold = 0.12, profile = 'combat') {
     const t = this.actx.currentTime;

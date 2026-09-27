@@ -16,8 +16,13 @@
  *                                      'advance' | 'hurt' | 'death' | 'copy'
  *   audio.ui(kind)                     'hitmarker'|'headshot'|'kill'|'damage'|
  *                                      'wave_start'|'wave_clear'|'run_over'
- *   audio.announce(kind)               PA announcer: 'wave'|'waveClear'|'over'.
- *                                      Own cooldown; ignores the bark throttle.
+ *   audio.radioLine(speaker, seconds)  key the comms net under a subtitle line:
+ *                                      'command' (squelch, carrier, tail) or
+ *                                      'doug' (close push-to-talk click)
+ *   audio.announce(kind)               fallback Command transmission for a
+ *                                      game moment ('wave'|'waveClear'|'over')
+ *                                      when no UI radio is driving the net
+ *   audio.map                          'town' | 'airport' (ambience + reverb)
  *   audio.setMasterVolume(v)  audio.setBusVolume(bus, v)
  *   audio.setAmbienceIntensity(v)      scales the distant-battle scheduler
  *   audio.report()                     diagnostics snapshot
@@ -29,7 +34,13 @@
  * weapon:reload, weapon:shell, bullet:impact, bullet:tracer, damage:dealt,
  * damage:taken, actor:death, player:land, player:footstep, player:state,
  * explosion. If `ai` emits the optional `ai:bark {kind, position, voice}` it is
- * picked up as well.
+ * picked up as well, and `ai:radio {enemy, kind, text}` plays an enemy
+ * handheld crackle at the speaker's position.
+ *
+ * Command radio: the UI's subtitle track (ui.radio) is watched each frame — a
+ * new line on it keys the net for exactly as long as the line is up, so the
+ * sound can never disagree with the subtitle. A `radio:line {speaker,
+ * duration}` event, if anything emits one, takes over from the watcher.
  */
 
 import { NoiseBank, SPEED_OF_SOUND, clamp, gain as mkGain } from './dsp.js';
@@ -38,13 +49,14 @@ import { SpatialField } from './spatial.js';
 import {
   Ambience, ambientOneShot, ONE_SHOTS, ONE_SHOT_RANGE, ONE_SHOT_FAR, pickOneShot,
 } from './ambience.js';
+import { RadioComms } from './radio.js';
 import { WEAPON_PROFILES, resolveProfile, weaponShot, bulletWhizz, dryFire } from './weapons.js';
 import {
   surfaceImpact, footstep, shellCasing, reloadPhase, explosion, bodyFall, uiSound,
   heartbeat, cloth,
 } from './foley.js';
-import { bark as voxBark, barkFor, ANNOUNCE } from './vox.js';
-import { classifySpace } from './ir.js';
+import { bark as voxBark, barkFor } from './vox.js';
+import { classifySpace, SPACE_KEYS } from './ir.js';
 
 const PROBE_RAYS = 9;
 const PROBE_DIST = 40;
@@ -52,20 +64,33 @@ const DRY_SLOTS = 48;
 const GESTURES = ['pointerdown', 'mousedown', 'keydown', 'touchstart', 'wheel'];
 
 /**
- * The PA has its own throttle, entirely separate from the 0.42 s bark throttle
- * — an announcement is never "mush", and it must never be eaten because an
- * enemy shouted a quarter-second earlier. The breather between waves is 4 s
- * (BREATHER_S in src/game/waves.js), so a 2.5 s cooldown lets the settled call
- * and the next wave's inbound call both land while still refusing a double-fire.
+ * Fallback Command transmissions (seconds on air) for when no UI radio is
+ * driving the net. Own cooldown, separate from the 0.42 s bark throttle.
  */
+const RADIO_CUE = { wave: 3.4, waveClear: 2.8, over: 3.6 };
 const ANNOUNCE_COOLDOWN = 2.5;
 
+/** Minimum seconds between two enemy handheld crackles (ai also throttles). */
+const ENEMY_RADIO_GAP = 1.2;
+
+/** Maps whose interiors are large halls: hall IR + classifier bias. */
+const HALL_BIAS = { airport: { hallCeil: 11, hall: 1 } };
+
 /**
- * Seconds to hold each announcement back. The UI plays its wave stinger on the
- * same event; the PA answering it a beat later reads as cause and effect, where
- * both at once reads as a collision.
+ * The active map id: the engine config, then the world system, then `?map=`,
+ * else the town. Read once, when the graph starts.
  */
-const ANNOUNCE_DELAY = { wave: 0.55, waveClear: 0.95, over: 1.25 };
+function resolveMap(ctx) {
+  const c = ctx?.config?.map;
+  if (typeof c === 'string' && c) return c;
+  const w = ctx?.peek?.('world')?.mapId;
+  if (typeof w === 'string' && w) return w;
+  try {
+    const q = new URLSearchParams(globalThis.location?.search ?? '').get('map');
+    if (q) return q;
+  } catch { /* no location (worker, test) */ }
+  return 'town';
+}
 
 /** Names other subsystems already use, mapped onto our voices. */
 const UI_ALIAS = {
@@ -112,9 +137,11 @@ export class AudioSystem {
     this._probeDirs.push({ x: 0, y: 1, z: 0 });
     this._probeHits = new Float64Array(PROBE_RAYS);
     this._space = {
-      tight: 0, room: 0, street: 0.35, tunnel: 0, open: 0.65,
-      enclosure: 0, meanFree: PROBE_DIST, ceiling: PROBE_DIST,
+      tight: 0, room: 0, street: 0.35, tunnel: 0, open: 0.65, hall: 0,
+      enclosure: 0, roofed: 0, meanFree: PROBE_DIST, ceiling: PROBE_DIST,
     };
+    this.map = 'town';
+    this._spaceBias = null;
     this._probeTimer = 0;
     this._lastProbe = { x: 1e9, y: 0, z: 0 };
     this._origin = { x: 0, y: 0, z: 0 };
@@ -128,6 +155,13 @@ export class AudioSystem {
     this._budget = { impact: 0, step: 0, shell: 0, whizz: 0 };
     this._lastBarkTime = -99;
     this._lastAnnounceTime = -99;
+    this._lastEnemyRadio = -99;
+
+    /* Command radio: what the UI subtitle track last showed */
+    this.comms = null;
+    this._radioSeen = { text: '', speaker: '', t: 1e9 };
+    this._uiRadio = false;      // a UI radio exists and is being watched
+    this._radioEvents = false;  // someone emits radio:line; stop watching
 
     this._health = 100;
     this._heartTimer = 0;
@@ -186,11 +220,17 @@ export class AudioSystem {
       const actx = new AC({ latencyHint: 'interactive' });
       this.actx = actx;
 
+      this.map = resolveMap(this.ctx);
+      this._spaceBias = HALL_BIAS[this.map] ?? null;
       this.bank = new NoiseBank(actx, this.rng.fork(), 2.4);
-      this.mixer = new Mixer(actx, this.rng.fork(), {});
+      this.mixer = new Mixer(actx, this.rng.fork(), { hall: !!this._spaceBias });
       this.mixer.buildReverbs();
       this.field = new SpatialField(actx, this.mixer, this.ctx);
-      this.ambience = new Ambience(actx, this.bank, this.mixer, this.field, this.rng.fork());
+      this.comms = new RadioComms(actx, this.rng.fork());
+      this.ambience = new Ambience(actx, this.bank, this.mixer, this.field, this.rng.fork(), {
+        map: this.map,
+        anchors: this.ctx.peek?.('world')?.audioAnchors ?? null,
+      });
       this.ambience.start();
       this.mixer.setSpace(this._space, 0.001);
 
@@ -198,7 +238,7 @@ export class AudioSystem {
       this.running = true;
       this.stats.started = true;
       this.stats.contextState = actx.state;
-      console.info(`[audio] online @ ${actx.sampleRate} Hz`);
+      console.info(`[audio] online @ ${actx.sampleRate} Hz, map ${this.map}`);
       return true;
     } catch (err) {
       console.warn('[audio] disabled:', err?.message ?? err);
@@ -216,7 +256,7 @@ export class AudioSystem {
       this.bank?.dispose();
       if (this.actx && this.actx.state !== 'closed') this.actx.close();
     } catch { /* nothing useful to do */ }
-    this.ambience = this.field = this.mixer = this.bank = null;
+    this.ambience = this.field = this.mixer = this.bank = this.comms = null;
     this.actx = null;
     this.running = false;
   }
@@ -272,6 +312,7 @@ export class AudioSystem {
         };
       }
       this.ambience.update(dt, this._ambienceApi);
+      this._watchRadio(ctx);
 
       /* ---- head-locked voice teardown ---------------------------- */
       const now = actx.currentTime;
@@ -336,12 +377,12 @@ export class AudioSystem {
     } else {
       for (let i = 0; i < PROBE_RAYS; i++) hits[i] = PROBE_DIST;
     }
-    classifySpace(hits, PROBE_DIST, this._space);
+    classifySpace(hits, PROBE_DIST, this._space, this._spaceBias);
     this.mixer.setSpace(this._space, 0.4);
-    this.ambience.setEnclosure(this._space.enclosure);
+    this.ambience.setEnclosure(this._space.enclosure, this._space.roofed);
 
     let best = 'open', bv = -1;
-    for (const k of ['tight', 'room', 'street', 'tunnel', 'open']) {
+    for (const k of SPACE_KEYS) {
       if (this._space[k] > bv) { bv = this._space[k]; best = k; }
     }
     this.stats.space = best;
@@ -375,8 +416,10 @@ export class AudioSystem {
       case 'bodyfall': return bodyFall(actx, bank, rng, { when, level: o.level });
       case 'cloth': return cloth(actx, bank, rng, { when, level: o.level });
       case 'heartbeat': return heartbeat(actx, bank, rng, { when, level: o.level });
-      case 'bark': return voxBark(actx, bank, rng, { when, bark: o.bark, f0: o.f0, tract: o.tract, level: o.level, radio: o.radio, pa: o.pa });
-      case 'ambient': return ambientOneShot(actx, bank, rng, o.which, { when, level: o.level });
+      case 'bark': return voxBark(actx, bank, rng, { when, bark: o.bark, f0: o.f0, tract: o.tract, level: o.level, radio: o.radio });
+      case 'radio': return this.comms.transmission(o.speaker, when, o.dur, o.level ?? 1);
+      case 'radio_enemy': return this.comms.enemy(when, o.dur, o.level ?? 1);
+      case 'ambient': return ambientOneShot(actx, bank, rng, o.which, { when, level: o.level, kit: this.ambience?.kit });
       default: return uiSound(actx, bank, rng, kind, { when, level: o.level });
     }
   }
@@ -528,32 +571,73 @@ export class AudioSystem {
   }
 
   /**
-   * The plaza PA. `kind` is a game-loop moment — 'wave' | 'waveClear' | 'over'
-   * (see ANNOUNCE in vox.js). Head-locked rather than positioned: a stadium PA
-   * has no direction, it is simply everywhere, and the heavy reverb send is
-   * what puts it on the buildings.
-   *
-   * Deliberately NOT routed through bark(): that path is throttled to one voice
-   * every 0.42 s so overlapping enemies do not turn to mush, and an announcement
-   * losing a coin-flip against a bark from the same frame would be a defect.
+   * Key the comms net for `seconds`: Command (squelch-open, a 300–3000 Hz
+   * carrier bed, squelch tail) or Doug (a close push-to-talk click). Anything
+   * else is refused — enemy chatter has its own positioned path.
+   * Head-locked, on the ui bus: this is in the player's earpiece, so a
+   * concussion does not muffle it and the room does not reverberate it.
+   * A new line cuts whatever was still on the net, as a real net would.
+   */
+  radioLine(speaker, seconds = 3, opts = {}) {
+    if (!this.running || this.actx.state === 'suspended') return false;
+    if (speaker !== 'command' && speaker !== 'doug') return false;
+    const dur = clamp(Number.isFinite(seconds) ? seconds : 3, 0.35, 9);
+    const when = this.actx.currentTime + (opts.delay ?? 0);
+    this.comms.cut(when);
+    if (speaker === 'command') this.mixer.duck(0.3, Math.min(dur, 2.5), 'radio');
+    return this._playDry('radio', {
+      speaker, dur, level: opts.level ?? 1, extraDelay: opts.delay ?? 0,
+    }, 'ui', 0);
+  }
+
+  /**
+   * Fallback Command transmission for a game-loop moment, used only when no
+   * UI radio is present to drive the net. Its own cooldown; never routed
+   * through bark(), whose 0.42 s throttle would eat it.
    */
   announce(kind, opts = {}) {
     if (!this.running || this.actx.state === 'suspended') return false;
-    const spec = ANNOUNCE[kind];
-    if (!spec) return false;
+    const dur = RADIO_CUE[kind];
+    if (!dur) return false;
     const now = this.actx.currentTime;
     if (now - this._lastAnnounceTime < ANNOUNCE_COOLDOWN && !opts.force) return false;
     this._lastAnnounceTime = now;
-    // Inverse of the gunfire duck: the fight steps back, the voice does not.
-    this.mixer.duck(0.5, 1.4, 'announce');
-    return this._playDry('bark', {
-      bark: spec.bark,
-      f0: spec.f0,
-      tract: spec.tract,
-      pa: true,
-      level: opts.level ?? 1,
-      extraDelay: opts.delay ?? ANNOUNCE_DELAY[kind] ?? 0,
-    }, 'voice', 0.9);
+    return this.radioLine('command', dur, { delay: opts.delay ?? 0 });
+  }
+
+  /**
+   * Follow the UI's subtitle track (allocation-free: compares the current
+   * line's string identity and clock against the last frame's).
+   */
+  _watchRadio(ctx) {
+    if (this._radioEvents) return;
+    const c = ctx.peek?.('ui')?.radio?.cur;
+    if (!c) return;
+    this._uiRadio = true;
+    const s = this._radioSeen;
+    const fresh = c.text !== s.text || c.speaker !== s.speaker || c.t < s.t - 1e-4;
+    s.t = c.t;
+    if (fresh) {
+      s.text = c.text;
+      s.speaker = c.speaker;
+      if (c.text && c.t < c.life) this.radioLine(c.speaker, c.life - c.t);
+    } else if (c.t > 1e8 && this.comms.active) {
+      // The net was cleared (title screen, restart): close the channel.
+      this.comms.cut();
+    }
+  }
+
+  /** An enemy's handheld at its position: distant, distorted, rate-limited. */
+  _onEnemyRadio(p) {
+    if (!this.running || this.actx.state === 'suspended') return;
+    const pos = p?.enemy?.position;
+    if (!isVec(pos)) return;
+    const now = this.actx.currentTime;
+    if (now - this._lastEnemyRadio < ENEMY_RADIO_GAP) return;
+    this._lastEnemyRadio = now;
+    const len = typeof p.text === 'string' ? p.text.length : 32;
+    const dur = clamp(0.5 + len * 0.045, 0.8, 3.2);
+    this._playAt('radio_enemy', pos.x, pos.y + 1.2, pos.z, { dur, level: 1, gain: 1.5, maxDist: 70 }, 'voice', 0.6);
   }
 
   setMasterVolume(v) { this.mixer?.setMasterVolume(v); }
@@ -584,14 +668,21 @@ export class AudioSystem {
     // Emitted by `ai` from real intent (spot / reload / grenade / flank / copy).
     on('ai:bark', (p) => this.bark(p?.kind ?? 'spot', p?.position, { voice: p?.voice ?? 0 }));
 
-    /* ---- the wave loop: Command's radio call ----------------------- */
-    // The UI plays the stinger on these same events; we answer it with the
-    // voice a beat later. `game:waveClear` opens the 4 s breather, which is the
-    // only window in the run where a two-second announcement can breathe.
-    on('game:wave', () => this.announce('wave'));
-    on('game:waveClear', () => this.announce('waveClear'));
-    // The run is over: this one always plays, whatever fired before it.
-    on('game:over', () => this.announce('over', { force: true }));
+    // Enemy radio net: a crackle from the speaker's handheld.
+    on('ai:radio', (p) => this._onEnemyRadio(p));
+
+    /* ---- Command radio -------------------------------------------- */
+    // Normally driven by watching the UI subtitle track (_watchRadio). A
+    // `radio:line` event, if the UI ever emits one, takes over from that.
+    on('radio:line', (p) => {
+      this._radioEvents = true;
+      this.radioLine(p?.speaker, p?.duration ?? p?.life ?? 3);
+    });
+    // Fallback only: no UI radio, so the game moments key the net directly.
+    const fallback = () => !this._uiRadio && !this._radioEvents;
+    on('game:wave', () => { if (fallback()) this.announce('wave'); });
+    on('game:waveClear', () => { if (fallback()) this.announce('waveClear'); });
+    on('game:over', () => { if (fallback()) this.announce('over', { force: true }); });
   }
 
   _onFire(p) {
@@ -828,19 +919,21 @@ export class AudioSystem {
     if (!this.running) return;
     const rng = this.rng;
     const lp = this.field.listenerPos;
-    // Weighted, not uniform: a war-damaged town, mostly rubble settling and
-    // distant traffic. See ambience.js.
-    const which = pickOneShot(rng);
+    // Weighted, not uniform, and per map. See ambience.js.
+    const which = pickOneShot(rng, this.map);
     const far = ONE_SHOT_FAR.has(which);
     const range = ONE_SHOT_RANGE[which] ?? ONE_SHOT_RANGE.default;
     const d = rng.range(range[0], range[1]);
     const a = rng.range(0, Math.PI * 2);
-    // Everything but the helicopter lives at head height or a storey up; a
-    // badge reader is at chest height and must not float over the plaza.
-    const yUp = which === 'heli' ? 28 : which === 'badge_beep' ? 0.4 : which === 'pa_chime' ? 7 : 5;
+    // Head height or a storey up; the helicopter overhead, luggage on the
+    // floor, the PA chime from the ceiling speakers.
+    let yLo = -1, yUp = 5;
+    if (which === 'heli') yUp = 28;
+    else if (which === 'luggage') { yLo = -1.5; yUp = -1.3; }
+    else if (which === 'terminal_chime') { yLo = 5; yUp = 7.5; }
     this._playAt('ambient',
       lp.x + Math.cos(a) * d,
-      lp.y + rng.range(which === 'badge_beep' ? -0.8 : -1, yUp),
+      lp.y + rng.range(yLo, yUp),
       lp.z + Math.sin(a) * d,
       {
         which, level: rng.range(0.55, 1), maxDist: 400,
@@ -903,10 +996,13 @@ export class AudioSystem {
     for (const w of ONE_SHOTS) {
       this._playAt('ambient', lp.x + 20, lp.y + 2, lp.z - 20, { which: w, level: 0.6 }, 'ambience', 0.1);
     }
-    // The wave loop: the wave stingers as the ui subsystem fires them, and
-    // all three PA calls (forced past their own cooldown).
+    // The wave loop: the wave stingers as the ui subsystem fires them, a
+    // Command call with Doug's reply, and an enemy handheld.
     for (const k of ['wave_start', 'wave_clear', 'run_over']) this.ui(k, 0.8);
-    for (const k of ['wave', 'waveClear', 'over']) this.announce(k, { force: true, delay: 0 });
+    this.radioLine('command', 2.2);
+    this.radioLine('doug', 1.4, { delay: 2.6 });
+    this._lastEnemyRadio = -99;
+    ev.emit('ai:radio', { enemy: { position: at(12, -1.2, -15) }, kind: 'spot', text: 'Contact, west side. Probably.' });
     this._distantVolley();
     this._distantBoom();
     this._distantChatter();
@@ -925,6 +1021,7 @@ export class AudioSystem {
       dropped: this.field?.stats.dropped ?? 0,
       stolen: this.field?.stats.stolen ?? 0,
       occlusionRays: this.field?.stats.occlusionRays ?? 0,
+      map: this.map,
       space: this.stats.space,
       spaceWeights: this.mixer ? { ...this.mixer.spaceWeights } : null,
       enclosure: this._space.enclosure,

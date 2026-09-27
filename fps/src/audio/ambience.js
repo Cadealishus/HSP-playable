@@ -1,32 +1,57 @@
 /**
  * AUDIO / AMBIENCE
  *
- * Three continuous beds (wind, city, distant war) plus a scheduler that drops
- * positioned one-shots into the world. Everything is driven by audio-rate LFOs
- * rather than per-frame JS automation, so the beds cost nothing on the main
- * thread, and every scheduled event's time, position, pitch and level comes from
- * ctx.rng — the beds are literally never in the same state twice, which is what
- * kills the "looping wav" tell.
+ * Continuous beds plus a scheduler that drops positioned one-shots into the
+ * world, per map:
  *
- * The beds also react to the space probe: walking inside drops the wind and
- * closes a lowpass over the outdoor content, which is a huge part of why a
- * doorway feels like a doorway.
+ *   town     wind, a distant city, a distant war rumble; volleys, booms,
+ *            rubble, dogs, sirens, a helicopter
+ *   airport  see airport.js: HVAC room tone, the escalator bank as a point
+ *            source, an airliner idling on the apron that spools up now and
+ *            then; rolling luggage and the ceiling PA chime as one-shots; the
+ *            distant battle kept, but rarer
+ *
+ * Everything is driven by audio-rate LFOs rather than per-frame JS
+ * automation, so the beds cost nothing on the main thread, and every scheduled
+ * event's time, position, pitch and level comes from ctx.rng — the beds are
+ * literally never in the same state twice, which is what kills the "looping
+ * wav" tell.
+ *
+ * The beds react to the space probe through two chains: the outdoor chain
+ * closes a lowpass and drops when the listener is enclosed (a doorway feels
+ * like a doorway), the indoor chain (airport only) opens up under a roof.
  */
 
 import { ad, biquad, clamp, gain, lerp, osc, series, struckResonator, sweep } from './dsp.js';
+import { airportOneShot, buildAirportBeds, renderAirportKit } from './airport.js';
+
+/** Per-map scheduler character. `intensity` scales the distant battle. */
+const MAP_PROFILES = {
+  town: { intensity: 1, wind: 0.5, oneshot: [6, 20] },
+  airport: { intensity: 0.35, wind: 0.28, oneshot: [4, 11] },
+};
 
 export class Ambience {
-  constructor(actx, bank, mixer, field, rng) {
+  /**
+   * @param {object} [opts] { map: 'town' | 'airport', anchors }
+   */
+  constructor(actx, bank, mixer, field, rng, opts = {}) {
     this.actx = actx;
     this.bank = bank;
     this.mixer = mixer;
     this.field = field;
     this.rng = rng;
+    this.map = MAP_PROFILES[opts.map] ? opts.map : 'town';
+    this.profile = MAP_PROFILES[this.map];
+    this.anchors = opts.anchors ?? null;
     this.nodes = [];
     this.started = false;
     this.enclosure = 0;
-    this.intensity = 1;    // scales the distant-battle scheduler
-    this._timers = { gust: 2, volley: 4, boom: 18, oneshot: 6, chatter: 25 };
+    this.roofed = 0;
+    this.intensity = this.profile.intensity; // scales the distant-battle scheduler
+    this.kit = null;       // airport one-shot buffers
+    this._airport = null;  // airport bed handles (jet spool)
+    this._timers = { gust: 2, volley: 4, boom: 18, oneshot: 6, chatter: 25, spool: 30 };
   }
 
   /** Build the beds. Called once, after the graph is live. */
@@ -34,6 +59,7 @@ export class Ambience {
     if (this.started) return;
     const { actx, bank, rng } = this;
     this.started = true;
+    const airport = this.map === 'airport';
 
     const bus = this.mixer.bus('ambience');
     const outdoorLP = biquad(actx, 'lowpass', 20000, 0.6);
@@ -51,7 +77,7 @@ export class Ambience {
     this.nodes.push(sendTap);
 
     /* ---- wind: two decorrelated brown-noise layers ---------------- */
-    this._windGain = gain(actx, 0.5);
+    this._windGain = gain(actx, this.profile.wind);
     this._windGain.connect(outdoorLP);
     this.nodes.push(this._windGain);
     for (let i = 0; i < 2; i++) {
@@ -85,30 +111,45 @@ export class Ambience {
       this.nodes.push(src, bp, g);
     }
 
-    /* ---- distant city: traffic hum, HVAC, indistinct life --------- */
-    {
-      const src = bank.source('pink', rng, 0.9, true);
-      const lp = biquad(actx, 'lowpass', 480, 0.7);
-      const hp = biquad(actx, 'highpass', 70, 0.7);
-      const g = gain(actx, 0.06);
-      series(src, hp, lp, g).connect(outdoorLP);
-      src.start(0, src._offset);
-      this._lfo(0.023, 0.025, g.gain);
-      this._lfo(0.0311, 120, lp.frequency);
-      this.nodes.push(src, lp, hp, g);
-      this._cityGain = g;
-    }
+    if (airport) {
+      /* ---- indoor chain: the hall ---------------------------------- */
+      const indoorGain = gain(actx, 0.1);
+      indoorGain.connect(bus);
+      // The hall answers its own room tone: a modest send, so the HVAC reads
+      // as filling a big space rather than coming out of the wall.
+      const inSend = gain(actx, 0.18);
+      indoorGain.connect(inSend);
+      inSend.connect(this.mixer.reverbSend);
+      this._indoorGain = indoorGain;
+      this.nodes.push(indoorGain, inSend);
+      this.kit = renderAirportKit(actx, rng);
+      this._airport = buildAirportBeds(this, indoorGain, outdoorLP, this.anchors);
+    } else {
+      /* ---- distant city: traffic hum, indistinct life --------------- */
+      {
+        const src = bank.source('pink', rng, 0.9, true);
+        const lp = biquad(actx, 'lowpass', 480, 0.7);
+        const hp = biquad(actx, 'highpass', 70, 0.7);
+        const g = gain(actx, 0.06);
+        series(src, hp, lp, g).connect(outdoorLP);
+        src.start(0, src._offset);
+        this._lfo(0.023, 0.025, g.gain);
+        this._lfo(0.0311, 120, lp.frequency);
+        this.nodes.push(src, lp, hp, g);
+        this._cityGain = g;
+      }
 
-    /* ---- distant war rumble: sub-100 Hz, always there ------------- */
-    {
-      const src = bank.source('brown', rng, 0.7, true);
-      const lp = biquad(actx, 'lowpass', 105, 0.9);
-      const g = gain(actx, 0.05);
-      series(src, lp, g).connect(outdoorLP);
-      src.start(0, src._offset);
-      this._lfo(0.0137, 0.035, g.gain);
-      this.nodes.push(src, lp, g);
-      this._warGain = g;
+      /* ---- distant war rumble: sub-100 Hz, always there ------------- */
+      {
+        const src = bank.source('brown', rng, 0.7, true);
+        const lp = biquad(actx, 'lowpass', 105, 0.9);
+        const g = gain(actx, 0.05);
+        series(src, lp, g).connect(outdoorLP);
+        src.start(0, src._offset);
+        this._lfo(0.0137, 0.035, g.gain);
+        this.nodes.push(src, lp, g);
+        this._warGain = g;
+      }
     }
 
     this._reseedTimers();
@@ -130,18 +171,25 @@ export class Ambience {
     this._timers.gust = r.range(4, 14);
     this._timers.volley = r.range(3, 11);
     this._timers.boom = r.range(14, 44);
-    this._timers.oneshot = r.range(5, 17);
+    this._timers.oneshot = r.range(this.profile.oneshot[0], this.profile.oneshot[1]);
     this._timers.chatter = r.range(18, 50);
+    this._timers.spool = r.range(12, 40);
   }
 
-  /** Outdoor content is filtered and dropped when the listener is enclosed. */
-  setEnclosure(v) {
+  /**
+   * Outdoor content is filtered and dropped when the listener is enclosed; the
+   * airport's indoor chain opens up under a roof (`roofed`, 0..1).
+   */
+  setEnclosure(v, roofed = v) {
     this.enclosure = clamp(v, 0, 1);
+    this.roofed = clamp(roofed, 0, 1);
     if (!this.started) return;
     const t = this.actx.currentTime;
     this._outdoorLP.frequency.setTargetAtTime(lerp(20000, 620, this.enclosure), t, 0.6);
     this._outdoorGain.gain.setTargetAtTime(lerp(1, 0.45, this.enclosure), t, 0.6);
-    if (this._windGain) this._windGain.gain.setTargetAtTime(lerp(0.5, 0.12, this.enclosure), t, 0.8);
+    const w = this.profile.wind;
+    if (this._windGain) this._windGain.gain.setTargetAtTime(lerp(w, w * 0.24, this.enclosure), t, 0.8);
+    if (this._indoorGain) this._indoorGain.gain.setTargetAtTime(lerp(0.1, 1, this.roofed), t, 0.8);
   }
 
   update(dt, api) {
@@ -169,7 +217,7 @@ export class Ambience {
 
     T.oneshot -= dt;
     if (T.oneshot <= 0) {
-      T.oneshot = r.range(6, 20);
+      T.oneshot = r.range(this.profile.oneshot[0], this.profile.oneshot[1]);
       api?.oneShot?.();
     }
 
@@ -177,6 +225,14 @@ export class Ambience {
     if (T.chatter <= 0) {
       T.chatter = r.range(20, 60);
       api?.distantChatter?.();
+    }
+
+    if (this._airport) {
+      T.spool -= dt;
+      if (T.spool <= 0) {
+        T.spool = r.range(35, 80);
+        this._airport.spool();
+      }
     }
   }
 
@@ -202,6 +258,8 @@ export class Ambience {
       n.disconnect();
     }
     this.nodes.length = 0;
+    this.kit = null;
+    this._airport = null;
     this.started = false;
   }
 }
@@ -211,51 +269,68 @@ export class Ambience {
 /* ------------------------------------------------------------------ */
 
 /**
- * The scheduler's one-shot table: a war-damaged border town, mostly empty.
- * The synth can also build 'pa_chime', 'crowd_murmur' and 'badge_beep' (see
- * ambientOneShot); they are not in the table because nothing in this town has
- * a PA system, a crowd or a door that beeps.
+ * The scheduler's one-shot tables, per map, as relative pick weights.
+ *   town     a war-damaged border town, mostly empty
+ *   airport  a terminal mid-evacuation: abandoned luggage still rolling, the
+ *            ceiling PA chiming with nobody left to make the announcement
  */
-export const ONE_SHOTS = ['dog', 'siren', 'creak', 'settle', 'birds', 'vehicle', 'heli', 'shout'];
-
-/** Relative pick weights for the scheduler. */
-export const ONE_SHOT_WEIGHTS = {
-  settle: 1.4,   // rubble and roof tin shifting
-  creak: 1.2,
-  vehicle: 1.2,
-  shout: 1.1,
-  birds: 1.0,
-  dog: 1.0,
-  heli: 1.0,
-  siren: 0.8,
+export const ONE_SHOT_TABLES = {
+  town: {
+    settle: 1.4,   // rubble and roof tin shifting
+    creak: 1.2,
+    vehicle: 1.2,
+    shout: 1.1,
+    birds: 1.0,
+    dog: 1.0,
+    heli: 1.0,
+    siren: 0.8,
+  },
+  airport: {
+    luggage: 1.8,
+    terminal_chime: 0.7,
+    vehicle: 0.6,  // a tug or a baggage train out on the apron
+    shout: 0.5,
+    creak: 0.4,    // the roof steel moving in the sun
+  },
 };
+
+/** Every one-shot the synth can build (debug storm, self test). */
+export const ONE_SHOTS = [...new Set(Object.values(ONE_SHOT_TABLES).flatMap(Object.keys))];
+
+/** One-shots rendered from the airport kit rather than synthesised live. */
+export const KIT_ONE_SHOTS = new Set(['luggage', 'terminal_chime']);
 
 /** Metres from the listener a one-shot is placed at: [min, max]. */
 export const ONE_SHOT_RANGE = {
   default: [14, 90],
   heli: [90, 260],
   siren: [120, 300],
-  pa_chime: [45, 150],
-  crowd_murmur: [28, 70],
-  badge_beep: [6, 22],      // a door, not a skyline
+  luggage: [5, 28],         // somebody's case, a few gates down
+  terminal_chime: [8, 30],  // the nearest ceiling speaker
 };
 
 /** Placed above the rooftops: no occlusion, big makeup gain. */
-export const ONE_SHOT_FAR = new Set(['heli', 'siren', 'pa_chime']);
+export const ONE_SHOT_FAR = new Set(['heli', 'siren']);
 
 /** Weighted pick. Deterministic — `rng` is always a ctx.rng fork. */
-export function pickOneShot(rng) {
+export function pickOneShot(rng, map = 'town') {
+  const table = ONE_SHOT_TABLES[map] ?? ONE_SHOT_TABLES.town;
   let total = 0;
-  for (const k of ONE_SHOTS) total += ONE_SHOT_WEIGHTS[k] ?? 1;
+  for (const k in table) total += table[k];
   let r = rng.range(0, total);
-  for (const k of ONE_SHOTS) {
-    r -= ONE_SHOT_WEIGHTS[k] ?? 1;
+  let last = 'settle';
+  for (const k in table) {
+    r -= table[k];
+    last = k;
     if (r <= 0) return k;
   }
-  return ONE_SHOTS[0];
+  return last;
 }
 
 export function ambientOneShot(actx, bank, rng, kind, o = {}) {
+  // Pre-rendered airport voices. Without a kit (another map) they fall
+  // through to the default below rather than throwing.
+  if (KIT_ONE_SHOTS.has(kind) && o.kit) return airportOneShot(actx, rng, o.kit, kind, o);
   const t0 = o.when ?? actx.currentTime;
   const out = gain(actx, 0.55); // VOICE TRIM
   const lvl = o.level ?? 1;
@@ -389,91 +464,6 @@ export function ambientOneShot(actx, bank, rng, kind, o = {}) {
       ad(wg.gain, t0, 0.11 * lvl, dur * 0.4, dur * 0.6);
       w.start(t0); w.stop(t0 + dur * 1.2);
       return { node: out, end: t0 + dur * 1.3, send: 0.9 };
-    }
-    case 'pa_chime': {
-      // The plaza PA somewhere else in the district clearing its throat: the
-      // same descending fourth the announcer opens with, minus the
-      // announcement. Hearing it un-followed-up is what makes the district feel
-      // bigger than the block you are standing on.
-      const base = rng.range(760, 800);
-      const chain = gain(actx, 1);
-      const horn = biquad(actx, 'peaking', 1650, 2.2, 6);
-      const lp = biquad(actx, 'lowpass', rng.range(3400, 5200), 0.7);
-      series(chain, horn, lp).connect(out);
-      const gap = rng.range(0.26, 0.34);
-      for (let i = 0; i < 2; i++) {
-        const bt = t0 + i * gap;
-        const f = i === 0 ? base : base * 0.75;   // perfect fourth down
-        const o1 = osc(actx, 'sine', f);
-        const o2 = osc(actx, 'triangle', f * 2);
-        const og = gain(actx, 0.13);
-        const g = gain(actx, 0);
-        o1.connect(g); o2.connect(og); og.connect(g); g.connect(chain);
-        ad(g.gain, bt, 0.24 * lvl, 0.008, rng.range(0.5, 0.78));
-        o1.start(bt); o2.start(bt); o1.stop(bt + 1.05); o2.stop(bt + 1.05);
-      }
-      // Two pure sines through a 2.8 s convolution build up hard — this was
-      // measured at peak 0.58 through the master at send 1.3, six times a
-      // distant siren. 0.4 keeps it clearly the wettest thing in the table
-      // (which is what puts it across the plaza) without owning the mix.
-      return { node: out, end: t0 + gap + 1.3, send: 0.4 };
-    }
-    case 'crowd_murmur': {
-      // Fifteen hundred people in a hall forty metres away. Same source/filter
-      // trick as `shout` — sawtooth through two bandpasses — but four of them
-      // at unrelated pitches over a broadband room wash, each drifting on its
-      // own slow LFO. The point is the SUM: nothing in here is allowed to
-      // resolve into a word, and no single layer is allowed to be the loudest
-      // for long. Contour, no words, times four.
-      const dur = rng.range(2.6, 5.5);
-      const wash = gain(actx, 0);
-      const wlp = biquad(actx, 'lowpass', rng.range(2100, 3000), 0.7);
-      series(wash, wlp).connect(out);
-      ad(wash.gain, t0, 1, dur * 0.45, dur * 0.6);
-
-      // Room tone under the voices: pink noise through the same vowel band.
-      const src = bank.source('pink', rng, rng.range(0.85, 1.1));
-      const shp = biquad(actx, 'bandpass', rng.range(700, 1100), 0.9);
-      const sg = gain(actx, 0.08 * lvl);
-      series(src, shp, sg).connect(wash);
-      src.start(t0, src._offset, dur * 1.45);
-
-      for (let i = 0; i < 4; i++) {
-        const v = osc(actx, 'sawtooth', rng.range(95, 205));
-        const b1 = biquad(actx, 'bandpass', rng.range(520, 900), 3.2);
-        const b2 = biquad(actx, 'bandpass', rng.range(1150, 2100), 4.2);
-        const g = gain(actx, 0.055 * lvl);
-        v.connect(b1); v.connect(b2);
-        b1.connect(g); b2.connect(g);
-        g.connect(wash);
-        const drift = osc(actx, 'sine', rng.range(0.35, 1.25));
-        const dg = gain(actx, rng.range(6, 22));
-        drift.connect(dg); dg.connect(v.frequency);
-        drift.start(t0); drift.stop(t0 + dur * 1.45);
-        v.start(t0); v.stop(t0 + dur * 1.45);
-      }
-      return { node: out, end: t0 + dur * 1.55, send: 1.25 };
-    }
-    case 'badge_beep': {
-      // Registration scanner at a door. One clean beep; one time in seven the
-      // double that means "try that again". Rare, and never twice in a row from
-      // the same place — the scheduler re-picks its position every time.
-      const n = rng.float() < 0.14 ? 2 : 1;
-      const f = rng.range(2050, 2650);
-      for (let i = 0; i < n; i++) {
-        const bt = t0 + i * 0.13;
-        const o1 = osc(actx, 'square', f);
-        const lp = biquad(actx, 'lowpass', 5400, 0.7);
-        const g = gain(actx, 0);
-        o1.connect(g); series(g, lp).connect(out);
-        ad(g.gain, bt, 0.42 * lvl, 0.003, 0.055);
-        o1.start(bt); o1.stop(bt + 0.12);
-      }
-      // The contact click of the badge on the reader.
-      struckResonator(actx, bank, rng, Math.max(t0 - 0.012, 0), [
-        { f: rng.range(2600, 4200), q: 12, g: 0.05 * lvl, decay: 0.012 },
-      ], 0.0012).connect(out);
-      return { node: out, end: t0 + 0.45, send: 0.5 };
     }
     case 'shout':
     default: {
