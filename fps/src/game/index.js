@@ -486,6 +486,12 @@ export class GameSystem {
   _squareWorldPos() {
     if (this._squarePos) return this._squarePos;
     const world = this.ctx.peek('world');
+    // Any map but the town publishes its own objective (src/world/maps): hold
+    // that instead of the town square.
+    if (world?.mapId && world.mapId !== 'town' && world.objective?.position) {
+      this._squarePos = world.objective.position.clone();
+      return this._squarePos;
+    }
     if (typeof world?.levelToWorld !== 'function') return null;
     // One allocation, once per session — not a per-frame path.
     const v = world.levelToWorld(SQUARE_LEVEL_X, 0, SQUARE_LEVEL_Z);
@@ -608,7 +614,9 @@ export class GameSystem {
   }
 
   _plazaSpawnIndex() {
-    const sp = this.ctx.peek('world')?.spawnPoints;
+    const world = this.ctx.peek('world');
+    if (world?.mapId && world.mapId !== 'town') return world.playerSpawnIndex ?? 0;
+    const sp = world?.spawnPoints;
     if (Array.isArray(sp)) {
       const i = sp.findIndex((s) => /plaza/i.test(s?.tag ?? ''));
       if (i >= 0) return i;

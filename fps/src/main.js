@@ -15,6 +15,7 @@ import { AudioSystem } from './audio/index.js';
 import { GameSystem } from './game/index.js';
 
 import { installShotApi } from './dev/shots.js';
+import { MAPS, resolveMapId, switchMap } from './world/maps/index.js';
 import { prewarm } from './core/prewarm.js';
 
 /** Wall clock at the first line of the module graph — `boot:done.totalMs`. */
@@ -32,6 +33,17 @@ const config = createConfig({
   quality: params.get('q') ?? 'ultra',
   deterministic: capture,
 });
+
+// The active map (see src/world/maps/index.js): `?map=`, else the last choice
+// made on the title screen, else the town. The world system builds it; the
+// title screen reads the list and the active id off window.__FLOP_MAPS__ (the
+// UI never imports the world), and `select(id)` saves and reloads onto a map.
+config.map = resolveMapId(params);
+window.__FLOP_MAPS__ = {
+  active: config.map,
+  list: MAPS.map(({ load, ...meta }) => meta),
+  select: (id) => (id === config.map ? false : switchMap(id)),
+};
 
 const canvas = document.getElementById('game');
 

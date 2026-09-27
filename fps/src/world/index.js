@@ -15,6 +15,7 @@ import {
   isOpen,
 } from './dressing.js';
 import { dressFlopOps, OBJECTIVE } from './flopops.js';
+import { getMap } from './maps/index.js';
 
 /**
  * WORLD — level geometry, the modular building kit, props, set dressing and
@@ -97,6 +98,11 @@ export class WorldSystem {
   async init(ctx) {
     this.ctx = ctx;
     this.rng = ctx.rng.fork();
+    // MAP DISPATCH (src/world/maps): every map but the town builds through its
+    // own module; the town is this file's original path, untouched below.
+    this.mapId = getMap(ctx.config?.map) ? ctx.config.map : 'town';
+    this._map = null;
+    if (this.mapId !== 'town') return this._initMap(ctx, this.mapId);
     const rng = this.rng;
     const materials = ctx.get('materials');
     const physics = ctx.peek('physics');
@@ -208,6 +214,63 @@ export class WorldSystem {
     const fonts = globalThis.document?.fonts;
     if (!fonts?.ready) return Promise.resolve();
     return Promise.race([fonts.ready, new Promise((r) => setTimeout(r, 600))]).catch(() => {});
+  }
+
+  // ------------------------------------------------------------------- maps --
+  /**
+   * Build a registry map other than the town (src/world/maps/<id>/). The map
+   * module owns its own Assembler, palette and layout; this wraps it in the
+   * same public API the town exposes (spawnPoints, objective, bounds,
+   * buildings, groundHeight, isOpen, levelToWorld) and reuses the town's light
+   * ballast and pre-warm untouched.
+   */
+  async _initMap(ctx, id) {
+    const materials = ctx.get('materials');
+    const physics = ctx.peek('physics');
+    const render = ctx.peek('render');
+    const fonts = this._fontsReady();
+
+    this.root = new THREE.Group();
+    this.root.name = `world_${id}`;
+    this.root.matrixAutoUpdate = false;
+    ctx.scene.add(this.root);
+    materials.setGroundLevel?.(0);
+
+    const t0 = performance.now();
+    const mod = await getMap(id).load();
+    this._dress = { meshes: [], geometries: [], materials: [], textures: [] };
+    const map = await mod.buildMap({
+      ctx,
+      materials,
+      render,
+      rng: this.rng,
+      root: this.root,
+      disp: this._dress,
+      fonts,
+      anisotropy: ctx.config?.q?.anisotropy ?? 8,
+    });
+    const A = map.A;
+    this.A = A;
+    this._map = map;
+    this.buildings = map.buildings ?? [];
+
+    this._addLights(A);
+    A.finalize(this.root, physics);
+    A.releaseCache();
+
+    this._v = new THREE.Vector3();
+    this._inv = new THREE.Matrix4().copy(A.xform).invert();
+    this.spawnPoints = map.spawnPoints;
+    this.playerSpawnIndex = map.playerSpawnIndex ?? 0;
+    this.objective = map.objective;
+    this.bounds = map.bounds;
+    this.stats = A.stats;
+
+    console.info(
+      `[world] map "${id}" built in ${(performance.now() - t0).toFixed(0)}ms — ` +
+        `${(A.stats.staticTris / 1000).toFixed(0)}k static tris, ${A.stats.instances} instances, ` +
+        `${A.stats.drawCalls} draw calls, ${(A.stats.collideTris / 1000).toFixed(1)}k collision tris`
+    );
   }
 
   // ----------------------------------------------------------------- lights --
@@ -472,12 +535,14 @@ export class WorldSystem {
   /** Analytic floor height. Physics owns the exact answer; this is a hint. */
   groundHeight(x, z) {
     const p = this.worldToLevel(x, 0, z, this._v);
+    if (this._map) return this._map.groundY(p.x, p.z);
     return groundY(p.x, p.z);
   }
 
   /** True where a character can stand outdoors (street, pavement, alley). */
   isOpen(x, z, margin = 0.4) {
     const p = this.worldToLevel(x, 0, z, this._v);
+    if (this._map) return this._map.isOpen(p.x, p.z, margin);
     return isOpen(p.x, p.z, margin);
   }
 
