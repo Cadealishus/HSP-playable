@@ -95,6 +95,23 @@ export const SHOTS = {
     apply: (e) => e.ctx.peek('fx')?.debugBurst?.('wall'),
     doc: 'Bullet impacts on a wall — decals, debris, dust puffs, sparks.',
   },
+  // ---- ENEMIES + CHAOS area (src/ai, src/physics, src/fx explosions) ----
+  'ai-closeup': {
+    pos: [4, 1.7, 12],
+    look: [-6, 1.55, -4],
+    fov: 60,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('ai')?.debugStage?.('closeup'),
+    doc: 'One enemy rifleman at ~4 m — kit, cloth, helmet, balaclava, plate carrier, rifle.',
+  },
+  'ai-flop': {
+    pos: [4, 2.0, 12],
+    look: [-6, 1.6, -4],
+    fov: 70,
+    time: 16.5,
+    apply: (e) => e.ctx.peek('ai')?.debugStage?.('flop'),
+    doc: 'Frozen frame 0.27 s after a grenade lands in a squad — ragdolls and rubble mid-air.',
+  },
   hud: {
     pos: [12, 1.75, 18],
     look: [-4, 2.2, -6],

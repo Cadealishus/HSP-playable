@@ -20,6 +20,9 @@
  *   ai.spawn(variant, position, yaw, opts) -> Agent
  *   ai.agents                              live Agent list
  *   ai.debugStage('firefight')             staged combat tableau for captures
+ *   ai.debugStage('closeup' | 'flop')      one man at 4 m / a blast mid-launch
+ *   ai.faction                             { name, short } for UI copy
+ *   ai.radio.log                           recent `ai:radio` lines (dev)
  *   ai.prewarmMaterials()                  await: build + compile every character
  *                                          shader without spawning anything
  *   ai.grid / ai.cover                     navigation + cover queries
@@ -57,6 +60,10 @@ import { RadioNet, FACTION, callsign } from './radio.js';
  * payloads, so a name on the Agent IS the display name.
  */
 export { CALLSIGNS, FACTION, RADIO } from './radio.js';
+
+/** Frames from detonation to the frozen still in the `flop` capture tableau:
+ *  0.27 s at 60 Hz, just short of the apex of a centre-of-blast launch. */
+const FLOP_FREEZE = 16;
 
 export class AiSystem {
   static id = 'ai';
@@ -933,6 +940,7 @@ export class AiSystem {
       }
     }
     this._updateGrenades(dt);
+    if (this._flop) this._updateFlop();
     this.stats.agents = this.agents.length;
     this.stats.alive = alive;
   }
@@ -1155,6 +1163,8 @@ export class AiSystem {
    * moving between positions, one reloading further back.
    */
   debugStage(name) {
+    if (name === 'closeup') return this._stageCloseup();
+    if (name === 'flop') return this._stageFlop();
     if (name !== 'firefight') return this.stats;
     if (this.inspect) return this._stageInspect();
     if (this._navPending) this._buildNav();
@@ -1228,6 +1238,103 @@ export class AiSystem {
     casualty.applyDamage(260, 'torso', hit, inc);
 
     return this.stats;
+  }
+
+  /**
+   * `debugStage('closeup')` — one rifleman about 4 m from the shot camera, up
+   * and aiming just past it, for judging the kit at the distance a player
+   * meets a man coming round a corner.
+   */
+  _stageCloseup() {
+    if (this._navPending) this._buildNav();
+    const cam = this.ctx.camera;
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.9);
+    const pos = this._stageSlot(cam, 0.12, 4.2, []);
+    // aim a little off-axis so the face, the carrier and the rifle all read
+    const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.42;
+    const a = this.spawn('vanguard', pos, yaw);
+    a.staged = {
+      crouch: false,
+      speed: 0,
+      fire: false,
+      noDamage: true,
+      aimWeight: 1,
+      heading: new THREE.Vector3(0, 0, 1),
+    };
+    a.peeking = true;
+    a.aimTarget.copy(this.playerPosition(this._v3));
+    a.animator.update(0.016, 0);
+    return this.stats;
+  }
+
+  /**
+   * `debugStage('flop')` — a squad bunched round a grenade that has already
+   * landed among them. Two frames after staging it goes off; `FLOP_FREEZE`
+   * frames (at the capture's fixed 60 Hz) later the dolls are frozen mid-air
+   * and the clock is slowed to a crawl, so the harness photographs the apex of
+   * the launch with the fireball still up — the frame the chaos pillar sells.
+   */
+  _stageFlop() {
+    if (this._navPending) this._buildNav();
+    const cam = this.ctx.camera;
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.9);
+    const squad = this.createSquad();
+    const placed = [];
+    /** [variant, ndcX, depth] — a loose knot of four, one already down */
+    const LAYOUT = [
+      ['vanguard', -0.16, 10.5],
+      ['breacher', 0.1, 11.2],
+      ['irregular', -0.02, 13.0],
+      ['vanguard', 0.26, 12.6],
+    ];
+    const centre = new THREE.Vector3();
+    const men = [];
+    for (const [variant, ndcX, d] of LAYOUT) {
+      const pos = this._stageSlot(cam, ndcX, d, placed);
+      placed.push(pos.clone());
+      centre.add(pos);
+      const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z);
+      const a = this.spawn(variant, pos, yaw + (men.length - 1.5) * 0.5);
+      squad.add(a);
+      a.staged = {
+        crouch: false, speed: 0, fire: false, noDamage: true, aimWeight: 0.4,
+        heading: new THREE.Vector3(0, 0, 1),
+      };
+      a.animator.update(0.016, 0);
+      men.push(a);
+    }
+    centre.multiplyScalar(1 / LAYOUT.length);
+    // the charge sits a little beyond the group so they come out toward and
+    // across the camera rather than straight away from it
+    const F = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion).setY(0).normalize();
+    centre.addScaledVector(F, 0.8);
+    centre.y = this.groundAt(centre.x, centre.z, cam.position.y + 2) + 0.25;
+    // a man already down on the far side, so the blast also re-launches a
+    // corpse (physics.explode) as well as the fresh deaths
+    const dPos = this._stageSlot(cam, 0.02, 14.8, placed);
+    const casualty = this.spawn('breacher', dPos, 0.6);
+    squad.add(casualty);
+    casualty.animator.update(0.016, 0);
+    casualty.applyDamage(260, 'torso', this._v2.set(dPos.x, dPos.y + 1.3, dPos.z), F);
+    this._flop = { frame: 0, at: centre, men };
+    return this.stats;
+  }
+
+  /** Drive the flop tableau's script (see _stageFlop). Frame-counted. */
+  _updateFlop() {
+    const f = this._flop;
+    if (!f) return;
+    f.frame++;
+    if (f.frame === 2) {
+      for (const a of f.men) a.staged = null;
+      this.ctx.events.emit('explosion', { position: f.at, radius: 6.5, damage: 400 });
+    } else if (f.frame === 2 + FLOP_FREEZE) {
+      for (const rd of this.phys?.ragdolls ?? []) rd.frozen = true;
+      // near-freeze everything else too (fireball, smoke, rubble) so TAA can
+      // converge on a still frame; never exactly 0, no system divides by dt
+      this.ctx.time.scale = 0.02;
+      this._flop = null;
+    }
   }
 
   /** Model inspection line-up (dev only). */

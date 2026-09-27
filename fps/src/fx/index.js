@@ -6,6 +6,7 @@ import { DecalSystem } from './decals.js';
 import { HazeSystem } from './haze.js';
 import { LightPool } from './lights.js';
 import { ShellSystem } from './shells.js';
+import { RubbleSystem } from './rubble.js';
 import { Ambience } from './ambience.js';
 import { spawnImpact } from './impacts.js';
 import { muzzleFlash } from './muzzle.js';
@@ -117,6 +118,9 @@ export class FxSystem {
 
     this.shells = new ShellSystem(this);
     ctx.scene.add(this.shells.mesh);
+    /** Rigid-body rubble thrown by explosions (see rubble.js). */
+    this.rubble = new RubbleSystem(this);
+    ctx.scene.add(this.rubble.mesh);
 
     this.ambience = new Ambience(this, {
       motes: mote,
@@ -323,7 +327,7 @@ export class FxSystem {
     try {
       renderer.setRenderTarget(rt);
       compile(
-        [this.lit.mesh, this.add.mesh, this.motes.mesh, this.decals.mesh, this.shells.mesh],
+        [this.lit.mesh, this.add.mesh, this.motes.mesh, this.decals.mesh, this.shells.mesh, this.rubble.mesh],
         ctx.camera,
         ctx.scene
       );
@@ -506,6 +510,11 @@ export class FxSystem {
   explosion(e) {
     this.now = this.ctx.time.elapsed;
     explode(this, e);
+    // FLOP OPS: real chunks that keep bouncing after the particles are gone
+    const p = e?.position ?? e;
+    if (p && Number.isFinite(p.x)) {
+      this.rubble.burst(p.x, p.y, p.z, e.radius ?? 5, Math.round(6 * this.pScale) + 4);
+    }
   }
 
   /** Eject a brass casing as a physics body. */
@@ -798,6 +807,7 @@ export class FxSystem {
   lateUpdate(dt, ctx) {
     this.now = ctx.time.elapsed;
     this.shells.update(dt, this.now);
+    this.rubble.update(dt);
     const r = this.render;
     const depth = r?.depthTexture ?? null;
     const w = r?.screenSize?.width ?? 1920;
@@ -1285,6 +1295,8 @@ export class FxSystem {
     this.decals.dispose();
     this.shells.mesh.parent?.remove(this.shells.mesh);
     this.shells.dispose();
+    this.rubble.mesh.parent?.remove(this.rubble.mesh);
+    this.rubble.dispose();
     this.hazeSys.dispose();
     this.lights.dispose();
     this.viewLights?.dispose();
