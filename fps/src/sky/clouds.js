@@ -127,7 +127,9 @@ float skCirrusBand( vec2 p, float cov, float seed, float base,
                     float rotKmInv, float lenKM, float aniso, int oct ) {
   // ---- silhouette: isotropic, so it can never streak --------------------
   vec2 w = vec2( skVal2( p * 0.30 + seed ), skVal2( p * 0.30 + seed + 11.7 ) ) - 0.5;
-  float n = skFbm2( p * 0.78 + w * 1.3, oct + 1 );
+  // Warp clamped to 0.7 and octaves capped at 4: a stronger warp, or a fifth
+  // octave, drags the level set into marbled smears instead of cloud shapes.
+  float n = skFbm2( p * 0.70 + w * 0.7, min( oct + 1, 4 ) );
   float d = smoothstep( 1.0 - cov * 1.65, 1.0 - cov * 0.60, n );
   if ( d <= 0.001 ) return 0.0;
 
@@ -156,8 +158,11 @@ float skCumulusDensity( vec2 p, int oct ) {
   // Domain warp before the shape fbm. Straight fbm gives evenly sized blobs;
   // warping it stretches some and pinches others, which is what makes a cloud
   // field read as weather rather than as noise.
-  vec2 w = vec2( skVal2( p * 0.42 ), skVal2( p * 0.42 + 19.7 ) ) - 0.5;
-  float n = skFbm2( p * 1.25 + w * 1.6, oct );
+  // The warp is CLAMPED (0.75, down from 1.6) and the shape fbm runs 3-4
+  // octaves at a lower base frequency: past that the warp folds the level set
+  // back on itself and the deck reads as marbled noise smear, not cumulus.
+  vec2 w = vec2( skVal2( p * 0.36 ), skVal2( p * 0.36 + 19.7 ) ) - 0.5;
+  float n = skFbm2( p * 0.95 + w * 0.75, clamp( oct, 3, 4 ) );
 
   // Erode from below: coverage sets the threshold, the remainder is thickness.
   float d = smoothstep( 1.0 - cov, 1.0 - cov * 0.34 + 0.05, n );
@@ -165,7 +170,7 @@ float skCumulusDensity( vec2 p, int oct ) {
   // Cauliflower the edges with a higher-frequency ridge, so the silhouette is
   // not just a smooth level set of the base noise.
   if ( d > 0.0 && d < 0.94 && oct > 3 ) {
-    float e = skRidge2( p * 5.3 + w * 2.0, 3 );
+    float e = skRidge2( p * 3.6 + w * 0.8, 2 );
     d = clamp( d - ( 1.0 - d ) * ( 0.50 - 0.50 * e ), 0.0, 1.0 );
   }
   return d;
