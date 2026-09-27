@@ -17,13 +17,83 @@ import { resetSpawn } from './particles.js';
  * draw comes from the fx rng fork handed in.
  */
 
-const CAPACITY = 20;
+const CAPACITY = 40;
 const LIFETIME = 9.0;
 const FADE = 0.8;
 
+/**
+ * A 64² tiling concrete/plaster surface: value-noise albedo modulation (white,
+ * tinted per chunk through instanceColor) with aggregate pits, and a normal
+ * map derived from the same height field. Small, but it is what stops a chunk
+ * reading as a flat-shaded polygon at 3 m.
+ */
+function rubbleTextures(rng) {
+  const N = 64;
+  const h = new Float32Array(N * N);
+  // three octaves of tiling value noise
+  let amp = 1, tot = 0;
+  for (const g of [4, 8, 16]) {
+    const grid = new Float32Array(g * g);
+    for (let i = 0; i < grid.length; i++) grid[i] = rng.float();
+    for (let y = 0; y < N; y++) {
+      const fy = (y / N) * g, y0 = fy | 0, ty = fy - y0, sy = ty * ty * (3 - 2 * ty);
+      for (let x = 0; x < N; x++) {
+        const fx = (x / N) * g, x0 = fx | 0, tx = fx - x0, sx = tx * tx * (3 - 2 * tx);
+        const a = grid[(y0 % g) * g + (x0 % g)], b = grid[(y0 % g) * g + ((x0 + 1) % g)];
+        const c = grid[((y0 + 1) % g) * g + (x0 % g)], d = grid[((y0 + 1) % g) * g + ((x0 + 1) % g)];
+        h[y * N + x] += amp * ((a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy);
+      }
+    }
+    tot += amp;
+    amp *= 0.5;
+  }
+  for (let i = 0; i < h.length; i++) h[i] /= tot;
+  // aggregate pits
+  for (let k = 0; k < 40; k++) {
+    const cx = rng.float() * N, cy = rng.float() * N, r = rng.range(0.8, 2.2);
+    for (let y = -3; y <= 3; y++) for (let x = -3; x <= 3; x++) {
+      const d = Math.hypot(x, y) / r;
+      if (d < 1) {
+        const i = (((cy + y) | 0) + N) % N * N + ((((cx + x) | 0) + N) % N);
+        h[i] -= 0.25 * (1 - d * d);
+      }
+    }
+  }
+  const alb = new Uint8Array(N * N * 4);
+  const nrm = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const i = y * N + x;
+      const v = Math.max(0, Math.min(1, 0.62 + (h[i] - 0.5) * 0.9));
+      alb[i * 4] = alb[i * 4 + 1] = alb[i * 4 + 2] = Math.round(v * 255);
+      alb[i * 4 + 3] = 255;
+      const l = h[y * N + ((x + N - 1) % N)], r = h[y * N + ((x + 1) % N)];
+      const u = h[((y + N - 1) % N) * N + x], d = h[((y + 1) % N) * N + x];
+      let nx = (l - r) * 5, ny = (u - d) * 5, nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      nrm[i * 4] = Math.round((nx / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 1] = Math.round((ny / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 2] = Math.round((nz / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 3] = 255;
+    }
+  }
+  const mk = (data, srgb) => {
+    const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return { map: mk(alb, true), normal: mk(nrm, false) };
+}
+
 function chunkGeometry(rng) {
   // an irregular fractured lump: a subdivided icosahedron with its vertices
-  // pushed in and out, flat-shaded so every facet catches light differently
+  // pushed in and out (shared vertices move together, so it stays closed and
+  // smooth-shaded; the normal map supplies the surface breakup)
   const g = new THREE.IcosahedronGeometry(0.5, 1);
   const pos = g.attributes.position;
   const seen = new Map();
@@ -38,10 +108,33 @@ function chunkGeometry(rng) {
     // flatten one axis a little: fractured concrete is slabby, not round
     pos.setXYZ(i, x * s, y * s * 0.72, z * s * 0.9);
   }
-  const flat = g.toNonIndexed();
+  const merged = mergeByPosition(g);
   g.dispose();
-  flat.computeVertexNormals();
-  return flat;
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/** Weld coincident vertices so normals smooth across faces. */
+function mergeByPosition(g) {
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  const map = new Map(), P = [], U = [], idx = [];
+  for (let i = 0; i < pos.count; i++) {
+    const k = `${Math.round(pos.getX(i) * 1e4)},${Math.round(pos.getY(i) * 1e4)},${Math.round(pos.getZ(i) * 1e4)}`;
+    let j = map.get(k);
+    if (j === undefined) {
+      j = P.length / 3;
+      map.set(k, j);
+      P.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      // planar-ish UVs from position: the texture tiles, so seams do not show
+      U.push(pos.getX(i) * 1.7 + pos.getZ(i) * 0.6, pos.getY(i) * 1.7 - pos.getZ(i) * 0.4);
+    }
+    idx.push(j);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  out.setIndex(idx);
+  return out;
 }
 
 export class RubbleSystem {
@@ -49,11 +142,14 @@ export class RubbleSystem {
     this.fx = fx;
     this.rng = fx.rng.fork();
     this.geometry = chunkGeometry(this.rng);
+    this.textures = rubbleTextures(this.rng);
     this.material = new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      roughness: 0.93,
+      map: this.textures.map,
+      normalMap: this.textures.normal,
+      normalScale: new THREE.Vector2(1.2, 1.2),
+      roughness: 0.92,
       metalness: 0,
-      flatShading: true,
       dithering: true,
     });
     this.material.name = 'fx-rubble';
@@ -208,6 +304,8 @@ export class RubbleSystem {
     for (const s of this.slots) if (s.alive) this._release(s);
     this.geometry.dispose();
     this.material.dispose();
+    this.textures.map.dispose();
+    this.textures.normal.dispose();
     this.mesh.dispose();
   }
 }

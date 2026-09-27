@@ -513,8 +513,31 @@ export class FxSystem {
     // FLOP OPS: real chunks that keep bouncing after the particles are gone
     const p = e?.position ?? e;
     if (p && Number.isFinite(p.x)) {
-      this.rubble.burst(p.x, p.y, p.z, e.radius ?? 5, Math.round(6 * this.pScale) + 4);
+      this.rubble.burst(p.x, p.y, p.z, e.radius ?? 5, 30);
+      this._blastFeel(p, e.radius ?? 5);
     }
+  }
+
+  /**
+   * Hit-stop and a light shake on a nearby detonation. The hit-stop drops the
+   * engine clock to 5% for 0.15 s of REAL time (ctx.time.raw), then restores
+   * whatever scale it found, unless someone else has changed it meanwhile (the
+   * game's own death slow-mo wins). The shake tops up player trauma to about
+   * 0.4° (shake angle = trauma² × 1.35°) beyond the radius where the player
+   * already shakes itself (1.6 × blast radius).
+   */
+  _blastFeel(p, radius) {
+    const cam = this.ctx.camera;
+    const d = cam.position.distanceTo(p);
+    if (d > 25) return;
+    const t = this.ctx.time;
+    if (!this._hitStop) {
+      this._hitStop = { until: t.raw + 0.15, prev: t.scale, mine: 0.05 };
+      t.scale = 0.05;
+    } else {
+      this._hitStop.until = t.raw + 0.15;
+    }
+    if (d > radius * 1.6) this.ctx.peek('player')?.addTrauma?.(0.54 * (1 - d / 25));
   }
 
   /** Eject a brass casing as a physics body. */
@@ -808,6 +831,11 @@ export class FxSystem {
     this.now = ctx.time.elapsed;
     this.shells.update(dt, this.now);
     this.rubble.update(dt);
+    const hs = this._hitStop;
+    if (hs && ctx.time.raw >= hs.until) {
+      if (ctx.time.scale === hs.mine) ctx.time.scale = hs.prev;
+      this._hitStop = null;
+    }
     const r = this.render;
     const depth = r?.depthTexture ?? null;
     const w = r?.screenSize?.width ?? 1920;

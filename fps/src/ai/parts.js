@@ -509,21 +509,30 @@ export function helmet(nz, base, p = {}) {
   displace(shell, (x, y, z) => nz.fbm3(x * 40, y * 40, z * 40, 3) * 0.0016);
   appendMesh(out, shell);
 
-  // --- brim lip: a thin band following the rim
+  return out;
+}
+
+/**
+ * The helmet's rubber edge trim, a separate piece from the shell: a dark
+ * bumper band following the scalloped rim. In its own material it is the line
+ * that makes shell, goggles and face read as three things instead of one lump.
+ */
+export function helmetLip(base) {
+  const bx = base[0], by = base[1], bz = base[2];
+  const cy = by + 0.100;
+  const rx = 0.121, rz = 0.135;
   const lipPts = [];
-  const nLip = 30;
+  const nLip = 36;
   for (let i = 0; i <= nLip; i++) {
     const a = (i / nLip) * Math.PI * 2;
     const sx = Math.sin(a), sz = Math.cos(a);
     const side = Math.abs(sx);
     const lift = side ** 2 * 0.042 - Math.max(0, sz) * 0.010;
-    lipPts.push([bx + sx * rx * 0.955, cy + lift - 0.001, bz - 0.004 + sz * rz * 0.955]);
+    lipPts.push([bx + sx * rx * 0.975, cy + lift - 0.002, bz - 0.004 + sz * rz * 0.975]);
   }
-  const lip = ribbon(lipPts, 0.011, 0.006, { seg: 6, up: [0, 1, 0], upright: true });
+  const lip = ribbon(lipPts, 0.016, 0.010, { seg: 6, up: [0, 1, 0], upright: true });
   computeNormals(lip);
-  appendMesh(out, lip);
-
-  return out;
+  return lip;
 }
 
 /** Side rails, NVG shroud and rear counterweight pouch — the helmet hardware. */

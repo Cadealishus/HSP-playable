@@ -241,7 +241,7 @@ export const CAMO = {
     mid: [0.241, 0.186, 0.116],
     dark: [0.146, 0.111, 0.072],
     olive: [0.176, 0.190, 0.116],
-    macro: 2,
+    macro: 3,
     warp: 0.15,
   },
   woodland: {
@@ -252,7 +252,7 @@ export const CAMO = {
     mid: [0.174, 0.190, 0.126],
     dark: [0.104, 0.110, 0.083],
     olive: [0.210, 0.196, 0.132],
-    macro: 3,
+    macro: 4,
     warp: 0.17,
   },
   urban: {
@@ -264,7 +264,7 @@ export const CAMO = {
     mid: [0.150, 0.154, 0.163],
     dark: [0.078, 0.079, 0.088],
     olive: [0.190, 0.188, 0.182],
-    macro: 2,
+    macro: 3,
     warp: 0.14,
   },
 };
@@ -380,7 +380,7 @@ function garmentRelief(nz, u, v) {
  * the environment albedo to physical values, these four numbers plus `KIT_CAL`
  * are the only thing that has to move.
  */
-export const CLOTH_BUDGET = { mean: 0.104, min: 0.040, max: 0.152, contrast: 1.5, sat: 1.35 };
+export const CLOTH_BUDGET = { mean: 0.104, min: 0.032, max: 0.21, contrast: 2.0, sat: 1.35 };
 
 /**
  * Per-pattern budget. Only the MEAN moves: the 0.085-0.325 window, the contrast
@@ -485,10 +485,12 @@ export function camoTexel(nz, cfg, u, v, out) {
   // narrow transition bands: printed camo has hard edges between families, and
   // a soft ramp is exactly what averages to flat tan at distance
   let col = cfg.base;
-  col = mix3(col, cfg.pale, smooth(0.535, 0.585, a));
-  col = mix3(col, cfg.olive, smooth(0.555, 0.605, b) * 0.9);
-  col = mix3(col, cfg.mid, smooth(0.515, 0.565, c));
-  col = mix3(col, cfg.dark, smooth(0.605, 0.655, d));
+  // (0.012-wide bands: at 0.05 the edges were a 3-4 cm smear at 512² and the
+  // pattern read as a blurred wash from 4 m)
+  col = mix3(col, cfg.pale, smooth(0.554, 0.566, a));
+  col = mix3(col, cfg.olive, smooth(0.574, 0.586, b) * 0.9);
+  col = mix3(col, cfg.mid, smooth(0.534, 0.546, c));
+  col = mix3(col, cfg.dark, smooth(0.624, 0.636, d));
 
   // ---- fine 3 cm pixel/dot layer, low amplitude ---------------------------
   const f1 = smooth(0.40, 0.60, nz.fbm(u + 3.7, v + 1.3, 24, 2, 0.35));
