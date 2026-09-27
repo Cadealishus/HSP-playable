@@ -129,6 +129,18 @@ export class Agent {
     const { bones, skeleton, root } = RIG.createSkeleton();
     this.bones = bones;
     this.skeleton = skeleton;
+    // Material contract, asserted on every spawn: one material per geometry
+    // group, every one a real textured MeshStandardMaterial (glass excepted).
+    // A missing slot renders as three's default white — the "pale enemy".
+    const groups = def.geometry.groups;
+    let fallback = def.materials.find((m) => m?.map) ?? null;
+    for (const g of groups) {
+      const m = def.materials[g.materialIndex];
+      if (!m || !m.isMaterial || (!m.map && !/glass/i.test(m.name ?? ''))) {
+        console.error(`[ai] ${this.variantName}: material slot ${g.materialIndex} (${m?.name ?? 'missing'}) has no texture`);
+        if (fallback) def.materials[g.materialIndex] = fallback;
+      }
+    }
     this.mesh = new THREE.SkinnedMesh(def.geometry, def.materials);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;

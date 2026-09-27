@@ -613,6 +613,15 @@ export function buildSoldier(name, { rng, materials }) {
       wear: 0.4,
       name: 'helmet',
     });
+    // rubber edge trim, its own near-black piece (see P.helmetLip)
+    B.add(P.helmetLip(head), {
+      material: 'polymer',
+      bone: 'Head',
+      colour: [0.35, 0.34, 0.33],
+      grime: 0.3,
+      wear: 0.2,
+      name: 'helmetLip',
+    });
     B.add(P.helmetHardware(nz, head), {
       material: 'polymer',
       bone: 'Head',

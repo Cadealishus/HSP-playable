@@ -66,24 +66,32 @@ export function idle(P, ph, p = {}) {
  * in a gunfight.
  */
 export function aimAdd(P, w = 1) {
-  // fighting stance: knees soft, hips dropped, feet staggered
-  P.hip(0, -0.035 * w, 0.012 * w);
-  P.d('Hips', 4 * w, 3 * w, 0);
+  // fighting stance: knees soft, hips dropped, feet staggered, weight shifted
+  // onto the lead (left) leg: the pelvis slides over it and rolls down to it
+  P.hip(0.028 * w, -0.04 * w, 0.02 * w);
+  P.d('Hips', 4 * w, 3 * w, -3 * w);
   P.d('UpLegR', 8 * w, 4 * w, -3 * w);
   P.d('LegR', -17 * w, 0, 0);
   P.d('FootR', 9 * w, -2 * w, 0);
   P.d('UpLegL', 3 * w, -6 * w, 4 * w);
   P.d('LegL', -13 * w, 0, 0);
   P.d('FootL', 8 * w, 3 * w, 0);
-  P.d('Spine1', 2.5 * w, 0, 0);
-  P.d('Spine2', 3.0 * w, -5.0 * w, 0);
-  P.d('Neck', 5.0 * w, 3.0 * w, 0);
-  P.d('Head', -3.5 * w, 2.0 * w, -1.5 * w);
-  P.d('ClavicleR', -6.0 * w, -2 * w, 5.0 * w);
-  P.d('ClavicleL', -3.0 * w, 4 * w, -3.0 * w);
-  P.d('UpperArmR', 10 * w, 0, 14 * w);
+  // ~15° of forward lean over the three spine bones (nose over toes, into the
+  // recoil), with the roll countering the pelvis so the shoulders stay level;
+  // neck and head come back up so the eyes stay on the sights
+  P.d('Spine', 4.0 * w, 0, 2.0 * w);
+  P.d('Spine1', 5.5 * w, 0, 1.0 * w);
+  P.d('Spine2', 5.5 * w, -5.0 * w, 0);
+  P.d('Neck', -2.0 * w, 3.0 * w, 0);
+  P.d('Head', -8.0 * w, 2.0 * w, -1.5 * w);
+  // elbows out: the firing-side elbow up and away from the carrier, the
+  // support elbow down and out (the support hand itself is IK'd onto the
+  // handguard), so neither forearm is laid along the vest
+  P.d('ClavicleR', -6.0 * w, -2 * w, 7.0 * w);
+  P.d('ClavicleL', -3.0 * w, 4 * w, -5.0 * w);
+  P.d('UpperArmR', 10 * w, 0, 24 * w);
   P.d('ForearmR', -12 * w, 0, 0);
-  P.d('UpperArmL', 8 * w, 0, -6 * w);
+  P.d('UpperArmL', 8 * w, 0, -16 * w);
 }
 
 /* ------------------------------------------------------------------ */
