@@ -36,8 +36,12 @@ import { clamp } from './dsp.js';
  * @property {number} slapTime     spacing of the flutter repeats
  */
 
-/** The blendable space names, in a fixed order. */
-export const SPACE_KEYS = ['tight', 'room', 'street', 'tunnel', 'open'];
+/**
+ * The blendable space names, in a fixed order. `hall` is only ever non-zero
+ * when the classifier is given a large-hall bias (the airport terminal), and
+ * its convolver is only built for maps that ask for it.
+ */
+export const SPACE_KEYS = ['tight', 'room', 'street', 'tunnel', 'open', 'hall'];
 
 /** Scratch for the median probe; classifySpace runs every 0.45 s, allocation-free. */
 const SORT = new Float64Array(16);
@@ -73,6 +77,18 @@ export const IR_SPECS = {
     seconds: 2.8, rt60: 1.15, predelay: 0.05, hfDamp: 0.9, bright: 0.16,
     diffusion: 0.9, width: 1.0, taps: [0.07, 0.115, 0.18, 0.26, 0.35, 0.48, 0.62],
     tapGain: 0.3, slaps: 0, slapTime: 0,
+  },
+  /**
+   * Large hard hall: an airport terminal (terrazzo floor, glass walls, a roof
+   * ten metres up). Late first reflections spread out over ~200 ms, a long,
+   * dense, slightly dark tail. Longer and bigger than `room` by design; the
+   * peak is normalised lower because a 4 s tail carries far more energy than a
+   * 1.5 s one at the same peak.
+   */
+  hall: {
+    seconds: 4.4, rt60: 3.3, predelay: 0.028, hfDamp: 0.6, bright: 0.42,
+    diffusion: 0.93, width: 0.95, taps: [0.021, 0.034, 0.052, 0.071, 0.095, 0.124, 0.158, 0.2],
+    tapGain: 0.42, slaps: 0, slapTime: 0, norm: 0.22,
   },
 };
 
@@ -153,7 +169,7 @@ export function generateIR(actx, rng, spec) {
     }
   }
 
-  normalise(buf, 0.42);
+  normalise(buf, spec.norm ?? 0.42);
   return buf;
 }
 
@@ -180,8 +196,14 @@ function normalise(buf, target) {
  *
  * `hits` is a flat array of ray distances (Infinity/maxDist when nothing was
  * hit), in the order produced by PROBE_DIRS: 8 around the horizon, 1 up.
+ *
+ * `bias` (optional) tunes it for a map whose interiors are large halls:
+ *   { hallCeil: m, hall: 0..1 }  a ceiling up to `hallCeil` metres still
+ *   counts as a roof (the terminal roof is 10 m up; unbiased, anything over
+ *   ~6 m reads as sky), and a roofed space with a high ceiling or a wide
+ *   horizon is blended toward the `hall` IR instead of `room`.
  */
-export function classifySpace(hits, maxDist, out) {
+export function classifySpace(hits, maxDist, out, bias = null) {
   const horiz = hits.length - 1;
   let sum = 0, close = 0, minD = maxDist, maxD = 0;
   for (let i = 0; i < horiz; i++) {
@@ -210,14 +232,21 @@ export function classifySpace(hits, maxDist, out) {
   // A ceiling within a few metres is the single most reliable indoor signal:
   // outdoors that ray goes to the sky. Everything else only decides *which*
   // kind of space it is.
-  const roofed = 1 - clamp((ceil - 2.8) / 7, 0, 1);
+  let roofed = 1 - clamp((ceil - 2.8) / 7, 0, 1);
+  // Hall bias: a roof well above head height is still a roof, and a high
+  // ceiling or a wide horizon under it means a big hall, not a room.
+  let large = 0;
+  if (bias) {
+    roofed = Math.max(roofed, 1 - clamp((ceil - (bias.hallCeil ?? 11)) / 6, 0, 1));
+    large = clamp(Math.max((median - 7) / 10, (ceil - 5) / 4), 0, 1) * (bias.hall ?? 1);
+  }
   // Relative spread of the horizon: a corridor is long one way, tight the other.
   const elong = clamp((maxD - minD) / Math.max(maxD, 1), 0, 1);
   const small = clamp(1 - median / 9, 0, 1);
 
   // Weights deliberately overlap: real spaces are blends, and blending the
   // convolvers is also what stops an audible switch in a doorway.
-  const w = out ?? { tight: 0, room: 0, street: 0, tunnel: 0, open: 0 };
+  const w = out ?? { tight: 0, room: 0, street: 0, tunnel: 0, open: 0, hall: 0 };
   const indoor = roofed;
   const outdoor = 1 - indoor;
   // Eight rays cannot reliably tell a corridor from a room with an open door, so
@@ -226,8 +255,9 @@ export function classifySpace(hits, maxDist, out) {
   const tunnel = indoor * Math.pow(elong, 2) * 0.55;
   const rest = Math.max(indoor - tunnel, 0);
   w.tunnel = tunnel;
-  w.tight = rest * small;
-  w.room = rest * (1 - small);
+  w.tight = rest * small * (1 - large);
+  w.room = rest * (1 - small) * (1 - large);
+  w.hall = rest * large;
   w.street = outdoor * clamp(closeSides * 2.2, 0, 1);
   w.open = outdoor * clamp(1 - closeSides * 1.8, 0.06, 1);
 
@@ -241,7 +271,11 @@ export function classifySpace(hits, maxDist, out) {
   }
   for (const k of SPACE_KEYS) w[k] /= tot;
   // Readouts for the ambience bed and the debug overlay.
-  w.enclosure = clamp(roofed * (0.45 + 0.55 * closeSides), 0, 1);
+  // A hall's walls are further than 12 m, but it is every bit as enclosed:
+  // the apron outside is behind glass.
+  const walled = large > 0 ? Math.max(closeSides, large * 0.85) : closeSides;
+  w.enclosure = clamp(roofed * (0.45 + 0.55 * walled), 0, 1);
+  w.roofed = roofed;
   w.meanFree = mean;
   w.ceiling = ceil;
   w.closeSides = closeSides;

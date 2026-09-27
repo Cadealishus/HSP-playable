@@ -118,68 +118,7 @@ export const BARKS = {
     ],
   },
 
-  /* ---------------- PA announcer (played with `pa: true`) ----------------
-   * These are CADENCE, not words. The horn eats the consonants and the player
-   * never resolves the syllables into English — the banner on screen carries
-   * the literal copy. What has to survive the horn is the rhythm: an even,
-   * measured phrase, a beat of air in the middle where a real announcer breathes,
-   * and a settled fall on the last syllable. Long durations, low f0, almost no
-   * jitter: authority, not panic. Combat barks are the opposite of all four.
-   * -------------------------------------------------------------------- */
-
-  /* "HOSTILES INBOUND, SQUARE" — 3 + 3, phrase break before the noun, lifts
-     in the middle and lands flat. Command is reading a status board. */
-  pa_wave: {
-    f0: 0.92, drive: 0.8, breath: 0.1, jitter: 0.006, syl: [
-      { v: 'e', d: 0.15, a: 0.9, p: 1.0, g: 0.02 },
-      { v: 'a', d: 0.13, a: 0.75, p: 0.97, g: 0.02 },
-      { v: 'i', d: 0.14, a: 0.8, p: 1.02, g: 0.1 },
-      { v: 'o', d: 0.22, a: 1.0, p: 1.08, on: 'p', g: 0.03 },
-      { v: 'i', d: 0.13, a: 0.8, p: 1.0, g: 0.02 },
-      { v: 'ah', d: 0.3, a: 0.95, p: 0.9, on: 'n', g: 0 },
-    ],
-  },
-
-  /* "SQUARE HOLDING — STAND BY" — opens on the stressed long vowel, sags through
-     the middle, resolves down. This is the breather beat: it must sound relieved
-     without sounding cheerful. */
-  pa_settled: {
-    f0: 0.88, drive: 0.75, breath: 0.12, jitter: 0.005, syl: [
-      { v: 'a', d: 0.2, a: 0.95, p: 1.04, g: 0.03 },
-      { v: 'e', d: 0.14, a: 0.85, p: 1.0, on: 'f', g: 0.015 },
-      { v: 'ehr', d: 0.16, a: 0.7, p: 0.94, g: 0.11 },
-      { v: 'a', d: 0.18, a: 0.85, p: 0.98, g: 0.02 },
-      { v: 'i', d: 0.3, a: 0.75, p: 0.88, on: 'p', g: 0 },
-    ],
-  },
-
-  /* "OPERATION CONCLUDED — STAND DOWN" — slower than the other two, a full tone
-     lower, and the last syllable drops away instead of landing. The verdict. */
-  pa_over: {
-    f0: 0.82, drive: 0.7, breath: 0.16, jitter: 0.004, syl: [
-      { v: 'u', d: 0.22, a: 0.9, p: 1.0, g: 0.025 },
-      { v: 'e', d: 0.16, a: 0.85, p: 0.98, on: 'f', g: 0.02 },
-      { v: 'ehr', d: 0.18, a: 0.7, p: 0.92, g: 0.13 },
-      { v: 'i', d: 0.2, a: 0.85, p: 0.95, g: 0.02 },
-      { v: 'ohh', d: 0.16, a: 0.7, p: 0.88, g: 0.02 },
-      { v: 'o', d: 0.4, a: 0.9, p: 0.78, g: 0 },
-    ],
-  },
 };
-
-/**
- * Game-loop moment → announcer script + a fixed voice. The f0/tract are pinned
- * (combat barks randomise theirs per agent) so the PA is recognisably the same
- * person every wave of every run.
- */
-export const ANNOUNCE = {
-  wave:      { bark: 'pa_wave',    f0: 104, tract: 1.02 },
-  waveClear: { bark: 'pa_settled', f0: 104, tract: 1.02 },
-  over:      { bark: 'pa_over',    f0: 101, tract: 1.03 },
-};
-
-/** Seconds the two-tone chime runs before the announcer's first syllable. */
-export const PA_LEAD = 0.62;
 
 const WAVE_CACHE = new WeakMap();
 
@@ -202,14 +141,11 @@ function glottalWave(actx) {
  * Synthesize a bark.
  *
  * @param {object} o { when, bark, f0 (base Hz), tract (0.9..1.1), level,
- *                     radio (bool), pa (bool), distance }
+ *                     radio (bool), distance }
  */
 export function bark(actx, bank, rng, o = {}) {
   const spec = BARKS[o.bark] ?? BARKS.contact;
-  // A PA transmission opens with its two-tone chime, so the voice starts a
-  // beat late. Everything below schedules off t0; the chime schedules off cue.
-  const cue = o.when ?? actx.currentTime;
-  const t0 = o.pa ? cue + PA_LEAD : cue;
+  const t0 = o.when ?? actx.currentTime;
   const tract = o.tract ?? rng.range(0.94, 1.07);
   const f0 = (o.f0 ?? rng.range(96, 132)) * spec.f0;
   const level = o.level ?? 1;
@@ -272,8 +208,7 @@ export function bark(actx, bank, rng, o = {}) {
 
   /* ---- per-syllable automation ----------------------------------- */
   // Formant jitter is what turns a Speak&Spell into a person. A shouting
-  // soldier gets the full 2%; the PA announcer is a recording played through a
-  // horn, so it gets almost none — that steadiness IS the authority.
+  // soldier gets the full 2%; a script may pin its own (`spec.jitter`).
   const jit = spec.jitter ?? 0.02;
   let t = t0;
   src.frequency.setValueAtTime(f0 * spec.syl[0].p, t0);
@@ -350,66 +285,6 @@ export function bark(actx, bank, rng, o = {}) {
   src.start(srcStart);
   src.stop(end);
   noise.start(srcStart, noise._offset, end - srcStart + 0.05);
-
-  /* ---- PA treatment (plaza announcer) ---------------------------- */
-  if (o.pa) {
-    // A re-entrant horn on a pole, not a handset. Against `radio` below:
-    // the band is far wider (190 Hz–5.2 kHz vs 420–3.2 kHz) so it stays
-    // intelligible-adjacent; two fat resonances sit where a horn's throat
-    // honks; the chest peak the vocal tract added is notched back out, because
-    // a loudspeaker thirty metres away has no chest; and the drive is 2.2
-    // instead of 7 — an amp running warm, not comms crunch. The high reverb
-    // send is the point: this should arrive off the buildings, not from a
-    // point in space.
-    const paIn = gain(actx, 1);
-    out.connect(paIn);
-
-    const paHP = biquad(actx, 'highpass', 190, 0.7);
-    const paLP = biquad(actx, 'lowpass', 5200, 0.8);
-    const chest = biquad(actx, 'peaking', 420, 1.1, -5);
-    const horn1 = biquad(actx, 'peaking', 1580, 2.4, 6);
-    const horn2 = biquad(actx, 'peaking', 2820, 2.9, 4.5);
-    const paDrv = shaper(actx, saturationCurve(2.2, 0.15), '2x');
-    // Two peaking boosts and a saturator stack up fast. At 1.3 this voice
-    // measured peak 0.86 through the master — i.e. pinned against the soft
-    // clipper, which would flatten every gunshot underneath it. 0.34 lands it
-    // roughly 6 dB above a shouted bark, which is where a PA belongs: clearly
-    // the loudest thing in the plaza, without owning the limiter.
-    const paGain = gain(actx, 0.34);
-    const paOut = gain(actx, 1);
-    series(paIn, paHP, paLP, chest, horn1, horn2, paDrv, paGain).connect(paOut);
-
-    // The amp keys up a moment before the chime: a breath of hiss, then tone.
-    const ks = bank.source('white', rng, 1);
-    const kbp = biquad(actx, 'bandpass', 1700, 0.9);
-    const kg = gain(actx, 0);
-    series(ks, kbp, kg).connect(paIn);
-    ad(kg.gain, cue, 0.022, 0.02, 0.24);
-    ks.start(cue, ks._offset, 0.32);
-
-    // Two-tone preamble: a descending perfect fourth, the universal "stop what
-    // you are doing and listen" cue. It replaces the radio's squelch clicks.
-    for (let i = 0; i < 2; i++) {
-      const ct = cue + 0.02 + i * 0.3;
-      const cf = i === 0 ? 784 : 588;          // G5 -> D5
-      const co = osc(actx, 'sine', cf);
-      const ch = osc(actx, 'triangle', cf * 2); // faint octave: metal, not organ
-      const chg = gain(actx, 0.15);
-      const cg = gain(actx, 0);
-      co.connect(cg); ch.connect(chg); chg.connect(cg); cg.connect(paIn);
-      ad(cg.gain, ct, 0.32, 0.006, 0.42);
-      co.start(ct); ch.start(ct);
-      co.stop(ct + 0.62); ch.stop(ct + 0.62);
-    }
-
-    // Send is high — 10x the radio treatment, and above a shouted bark — but
-    // not as high as it first looks like it should be. Sustained tonal content
-    // builds up coherently in a 2.8 s convolution in a way that a bark's short
-    // noisy formants do not: measured, this voice gains ~8x from the reverb
-    // where `contact` gains ~3.7x. At 0.5 the wet still sits ~3.4:1 over the
-    // dry, which is the wash; at 1.15 it pinned the master soft clipper.
-    return { node: paOut, end: end + 0.45, send: 0.5 };
-  }
 
   /* ---- radio treatment (squad comms) ----------------------------- */
   if (o.radio) {
