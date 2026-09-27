@@ -157,6 +157,16 @@ export class RadioSubs {
     return true;
   }
 
+  /**
+   * Hostile radio chatter (ai:radio). Lowest priority: only shown when the net is
+   * quiet, never interrupts or queues behind Command.
+   */
+  hostile(callsign, text) {
+    if (!text || this.cur.t < this.cur.life || this.reply || this.queued) return false;
+    this._play({ kind: 'hostile', tier: 0.5, text, reply: null }, callsign || 'HOSTILE');
+    return true;
+  }
+
   /** Put a specific line up immediately (debug / capture). */
   sayExact(speaker, text, reply = null, tier = 3) {
     this._play({ kind: 'exact', tier, text, reply }, speaker);

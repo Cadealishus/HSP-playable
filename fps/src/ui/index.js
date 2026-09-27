@@ -230,6 +230,8 @@ export class UiSystem {
 
     this._unsubs = [];
     const on = (type, fn) => this._unsubs.push(ctx.events.on(type, fn));
+    // Enemy radio chatter from src/ai/radio.js, subtitled under the callsign.
+    on('ai:radio', (e) => this.radio?.hostile?.(e?.enemy?.name, e?.text));
 
     on('weapon:fire', (e) => {
       this.crosshair.onFire(e?.recoil ?? 1);

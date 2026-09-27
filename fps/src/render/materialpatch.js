@@ -205,7 +205,7 @@ export class MaterialPatcher {
           //
           // It goes into indirectSpecular rather than into the diffuse
           // irradiance on purpose: there it would be multiplied by albedo,
-          // and the two things that most need an edge — the charcoal LEGACY CORE
+          // and the two things that most need an edge — the charcoal enemy
           // silhouette and dark asphalt props — are exactly the albedos that
           // would swallow it. Occluded by AO and by the interior gate, so it
           // cannot light the inside of a closed room or the bottom of a crevice,
