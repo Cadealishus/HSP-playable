@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeCamoTexture, makeWeaveNormal } from './camo.js';
 
 /**
  * The weapon material set.
@@ -886,6 +887,7 @@ export class WeaponMaterials {
     if (key === 'glass') return this.glass();
     if (key === 'lens_ring') return this.lensRing();
     if (key === 'lens_vig') return this.lensVignette();
+    if (key === 'camo_sleeve') return this.camoSleeve();
     let m = this.cache.get(key);
     if (m) return m;
     const def = WEAPON_MATERIALS[key];
@@ -1169,6 +1171,46 @@ export class WeaponMaterials {
       fog: false,
     });
     m.name = 'ow-reticle';
+    this.cache.set(key, m);
+    this.owned.push(m);
+    return m;
+  }
+
+  /**
+   * CAMOUFLAGE COMBAT-SHIRT SLEEVE. Replaces the flat coyote `sleeve` on the
+   * arms (the critic's "brown plank"). A UV-mapped physical material, because
+   * the library's triplanar shader has no pattern slot: the sleeve lathes carry
+   * real UVs (u around the arm, v along it), so the camo wraps the limb and
+   * cannot swim. The library's shared micro-normal gives it the ripstop tooth.
+   *
+   * Albedo is crushed to the viewmodel's calibration (see `alu`): the pattern
+   * averages ~0.3 linear, and `color` 0.14 lands it at ~0.04, a stop above the
+   * old sleeve so the patches separate, still under the glove's key highlight.
+   */
+  camoSleeve() {
+    const key = 'camoSleeve';
+    let m = this.cache.get(key);
+    if (m) return m;
+    const map = makeCamoTexture(256, 21);
+    map.repeat.set(1, 2.2);
+    this.ownedTex.push(map);
+    m = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0.15, 0.145, 0.135),
+      map,
+      roughness: 0.93,
+      metalness: 0,
+      specularIntensity: 0.14,
+      sheen: 0.12,
+      sheenRoughness: 0.9,
+      sheenColor: new THREE.Color(0x3a3324),
+      envMapIntensity: ENV_OCCLUSION,
+    });
+    const n = makeWeaveNormal(128);
+    n.repeat.set(10, 26);
+    this.ownedTex.push(n);
+    m.normalMap = n;
+    m.normalScale.set(0.8, 0.8);
+    m.name = 'ow-camo-sleeve';
     this.cache.set(key, m);
     this.owned.push(m);
     return m;

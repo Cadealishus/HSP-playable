@@ -115,7 +115,7 @@ export class Viewmodel {
       glove: mats.get('glove'),
       pad: mats.get('glove_pad'),
       seam: mats.get('glove_seam'),
-      sleeve: mats.get('sleeve'),
+      sleeve: mats.get('camo_sleeve'),
     };
     // Shoulder joints in CAMERA space: ~200 mm lateral, ~210 mm below the eye
     // and only just behind it.

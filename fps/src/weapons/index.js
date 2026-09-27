@@ -195,6 +195,9 @@ export class WeaponSystem {
      */
     this._gameState = null;
     this._off.push(ctx.events.on('game:state', (e) => { this._gameState = e?.state ?? null; }));
+    // Presentation layer: `ui:screen { name }` ('title'|'death'|'report', null = gameplay).
+    this._uiScreen = null;
+    this._off.push(ctx.events.on('ui:screen', (e) => { this._uiScreen = e?.name ?? null; }));
 
     this.stats = { tris, drawCalls: 0, live: 0, fired: 0 };
     console.info(
@@ -694,7 +697,8 @@ export class WeaponSystem {
     if (!vm) return;
     const gs = this._gameState;
     // The capture harness (debugMode) always shows the gun, whatever the state.
-    vm.anchor.visible = this.debugMode !== null || !(gs === 'attract' || gs === 'down' || gs === 'over');
+    vm.anchor.visible =
+      this.debugMode !== null || (!this._uiScreen && !(gs === 'attract' || gs === 'down' || gs === 'over'));
     vm.update(dt, this._state);
 
     // ---- muzzle flash / audio, now that the pose is final ---------------
