@@ -8,6 +8,11 @@ import * as THREE from 'three';
  * A shot is `{ pos:[x,y,z], look:[x,y,z], fov?, time?, apply?(engine) }`.
  * `time` is hour-of-day 0..24 handed to the sky system.
  */
+/** Airport LEVEL (x east, y, z south) -> WORLD, for the HOLDING PATTERN shots. */
+function AP(x, y, z) {
+  return [-z, y, x];
+}
+
 export const SHOTS = {
   // ---- environment / lighting ----
   hero: {
@@ -185,6 +190,63 @@ export const SHOTS = {
     apply: (e) => e.ctx.peek('ui')?.debugState?.('combat'),
     doc: 'Full HUD in combat — layout, typography, readability, hit feedback.',
   },
+
+  // ---- MAP 02 HOLDING PATTERN + MAP SELECTION area (src/world/maps) ----
+  // Capture with `--map=airport` (tools/capture-sw.mjs adds it automatically
+  // for `airport-*` shots). Poses are authored in the airport's LEVEL metres
+  // (x east, z south) and rotated into the world by AP(): the level sits a
+  // quarter turn round (src/world/maps/airport/layout.js LEVEL_YAW), so world
+  // = (-z, y, x).
+  'airport-checkin': {
+    map: 'airport',
+    pos: AP(-19.6, 1.65, -11.5),
+    look: AP(-3.0, 2.6, 3.5),
+    fov: 70,
+    time: 17.2,
+    doc: 'Check-In: islands, columns, the atrium skylights, departures bank (ref 01).',
+  },
+  'airport-concourse': {
+    map: 'airport',
+    pos: AP(2.4, 1.65, 9.6),
+    look: AP(16.0, 2.8, -1.0),
+    fov: 70,
+    time: 17.2,
+    doc: 'Central Concourse toward the gate: escalator bank, deck, kiosks, glass (ref 02).',
+  },
+  'airport-gate': {
+    map: 'airport',
+    pos: AP(18.6, 1.65, -2.6),
+    look: AP(33.0, 3.6, 21.0),
+    fov: 70,
+    time: 17.2,
+    doc: 'Gate 12: desk, seat rows, the airliner and jet bridge through the curtain wall (ref 03).',
+  },
+  'airport-cabin': {
+    map: 'airport',
+    pos: AP(15.9, 5.02, 25.0),
+    look: AP(49.0, 4.85, 25.0),
+    fov: 70,
+    time: 17.2,
+    doc: 'Down the aisle toward the cockpit: 2 + 2 seating, bins, window light (ref 04).',
+  },
+  'airport-tarmac': {
+    map: 'airport',
+    pos: AP(2.5, 1.65, 41.5),
+    look: AP(19.0, 3.2, 24.0),
+    fov: 70,
+    time: 17.2,
+    doc: 'South apron: slide, belt loader, cart train, the terminal and bridge behind (ref 05).',
+  },
+  'ui-title-maps': {
+    map: 'airport',
+    pos: AP(-4.0, 5.5, 46.0),
+    look: AP(24.0, 4.0, 17.0),
+    fov: 62,
+    time: 17.2,
+    apply: (e) => e.ctx.peek('ui')?.debugState?.('title'),
+    doc: 'Title screen with the MAP picker (HOLDING PATTERN selected) over the airport.',
+  },
+  // ---- end HOLDING PATTERN area ----
 
   // ---- PRESENTATION area (src/ui, src/game): front-end + HUD ----
   'ui-title': {

@@ -846,6 +846,40 @@ const CSS = `
 .ow-lo-card.on .ow-lo-cta { color: var(--acc); }
 .ow-lo-card.on .ow-lo-cta::after { content:'  ▸'; }
 
+/* map select: one card per registry map, top right, above the scene */
+.ow-att-maps {
+  position:absolute; right: calc(var(--u) * 18); top: 13%;
+  width: calc(440px * var(--k));
+  display:grid; gap: calc(var(--u) * 2.4);
+}
+.ow-mp-card {
+  position:relative; cursor:pointer; text-align:left;
+  display:grid; grid-template-columns: calc(136px * var(--k)) 1fr; gap: calc(var(--u) * 4);
+  align-items:center;
+  padding: calc(var(--u) * 3.2) calc(var(--u) * 4) calc(var(--u) * 3.2) calc(var(--u) * 3.2);
+  background: rgba(16,16,15,.78);
+  border: 1px solid rgba(255,255,255,.09);
+  transition: border-color .12s, background .12s;
+}
+.ow-mp-card::before {
+  content:''; position:absolute; left:-1px; top:-1px; bottom:-1px; width: calc(3px * var(--k));
+  background: rgba(255,255,255,.14); transition: background .12s;
+}
+.ow-mp-card:hover { border-color: rgba(255,255,255,.2); }
+.ow-mp-card.on { background: rgba(24,22,18,.90); border-color: var(--acc-2); }
+.ow-mp-card.on::before { background: var(--acc); }
+.ow-mp-card.on .ow-lo-code { color: var(--acc); }
+.ow-mp-plan {
+  display:block; width: 100%; height: calc(96px * var(--k));
+  background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.08);
+  color: rgba(255,255,255,.55);
+}
+.ow-mp-card.on .ow-mp-plan { color: var(--acc); }
+.ow-mp-name { font-family: var(--fd); font-weight:600; font-size: calc(28px * var(--k));
+  letter-spacing:.05em; line-height:1; margin: calc(var(--u) * 1.6) 0 calc(var(--u) * 1.2); }
+.ow-mp-sub { font-family: var(--fs); text-transform:none; letter-spacing:0; font-weight:400;
+  font-size: calc(14px * var(--k)); line-height:1.35; color: var(--ink-2); margin-top: calc(var(--u) * 1.4); }
+
 .ow-att-foot {
   position:absolute; left: calc(var(--u) * 18); right: calc(var(--u) * 18); bottom: calc(var(--u) * 8);
   display:flex; justify-content:space-between; align-items:baseline;

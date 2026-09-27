@@ -53,14 +53,59 @@ export const LOADOUTS = [
   },
 ];
 
-/** The mission card. Field → value, rendered in this order. */
-const MISSION = [
+/** The town's mission card: the fallback when no map registry is published. */
+const TOWN_MISSION = [
   ['LOCATION', 'Border town. The square in the middle of it.'],
   ['OBJECTIVE', 'Hold the town square for as long as it takes.'],
   ['DURATION', 'About a wave. (Command estimate.)'],
   ['PLAN', 'Phase one: hold the square. Phase two: Doug.'],
   ['ASSETS', 'Doug.'],
 ];
+
+/**
+ * The map registry, as main.js publishes it on `window.__FLOP_MAPS__`
+ * (`{ active, list, select(id) }`, see src/world/maps/index.js). The screens
+ * never import the world; without a registry they fall back to the town.
+ */
+function mapRegistry() {
+  const r = globalThis.__FLOP_MAPS__;
+  if (r && Array.isArray(r.list) && r.list.length) return r;
+  return {
+    active: 'town',
+    list: [
+      {
+        id: 'town',
+        idx: '01',
+        name: 'BORDER TOWN',
+        subtitle: 'Border town · the square',
+        operation: 'OPERATION TOTAL CONFIDENCE',
+        heldNoun: 'The square',
+        mission: TOWN_MISSION,
+      },
+    ],
+    select: () => false,
+  };
+}
+
+/** The active map's registry entry. */
+export function activeMap() {
+  const r = mapRegistry();
+  return r.list.find((m) => m.id === r.active) ?? r.list[0];
+}
+
+/** A small top-down plan of a map, from its registry preview rects. */
+function mapPreview(parent, m) {
+  const pv = m.preview;
+  const s = svg('svg', { class: 'ow-mp-plan', viewBox: pv ? pv.box.join(' ') : '0 0 1 1', preserveAspectRatio: 'xMidYMid meet' }, parent);
+  if (!pv) return s;
+  const fill = { apron: 'rgba(255,255,255,.05)', floor: 'rgba(214,220,226,.34)', block: 'rgba(214,220,226,.16)', plane: 'rgba(236,240,244,.62)', objective: 'currentColor' };
+  for (const [x, z, w, d, kind] of pv.rects) {
+    const a = { x, y: z, width: w, height: d, fill: fill[kind] ?? fill.block };
+    if (kind === 'objective') a.class = 'obj';
+    svg('rect', a, s);
+  }
+  return s;
+}
 
 /* Shared damped-fade backbone for a pointer-events overlay. */
 function fade(node, shown, open) {
@@ -117,15 +162,41 @@ export class AttractScreen {
 
     const ms = el('div', 'ow-mission', left);
     const mh = el('div', 'ow-ms-head', ms);
-    el('span', 'ow-ms-tag', mh, 'MISSION 01');
+    const map = activeMap();
+    el('span', 'ow-ms-tag', mh, `MISSION ${map.idx ?? '01'}`);
     el('span', 'ow-ms-sep', mh);
     el('span', 'ow-ms-tag dim', mh, 'BRIEFING');
-    el('div', 'ow-ms-name', ms, 'OPERATION TOTAL CONFIDENCE');
+    el('div', 'ow-ms-name', ms, map.operation);
     const grid = el('div', 'ow-ms-grid', ms);
-    for (const [k, v] of MISSION) {
+    for (const [k, v] of map.mission ?? TOWN_MISSION) {
       el('div', 'k', grid, k);
       el('div', 'v', grid, v);
     }
+
+    // ---- map select --------------------------------------------------------
+    // One card per registry map. Picking a different one saves the choice and
+    // reloads onto it (a map is a whole level build); the active card is lit.
+    const reg = mapRegistry();
+    this.maps = reg;
+    const mp = el('div', 'ow-att-maps', this.root);
+    const mph = el('div', 'ow-lo-head', mp);
+    el('span', null, mph, 'MAP');
+    el('span', 'ow-lo-hint', mph, reg.list.length > 1 ? 'M OR ↑ ↓ TO CHANGE' : '');
+    this.mapCards = [];
+    reg.list.forEach((m) => {
+      const card = el('div', 'ow-mp-card', mp);
+      setClass(card, 'on', m.id === reg.active);
+      mapPreview(card, m);
+      const tx = el('div', 'ow-mp-text', card);
+      const t = el('div', 'ow-lo-top', tx);
+      el('span', 'ow-lo-idx', t, m.idx ?? '');
+      el('span', 'ow-lo-code', t, m.id === reg.active ? 'SELECTED' : 'AVAILABLE');
+      el('div', 'ow-mp-name', tx, m.name);
+      el('div', 'ow-lo-kit', tx, m.operation);
+      el('div', 'ow-mp-sub', tx, m.subtitle ?? '');
+      card.addEventListener('click', () => this._pickMap(m.id));
+      this.mapCards.push(card);
+    });
 
     // ---- loadout select ----------------------------------------------------
     const lo = el('div', 'ow-att-loadouts', this.root);
@@ -174,6 +245,8 @@ export class AttractScreen {
         this._focus((this.focus + this.cards.length - 1) % this.cards.length);
       } else if (e.code === 'Enter') {
         this._deploy(this.focus);
+      } else if (e.code === 'KeyM' || e.code === 'ArrowDown' || e.code === 'ArrowUp') {
+        this._stepMap(e.code === 'ArrowUp' ? -1 : 1);
       }
     };
     addEventListener('keydown', this._onKey);
@@ -186,6 +259,21 @@ export class AttractScreen {
   _focus(i) {
     this.focus = i;
     for (let j = 0; j < this.cards.length; j++) setClass(this.cards[j], 'on', j === i);
+  }
+
+  _stepMap(dir) {
+    const list = this.maps.list;
+    if (list.length < 2) return;
+    let i = list.findIndex((m) => m.id === this.maps.active);
+    i = (i + dir + list.length) % list.length;
+    this._pickMap(list[i].id);
+  }
+
+  /** Save the choice and reload onto the map. No-op for the active one. */
+  _pickMap(id) {
+    if (!this.open || id === this.maps.active) return;
+    for (let j = 0; j < this.mapCards.length; j++) setClass(this.mapCards[j], 'on', this.maps.list[j].id === id);
+    this.maps.select?.(id);
   }
 
   _deploy(i) {
@@ -241,7 +329,7 @@ export class DeathScreen {
     guard(this.root);
     const band = el('div', 'ow-death', this.root);
 
-    el('div', 'ow-sc-kicker', band, 'OPERATION TOTAL CONFIDENCE');
+    el('div', 'ow-sc-kicker', band, activeMap().operation);
     el('div', 'ow-sc-title', band, 'DOUG IS DOWN');
     this.killer = el('div', 'ow-death-killer', band, '');
     this.body = el('div', 'ow-sc-body', band, DOWN_BODY.canContinue);
@@ -313,17 +401,18 @@ export function assessment(d = {}) {
   const wave = Math.max(1, Math.round(d.wave ?? 1));
   const held = wave - 1;
   const lines = [];
+  const noun = activeMap().heldNoun ?? 'The square';
 
   if (held <= 0) {
     lines.push(
-      'The square was held for less than one wave against an estimate of about one wave. Command considers the estimate broadly accurate.'
+      `${noun} was held for less than one wave against an estimate of about one wave. Command considers the estimate broadly accurate.`
     );
   } else if (held === 1) {
-    lines.push('The square was held for one wave, exactly as estimated. Command would like that noted.');
+    lines.push(`${noun} was held for one wave, exactly as estimated. Command would like that noted.`);
   } else if (held <= 3) {
-    lines.push(`The square was held for ${held} waves against an estimate of about one. Command considers this within tolerance.`);
+    lines.push(`${noun} was held for ${held} waves against an estimate of about one. Command considers this within tolerance.`);
   } else {
-    lines.push(`The square was held for ${held} waves. Command's estimate was "about a wave". Command is not taking questions.`);
+    lines.push(`${noun} was held for ${held} waves. Command's estimate was "about a wave". Command is not taking questions.`);
   }
 
   let acc = d.accuracy;
@@ -358,7 +447,7 @@ export class GameOverScreen {
 
     const head = el('div', 'ow-rp-head', card);
     el('span', 'ow-rp-kicker', head, 'AFTER-ACTION REPORT');
-    el('span', 'ow-rp-op', head, 'OPERATION TOTAL CONFIDENCE');
+    el('span', 'ow-rp-op', head, activeMap().operation);
 
     this.title = el('div', 'ow-sc-title', card, 'OPERATION CONCLUDED');
 

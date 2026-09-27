@@ -33,6 +33,10 @@ const OUT = resolve(args.out ?? `shots/${SHOT}.png`);
 const TIMEOUT = Number(args.timeout ?? 90000);
 // Frames to render before capture: lets TAA converge, streaming settle, LOD pick.
 const SETTLE = Number(args.settle ?? 90);
+// Extra page params: `--map=airport` (src/world/maps) and a raw `--query=a=1&b=2`.
+const MAP = args.map ?? (/^airport-|^ui-title-maps$/.test(SHOT) ? 'airport' : null);
+const EXTRA =
+  (MAP ? `&map=${encodeURIComponent(MAP)}` : '') + (typeof args.query === 'string' ? `&${args.query}` : '');
 
 const portOpen = (port) =>
   new Promise((res) => {
@@ -88,7 +92,7 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack ?? ''
 
 let failed = null;
 try {
-  await page.goto(`http://127.0.0.1:${PORT}/?capture=1&q=${args.q ?? 'low'}&shot=${encodeURIComponent(SHOT)}`, {
+  await page.goto(`http://127.0.0.1:${PORT}/?capture=1&q=${args.q ?? 'low'}&shot=${encodeURIComponent(SHOT)}${EXTRA}`, {
     waitUntil: 'domcontentloaded',
     timeout: TIMEOUT,
   });
