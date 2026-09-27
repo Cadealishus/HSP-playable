@@ -25,41 +25,31 @@ function linearToSrgb(c) {
 const LUM = [0.2126, 0.7152, 0.0722];
 
 export const GRADE_PRESETS = {
-  // Neutral-but-cinematic default: slightly cool shadows, warm highlights,
-  // a touch of contrast, mild highlight desaturation.
+  // Clean, filmic modern-shooter grade for a late-afternoon exterior. The warm
+  // key and the cool sky fill are already in the LIGHT (see src/sky); the grade
+  // only has to hold that split, not invent it. So: neutral mid-tones, a whisper
+  // of steel in the deepest shade, a little warmth in the top end, restrained
+  // saturation. Nothing here should be visible as "a look" on a grey card.
   default: {
-    slope: [1.0, 0.995, 0.985],
-    offset: [-0.005, -0.002, 0.006],
-    power: [1.0, 1.005, 1.02],
-    // Arcade-Terminal split tone.
-    //
-    // Shadows now land on blue-VIOLET rather than on NerdCon blue: red comes up
-    // a little and green comes DOWN below zero, which is the whole trick. A pure
-    // blue lift is a colour cast; lifting the two ends of the magenta axis while
-    // notching the middle is a hue ROTATION of the shade, so the deepest parts of
-    // the frame move toward #3A2A5A without getting any lighter, and every warm
-    // practical, every cyan sign and the gold Ledger gain a complementary
-    // background to separate against. ~10 code values of blue and ~2.5 of red in
-    // the deepest shadow, falling off as (1-L)^2.2, so it is gone by the mid-tones
-    // and the daylight-pinned shots keep their neutral shade.
-    //
-    // Highlights stay warm — the Ledger and the lamp pools are Loot Gold #FFD700
-    // and that must not shift — but the blue is no longer pulled DOWN. A negative
-    // blue in the highlights is what makes a bright magenta sign resolve yellow
-    // at its hot core, which is precisely the wrong direction for this brand.
-    shadowTint: [0.010, -0.006, 0.040],
-    highlightTint: [0.032, 0.011, 0.005],
-    // Display-space saturation. It has to be well over unity because AgX's
+    // A touch of warmth in the slope: late sun through dust, not a filter. Blue
+    // down 2.5%, red flat, so a white wall in sun lands on warm-white.
+    slope: [1.0, 0.992, 0.975],
+    offset: [-0.004, -0.003, 0.0],
+    power: [1.0, 1.004, 1.012],
+    // Split tone. Shadows lean a few code values toward steel blue-green (green
+    // and blue up together — a hue that sits UNDER sky fill rather than fighting
+    // it), falling off as (1-L)^2.2 so it is gone by the mid-tones. Highlights
+    // pick up a thin warm lift for the sunlit plaster. Both are small on purpose:
+    // the teal/orange push the eye notices is exactly the one to avoid.
+    shadowTint: [-0.004, 0.004, 0.014],
+    highlightTint: [0.022, 0.010, -0.006],
+    // Display-space saturation. It has to be over unity because AgX's
     // inset/outset pair is a *desaturating* transform by construction and the
     // shoulder takes another chunk out of anything bright: measured on the
     // 16:30 frame the zenith came out of the tone map at B-R = +15 code values
-    // for a sky whose scene radiance is 3:1 blue over red.
-    // 1.27, up from 1.22. The frame's most saturated objects are all signage —
-    // neon, banners, the Ledger, the enemy faction's magenta band — and they are
-    // exactly what AgX's outset flattens hardest. A twentieth is small enough
-    // that the town's sand albedo does not turn orange and large enough that the
-    // signs read as light sources rather than as painted panels.
-    saturation: 1.27,
+    // for a sky whose scene radiance is 3:1 blue over red. 1.16 restores the
+    // sky and the painted shutters without pushing sand and brick to orange.
+    saturation: 1.16,
     // Global contrast, as a power about a pivot.
     //
     // The pivot is the CODE VALUE that must not move, and it has to sit at
@@ -68,13 +58,13 @@ export const GRADE_PRESETS = {
     // why 18% scene grey was landing on code 153 instead of ~120 and the whole
     // frame read as a milky pastel wash with no blacks in it. AgX puts 18%
     // scene grey near 0.50 display, so that is where the pivot belongs.
-    contrast: 1.28,
+    contrast: 1.24,
     pivot: 0.50,
     // Film loses chroma in the shoulder, but 0.28 on top of AgX's own
     // desaturation is what turned the sunset into a cream void and the noon
     // zenith into grey. A tenth is enough to keep a specular hit from going
     // neon without bleaching the sky.
-    highlightDesat: 0.10,
+    highlightDesat: 0.12,
     // Toe lift, in code values / 255. A modern shooter frame does keep a couple
     // of code values of atmosphere in its darkest corner rather than a true
     // zero — but 0.017 (four and a half codes) added to a curve that was

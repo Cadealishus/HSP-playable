@@ -388,62 +388,85 @@ export const PALETTE = {
     },
   },
 
-  // ----------------------------------------------------------------- nerdcon --
+  // ------------------------------------------------------------ flop ops --
   /**
-   * THE LEDGER. Brushed cast gold on a stone plinth. Its daylight form comes from
-   * a satin metallic highlight (see `roughness`), NOT from emission — bright faces
-   * and darker gold flanks give the stacked-book silhouette. The emissive the
-   * world pulses at runtime (see WorldSystem.update) is only a gentle warm fill,
-   * held at ~0.06–0.16 so it stays under the bloom threshold in the 16:30 sun and
-   * glows softly at the dusk default instead of blowing to a pale-white block.
+   * ESF olive drab. Painted steel with the sheen knocked back: a supply
+   * container that has been dragged off a lot of trucks. Mid-value on purpose
+   * (~0.12 linear) so the white stencils carry the read, not the paint.
    */
-  nerdcon_gold: {
-    name: 'metal_brushed',
-    surface: 'metal',
-    opts: {
-      vertexMasks: true,
-      // Deep metallic gold, not poster-yellow: R stays under 1.0 in linear so a
-      // sunlit face keeps headroom instead of clipping to pale cream, and the
-      // monument reads as solid cast gold.
-      tint: 0xe8b923,
-      scale: 0.5,
-      normalStrength: 1.05,
-      // Satin-brushed spec: scale the baked roughness down (0.14 floor) so the book
-      // tops and the page-edge risers reflect at different brightnesses — that step
-      // contrast is the silhouette. Metalness pulled just off 1.0 leaves a thin
-      // diffuse gold body so up-facing covers stay brighter than side faces under a
-      // flat sky, which is the form that survives when the environment has no
-      // contrast to reflect.
-      roughness: [0.55, 0.0, 0.14],
-      three: { emissive: 0xe89512, emissiveIntensity: 0.11, metalness: 0.8, toneMapped: true },
-    },
-  },
-  /** The Ledger plinth: dark dressed stone — a value anchor under the gold. */
-  nerdcon_plinth: {
-    name: 'concrete',
-    surface: 'concrete',
-    opts: {
-      vertexMasks: true,
-      tint: 0x6b665e,
-      scale: 0.9,
-      normalStrength: 1.2,
-      weather: [0.4, 0.5, 0.7, 0.5],
-    },
-  },
-  /** ATM / kiosk fascia: a cool painted-steel intruder among the plaster. */
-  nerdcon_kiosk: {
+  esf_olive: {
     name: 'metal_painted',
     surface: 'metal',
     opts: {
       vertexMasks: true,
-      tint: 0x2b3a63,
-      scale: 0.7,
+      tint: 0x656b48,
+      scale: 0.55,
+      normalStrength: 1.25,
+      weather: [0.55, 0.45, 0.45, 0.55],
+    },
+  },
+  /** Military truck paint: a greener, more faded Soviet olive than the ESF kit. */
+  truck_paint: {
+    name: 'metal_painted',
+    surface: 'metal',
+    opts: {
+      vertexMasks: true,
+      tint: 0x5c6a48,
+      scale: 0.9,
       normalStrength: 1.2,
-      weather: [0.5, 0.4, 0.4, 0.5],
+      weather: [0.6, 0.55, 0.6, 0.6],
+    },
+  },
+  /** Faded off-white saloon paint, sun-chalked and dusty. */
+  sedan_paint: {
+    name: 'metal_painted',
+    surface: 'metal',
+    opts: {
+      vertexMasks: true,
+      tint: 0xb3ad9c,
+      scale: 0.8,
+      normalStrength: 1.1,
+      weather: [0.45, 0.6, 0.7, 0.6],
+    },
+  },
+  /** Rear-lamp / reflector plastic. */
+  lamp_red: {
+    name: 'metal_painted',
+    surface: 'glass',
+    opts: { vertexMasks: true, tint: 0x8a2418, scale: 0.4, roughness: [0.4, 0.1] },
+  },
+  /** Truck canvas and cargo straps: heavy olive duck, double-sided. */
+  tarp: {
+    name: 'fabric',
+    surface: 'fabric',
+    opts: {
+      vertexMasks: true,
+      tint: 0x74704f,
+      scale: 0.42,
+      weather: [0.45, 0.5, 0.6, 0.6],
+      three: { side: 2 },
+    },
+  },
+  /** HESCO geotextile liner: pale sand-beige, bulging through the mesh. */
+  hesco_fill: {
+    name: 'burlap',
+    surface: 'sand',
+    opts: { vertexMasks: true, tint: 0xb8aa88, scale: 0.34, weather: [0.45, 0.45, 0.6, 0.55] },
+  },
+  /** Weathered timber: power poles and sign brackets. */
+  timber_pole: {
+    name: 'wood',
+    surface: 'wood',
+    opts: {
+      vertexMasks: true,
+      tint: 0x6e5a45,
+      scale: 0.7,
+      normalStrength: 1.4,
+      weather: [0.4, 0.5, 0.7, 0.6],
     },
   },
   /** The dark board a hand-painted trade sign is lettered onto (blade + frame). */
-  nerdcon_board: {
+  sign_board: {
     name: 'wood',
     surface: 'wood',
     opts: {
@@ -454,9 +477,4 @@ export const PALETTE = {
       weather: [0.5, 0.45, 0.5, 0.6],
     },
   },
-  // NOTE: the ATM display was a merged emissive box on a `nerdcon_screen` key
-  // here. It is now a live 256x128 canvas (`nerdcon.js` -> `atmScreen`) that
-  // shows the run's balance, so it owns its own material and this key is gone.
-  // Removing it also removed the batch it was the only member of, which is what
-  // paid for the canvas mesh's draw calls.
 };

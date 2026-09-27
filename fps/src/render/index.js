@@ -350,14 +350,13 @@ export class RenderSystem {
       // light that is genuinely above display white (sun disc, glints, muzzle
       // flash), not a whole-frame veiling-glare percentage. 0.048 of a mix() was
       // invisible; 0.12 of an additive thresholded pyramid is a specular event.
-      // 0.22, up from 0.14. The threshold below is deliberately NOT touched: at
+      // 0.18, up from 0.14. The threshold below is deliberately NOT touched: at
       // 1.6 the pyramid only ever carries what is genuinely over display white,
       // and dropping it is what previously smeared a daylight sky across every
-      // roofline. Raising the gain on that same thresholded pyramid puts more
-      // glare around the things that are actually emitting — neon signage, the
-      // sodium practicals, the Ledger, tracers, the muzzle flash — and none at
-      // all around anything that is not. Costs zero: same passes, same taps.
-      bloomStrength: 0.22,
+      // roofline. A little more gain on that same thresholded pyramid gives the
+      // sun disc, sun glints off glass and metal, tracers and the muzzle flash a
+      // believable lens glare, and nothing else. Costs zero: same passes, taps.
+      bloomStrength: 0.18,
       // 1.6, not 0.85. A daylight sky lands around 1.0-1.5 in exposure-scaled
       // linear light, so at 0.85 the SKY was the brightest thing in the pyramid
       // and the widest mip smeared it four or five pixels over every roofline and
@@ -422,51 +421,38 @@ export class RenderSystem {
       // neutral regardless of surroundings") to a legible cool cast.
       skyFill: 0.32,
       // ---- the cool half of the dusk grade ---------------------------------
-      // `sky.ambientColor` is the WHOLE-sky average, and the sky now carries an
-      // urban skyglow band that is magenta (see CITY_GLOW in src/sky). That band
-      // is a horizon phenomenon: it belongs to the LOWER fill gate, which is
-      // what `neonBounce` below is. Letting it into the UPPER band as well is
-      // double counting, and it is also what would collapse the frame onto one
-      // hue — magenta light from above and magenta light from below, with the
-      // faction's magenta accent nowhere to separate against.
-      //
-      // So the upper band is rotated back toward the zenith it can actually see:
-      // Rayleigh blue with a cyan lean (between NerdCon Blue #3568FF and Cyan
-      // Pulse #00E5FF). Cool light from the sky, hot light from the street — the
-      // complementary split every neon-city frame is built on, and the reason
-      // the warm practicals, the gold Ledger and the magenta signage all read as
-      // sources rather than as painted panels.
+      // `sky.ambientColor` is the WHOLE-sky average, and after sunset the sky
+      // carries a warm skyglow band along the horizon (see CITY_GLOW in
+      // src/sky). That band is a horizon phenomenon: it belongs to the LOWER
+      // fill gate, which is what `neonBounce` below is. Letting it into the
+      // UPPER band as well is double counting and flattens the frame onto one
+      // hue, so after sunset the upper band is rotated back toward the zenith it
+      // can actually see: Rayleigh blue. Cool light from the sky, warm light from
+      // the street's practicals. Zero in daylight (see `neonAmount`).
       skyFillCoolHue: [0.26, 0.55, 1.0],
-      // 0.5, not 0.6: the band still has to be the sky the scene is standing
-      // under, not a decision. Half way is enough to break the magenta-on-
-      // magenta collapse and leaves the physical hue recognisable underneath.
+      // Half way: the band still has to be the sky the scene is standing under,
+      // not a decision, and the physical hue stays recognisable underneath.
       skyFillCoolMix: 0.5,
       // Warm bounce off the street, onto soffits, undersides and low faces.
       groundFill: 0.013,
-      // ---- neon bounce ------------------------------------------------------
+      // ---- practical bounce --------------------------------------------------
       // `groundFill` is scaled by the SUN's intensity, so after the disc sets it
-      // is zero (measured at the shipping dusk hour: 0.002) and the lower band
-      // stops existing. But a street does not go dark from below at dusk — that
-      // is exactly when it stops being lit by the sky and starts being lit by
-      // its own signage, and every soffit, awning underside, balcony belly and
-      // low ledge picks that up. This is that light: a floor on the lower band
-      // that rides `sky.neonAmount` instead of the sun, in the same irradiance
-      // units as `skyFill` (0.13-0.17 at dusk), so it lands about a stop and a
-      // half under the skylight.
-      //
-      // It is capped low on purpose. The enemy faction's read is a magenta
-      // accent on a charcoal silhouette, and a scene washed to the same hue is
-      // the one way to destroy it — so this may tint the undersides of the
-      // world and must never approach the saturation of a faction band.
+      // is zero and the lower band stops existing. But a street does not go dark
+      // from below at dusk — that is when it starts being lit by its own street
+      // lamps and lit windows, and every soffit, awning underside, balcony belly
+      // and low ledge picks that up. This is that light: a floor on the lower
+      // band that rides `sky.neonAmount` instead of the sun, in the same
+      // irradiance units as `skyFill`, landing about a stop and a half under the
+      // skylight. Capped low: it may tint the undersides of the world, never
+      // repaint it. Zero in daylight.
       neonBounce: 0.050,
-      // Boss Magenta #FF2D78, broadened toward the pink-violet a mixed sign
-      // wall actually throws. Normalised on use; only the hue is read.
-      neonBounceHue: [1.0, 0.34, 0.66],
+      // Sodium street lamps and tungsten windows, broadened by the haze.
+      // Normalised on use; only the hue is read.
+      neonBounceHue: [1.0, 0.64, 0.34],
       // ---- grazing rim (see the injection in materialpatch.js) --------------
-      // Cyan Pulse #00E5FF, opened up so it is a light and not a filter. Cool,
-      // because the rim's job is to separate a silhouette from the magenta the
-      // bounce is putting BEHIND it — a rim in the same hue as the background is
-      // not a rim.
+      // A cool sky rim after dark: the open sky behind a silhouette is the one
+      // light a figure in a lamp-lit street still has on its far side, and a
+      // cool edge separates it from the warm bounce the practicals put behind it.
       //
       // 0.028 at exponent 5, down from 0.085 at 3.4. Both numbers matter and
       // both were wrong first time: the level because indirectSpecular is not
@@ -476,7 +462,7 @@ export class RenderSystem {
       // third of it, which is a wash and not an edge. At exponent 5 the term is
       // under 4% by 45 degrees and only the last several degrees of grazing
       // carry it.
-      rimHue: [0.16, 0.78, 1.0],
+      rimHue: [0.55, 0.72, 1.0],
       rimLevel: 0.028,
       rimPower: 5.0,
       // ...and the wrap term: the shaded side of the street lit by the sunlit
@@ -1128,9 +1114,9 @@ export class RenderSystem {
     const g = this._fillHue2;
     if (Math.max(g.x, g.y, g.z) > 1e-5) {
       // The 0.86/0.62 trim exists to warm a SAND bounce. Once the lower band is
-      // the street's neon rather than the road's sunlight (see `neonBounce`) it
-      // is just a blue-killer, and it turned a magenta bounce into tomato red on
-      // the gun's underside. Released on the same curve the neon arrives on.
+      // the street's practicals rather than the road's sunlight (see
+      // `neonBounce`) it is just a blue-killer on an already warm bounce, so it
+      // is released on the same curve the practical bounce arrives on.
       const n = this._neonAmount;
       const gy = THREE.MathUtils.lerp(0.86, 1.0, n);
       const gz = THREE.MathUtils.lerp(0.62, 1.0, n);
@@ -1234,7 +1220,7 @@ export class RenderSystem {
     g.divideScalar(Math.max(g.x, g.y, g.z, 1e-6));
     const groundLevel = s.groundFill * sunI;
 
-    // ...and once the sun is gone, the road is lit by the street's own signage.
+    // ...and once the sun is gone, the road is lit by the street's own lamps.
     // `neon` is the level, `neonMix` how far the band's HUE has travelled from
     // the (now dead) sun bounce to the neon hue — the two are separate so the
     // hue crossfade tracks the light that is actually dominant rather than
@@ -1530,7 +1516,7 @@ export class RenderSystem {
       // weapon's whole indirect term at once. The gun has its own rig; skip it.
       const roomN = this.patcher.uniforms.owIndirect.value.z;
       this.patcher.uniforms.owIndirect.value.z = 0;
-      // The neon rim is for WORLD silhouettes. The viewmodel already has a rim
+      // The dusk rim is for WORLD silhouettes. The viewmodel already has a rim
       // in its own 3-point rig (viewRim, keyed off the sun's hue), and a rifle
       // held across the frame is nothing BUT near-vertical faces at grazing
       // incidence — so the world term landed on its whole left flank and the

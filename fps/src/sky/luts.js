@@ -181,10 +181,9 @@ uniform vec4 uCityGlowB;
  * Urban skyglow — the light a lit city throws back onto its own twilight.
  *
  * This is a real, measurable term (astronomers spend their lives complaining
- * about it) and it is the one place a physical atmosphere leaves room for the
- * brand: the hue of a city's skyglow is the hue of its signage. NERD OF DUTY's
- * street is neon, so the band is magenta at the rooftops fading through violet
- * into the blue hour, rather than the sodium amber a 1990s city would give.
+ * about it): the hue of a town's skyglow is the hue of its street lighting.
+ * Here that is sodium, so the band is a thin amber over the rooftops fading
+ * into the blue hour.
  *
  * It goes into the SKY-VIEW LUT rather than into the dome shader, which is what
  * makes it cost nothing and stay coherent: the LUT is re-baked only when the sun
@@ -195,7 +194,7 @@ uniform vec4 uCityGlowB;
  * per-frame work.
  *
  * Two exponentials, not one: a tight hot band along the roofline plus a wide
- * violet lift, because a single e-folding is either a hard stripe or a wash.
+ * weak lift, because a single e-folding is either a hard stripe or a wash.
  * Both are gated to zero above the horizon-crossing by the CPU (see
  * SkySystem._updateCelestial), so every daylight-pinned shot is untouched.
  */

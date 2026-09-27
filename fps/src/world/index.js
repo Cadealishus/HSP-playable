@@ -14,16 +14,17 @@ import {
   groundY,
   isOpen,
 } from './dressing.js';
-import { dressNerdcon, animateNerdcon } from './nerdcon.js';
+import { dressFlopOps, OBJECTIVE } from './flopops.js';
 
 /**
  * WORLD — level geometry, the modular building kit, props, set dressing and
  * static collision.
  *
- * A ~120 x 120 m Middle-Eastern market street: one main street with a plaza,
- * flanking alleys, eighteen buildings (three of them enterable and furnished
- * across multiple floors), an arched gate closing the vista, and several
- * thousand props. Nothing is loaded from disk — every vertex is generated here.
+ * A ~120 x 120 m war-torn border town: one main street opening into the market
+ * square ESF has been told to hold, flanking alleys, eighteen buildings (three
+ * of them enterable and furnished across multiple floors), an arched gate
+ * closing the vista, and several thousand props. Nothing is loaded from disk —
+ * every vertex is generated here.
  *
  * HOW IT FITS TOGETHER
  *   layout.js     the map: footprints, facade programmes, set-piece positions
@@ -35,6 +36,9 @@ import { dressNerdcon, animateNerdcon } from './nerdcon.js';
  *   interiors.js  furnishes rooms so an interior screenshot is worth taking
  *   props.js      the instanced prop library
  *   dressing.js   places the hundreds of props, cables, laundry and debris
+ *   hardware.js   vehicles, HESCO, tank traps, power line, concertina wire
+ *   flopops.js    the FLOP OPS dress: shop signs, the objective crate, ESF
+ *                 fortifications, stencils, and where the vehicles are parked
  *   ground.js     terrain, road camber, kerbs, pavement slabs, sand drifts
  *   builder.js    the Assembler: merges statics, batches instances, authors
  *                 collision proxies, bakes the level->world transform
@@ -43,6 +47,9 @@ import { dressNerdcon, animateNerdcon } from './nerdcon.js';
  *   world.root                THREE.Group holding everything
  *   world.bounds              THREE.Box3 of the playable area, world space
  *   world.spawnPoints         [{ position:Vector3, yaw:number, tag:string }]
+ *   world.objective           { position:Vector3, yaw, radius, label } — the ESF
+ *                             supply crate in the square (world space, on the
+ *                             ground). The thing the player is holding.
  *   world.spawn(i)            one of the above
  *   world.groundHeight(x, z)  cheap analytic floor height (physics is exact)
  *   world.isOpen(x, z)        true where a character can stand outdoors
@@ -70,70 +77,6 @@ const LEVEL_TZ = 1.34;
  * puts that at 10 for the world's own lights, plus whatever `fx` keeps live.
  */
 const LIGHT_SLOTS = 20;
-
-/**
- * THE LEDGER's emissive envelope. All of these are time CONSTANTS, not
- * per-frame steps: every decay below is `exp(-dt / tau)`, so the curve is
- * identical at 30, 60 or 144 Hz and identical under the capture harness's
- * fixed 1/60 clock. One float of state each, no allocation.
- */
-const LEDGER = {
-  /** Resting emissive at x1 — the shipped idle level. */
-  rest: 0.11,
-  /**
-   * Resting emissive at the x9 multiplier cap: the monument visibly heats.
-   * Capped at the level where the stacked-book steps still read (see the
-   * measured table under `flareBase`) — the heat channel is PERMANENT while the
-   * streak holds, so unlike the flare it can never be allowed to soften the
-   * silhouette even briefly.
-   */
-  restHot: 0.24,
-  /** Time constant for the rest level chasing the multiplier. */
-  restTau: 0.55,
-  /** Idle carrier: a slow breath, amplitude proportional to the rest level so
-   *  the x1 look is bit-for-bit what it was before (0.11 +- 0.05 at 1.5 rad/s). */
-  carrier: 0.45,
-  carrierRate: 1.5,
-  /**
-   * Wave-clear flare. `exp(-1.2 / 0.3)` leaves 1.8% after 1.2 s.
-   *
-   * The peak is MEASURED, not chosen — and the first two guesses were both
-   * wrong, because the gold already sits near the top of the dusk exposure at
-   * rest. Sweeping `emissiveIntensity` and sampling a box entirely INSIDE the
-   * monument in the hero framing (so the stddev is the step contrast between
-   * book covers and page-edge risers, not object-vs-background):
-   *
-   *   v      mean   sd(step)  max   clipped   read
-   *   0.11   165    62.8      209   0         crisp step banding  <- rest
-   *   0.20   186    65.5      223   0         banding still clear
-   *   0.30   199    63.6      232   0         banding faint, halo appears
-   *   0.45   207    60.6      238   0         banding GONE — smooth blob
-   *   0.90   223    50.8      248   0         blob
-   *   1.70   233    41.2      252   77%       blob
-   *   3.40   239    33.0      254   80% (29% pure white)
-   *
-   * The numeric knee (clipping) and the PERCEPTUAL knee are nowhere near each
-   * other: the covers and risers stop resolving around 0.3-0.45, long before a
-   * pixel clips, because the gold already sits near the top of the dusk
-   * exposure at rest. So the usable ceiling is ~0.5, not the 6-10 an emissive
-   * on a small lamp lens would take — this is a 1.2 m metallic monument, not a
-   * bulb, and it is bright BEFORE the flare starts. Peaking at 0.36 (x1) to
-   * 0.50 (x9) is a 3-4x surge that fires in one frame and is gone in 1.2 s:
-   * the motion carries it, and the form survives at both ends.
-   */
-  flareTau: 0.3,
-  flareBase: 0.36,
-  flarePerMult: 0.018,
-  /** Hard ceiling, at the measured edge of "the silhouette still exists". */
-  flareMax: 0.55,
-  /** Run over: the gold falls under its rest level, holds a beat, recovers. */
-  dip: 0.25,
-  dipHold: 0.8,
-  dipTau: 1.9,
-};
-
-/** How often the ATM display may re-upload its canvas, in seconds. */
-const ATM_REPAINT_S = 0.25;
 
 /** Spawn points in LEVEL space: [x, z, yaw, tag]. */
 const SPAWNS = [
@@ -204,22 +147,19 @@ export class WorldSystem {
     dressBuildings(A, rng, infos);
     scatterDebris(A, rng);
 
-    // NERD OF DUTY re-dress: fintech signage, NerdCon banners, THE LEDGER set
-    // piece and a few flavour props. Additive only — placed last so its own
-    // RNG stream never perturbs the street it sits on. Standalone (canvas-text)
-    // meshes go straight onto root; brackets/plinth/ATM merge through A.
-    this._nerdcon = { meshes: [], geometries: [], materials: [], textures: [] };
-    // Canvas text measures against whatever font is resolved AT PAINT TIME. The
-    // Arcade Terminal face (JetBrains Mono) arrives over the network, so
-    // painting before it lands silently bakes fallback metrics into every sign
-    // and there is no second chance — the canvas is rasterised once. Wait for
-    // the font set to settle, but never let a dead network hold up the boot.
+    // FLOP OPS dress: shop signs, the festival banner, the power line, the
+    // objective crate, ESF fortifications, stencils and the parked vehicles.
+    // Placed last so its own RNG stream never perturbs the street it sits on.
+    // Standalone (canvas-text) meshes go straight onto root; everything else
+    // merges through A.
+    this._dress = { meshes: [], geometries: [], materials: [], textures: [] };
+    // Canvas text measures against whatever font is resolved AT PAINT TIME, and
+    // the canvas is rasterised once. Wait for the font set to settle, but never
+    // let a dead network hold up the boot.
     await fonts;
-    this._fx = dressNerdcon(A, this.root, this._nerdcon, {
+    dressFlopOps(A, this.root, this._dress, {
       anisotropy: ctx.config?.q?.anisotropy ?? 8,
     });
-    this._initLedger();
-    this._wireEvents(ctx);
 
     this._addLights(A);
 
@@ -234,6 +174,12 @@ export class WorldSystem {
       yaw: yaw + LEVEL_YAW,
       tag,
     }));
+    this.objective = {
+      position: A.toWorld(OBJECTIVE.x, groundY(OBJECTIVE.x, OBJECTIVE.z), OBJECTIVE.z),
+      yaw: OBJECTIVE.ry + LEVEL_YAW,
+      radius: 0.9,
+      label: OBJECTIVE.label,
+    };
     this.bounds = new THREE.Box3(
       new THREE.Vector3(-62, -2, -62),
       new THREE.Vector3(62, 26, 62)
@@ -253,85 +199,15 @@ export class WorldSystem {
    * the game must run fully offline, and `document.fonts.ready` on a blocked
    * network sits on the request timeout — measured at the full budget in a
    * sandboxed browser. A warm cache resolves in tens of ms, so the cap only
-   * ever bites when the face was never going to arrive, and both NEW canvas
-   * paints (ticker, ATM) size themselves by measurement rather than by assumed
-   * metrics, so the fallback degrades to "slightly different letterforms"
-   * rather than to overflowing type.
+   * ever bites when the face was never going to arrive, and every canvas
+   * paint sizes itself by measurement rather than by assumed metrics, so the
+   * fallback degrades to "slightly different letterforms" rather than to
+   * overflowing type.
    */
   _fontsReady() {
     const fonts = globalThis.document?.fonts;
     if (!fonts?.ready) return Promise.resolve();
     return Promise.race([fonts.ready, new Promise((r) => setTimeout(r, 600))]).catch(() => {});
-  }
-
-  // ------------------------------------------------------------ game state --
-  /**
-   * THE LEDGER's envelope state. Four floats and a flag; `update()` integrates
-   * them, the listeners below only ever set a target.
-   */
-  _initLedger() {
-    this._ledgerRest = LEDGER.rest; // current, smoothed
-    this._ledgerRestTarget = LEDGER.rest; // where the multiplier wants it
-    this._ledgerFlare = 0; // additive wave-clear spike
-    this._ledgerDim = 1; // 1 = alive, LEDGER.dip = run settled
-    this._ledgerHold = 0; // seconds left holding the dip
-    this._ledgerMult = 1;
-    // ATM display: `_atmScore` is what the game says, `_atmDrawn` is what is on
-    // the glass. They differ only between a score event and the next repaint.
-    this._atmScore = 0;
-    this._atmDrawn = 0;
-    this._atmPaintedAt = -1e9;
-    this._atmDead = false;
-  }
-
-  /**
-   * The world's only subscriptions. Everything the street does in response to
-   * the game arrives through these three events and nothing else — the world
-   * never reaches into `game`, and `game` does not know the street exists.
-   */
-  _wireEvents(ctx) {
-    this._off = [
-      // A wave settles: the monument flares gold and decays back over ~1.2 s.
-      // Scaled by the streak so a x9 clear reads harder than a x1 clear, and
-      // clamped short of the level where bloom eats the silhouette.
-      ctx.events.on('game:waveClear', () => {
-        const peak = Math.min(
-          LEDGER.flareMax,
-          LEDGER.flareBase + LEDGER.flarePerMult * (this._ledgerMult - 1)
-        );
-        // `max`, not `+=`: two clears in quick succession must not stack past
-        // the ceiling.
-        this._ledgerFlare = Math.max(this._ledgerFlare, peak - this._ledgerDim * this._ledgerRest);
-        this._ledgerDim = 1;
-        this._ledgerHold = 0;
-      }),
-      // The streak heats the resting level: 0.11 at x1 up to 0.4 at the x9 cap.
-      // This is the slow channel — the player should notice the plaza getting
-      // warmer over a good run without ever being told about it.
-      ctx.events.on('game:mult', (e) => {
-        const m = Math.min(9, Math.max(1, e?.mult ?? 1));
-        this._ledgerMult = m;
-        this._ledgerRestTarget = LEDGER.rest + ((m - 1) / 8) * (LEDGER.restHot - LEDGER.rest);
-        this._ledgerHold = 0; // a live run stops holding the dip
-      }),
-      // Run settled: the gold falls below rest for a beat, then comes back up
-      // slowly. The multiplier target resets with it.
-      ctx.events.on('game:over', () => {
-        this._ledgerMult = 1;
-        this._ledgerRestTarget = LEDGER.rest;
-        this._ledgerDim = LEDGER.dip;
-        this._ledgerHold = LEDGER.dipHold;
-        this._atmDead = true;
-        this._fx?.atm?.paint('BALANCE', String(this._atmScore), true);
-        this._atmPaintedAt = ctx.time.elapsed;
-      }),
-      // The ATM balance. Repainting a canvas is a full texture upload, so this
-      // only records the number; `update()` decides when the glass may change.
-      ctx.events.on('game:score', (e) => {
-        this._atmScore = Math.round(e?.score ?? 0);
-        this._atmDead = false;
-      }),
-    ];
   }
 
   // ----------------------------------------------------------------- lights --
@@ -502,61 +378,6 @@ export class WorldSystem {
       // altitude: a weak practical by day, the room's only light after dark.
       for (let i = 0; i < this.bulbs.length; i++) this.bulbs[i].intensity = 5 + 17 * mix;
     }
-
-    this._updateLedger(dt, ctx);
-
-    // Signage: the failing neon, the wayfinder's pulse, the mains hum and the
-    // ticker scroll. Pure uniform writes — see `animateNerdcon`.
-    animateNerdcon(this._fx, ctx.time.elapsed, dt);
-
-    // ATM display. Gated twice, because a repaint is a 256x128 texture upload:
-    // only when the number actually moved, and never faster than 4 Hz.
-    const atm = this._fx?.atm;
-    if (
-      atm &&
-      !this._atmDead &&
-      this._atmScore !== this._atmDrawn &&
-      ctx.time.elapsed - this._atmPaintedAt >= ATM_REPAINT_S
-    ) {
-      atm.paint('BALANCE', String(this._atmScore), false);
-      this._atmDrawn = this._atmScore;
-      this._atmPaintedAt = ctx.time.elapsed;
-    }
-  }
-
-  /**
-   * THE LEDGER's emissive envelope.
-   *
-   * Three channels stacked on one uniform:
-   *
-   *   rest     the slow one — chases the multiplier, so the plaza warms up as
-   *            the run gets good and cools when it does not.
-   *   carrier  the shipped idle breath, kept as a fraction of `rest` so the
-   *            x1 look is unchanged and the pulse deepens with the heat.
-   *   flare    the fast one — a wave clear spikes it to 0.36-0.50 (the measured
-   *            ceiling; see LEDGER.flareBase) and it decays exponentially back
-   *            to nothing over ~1.2 s.
-   *
-   * plus `dim`, which drops the whole thing under rest when a run settles and
-   * lets it climb back. Every decay is `exp(-dt / tau)` so the shape does not
-   * depend on frame rate; nothing here allocates and nothing reads the RNG.
-   */
-  _updateLedger(dt, ctx) {
-    const gold = this._ledgerMat ?? (this._ledgerMat = this.A?.mat('nerdcon_gold'));
-    if (!gold) return;
-
-    this._ledgerRest += (this._ledgerRestTarget - this._ledgerRest) * (1 - Math.exp(-dt / LEDGER.restTau));
-
-    if (this._ledgerHold > 0) this._ledgerHold -= dt;
-    else if (this._ledgerDim < 1)
-      this._ledgerDim += (1 - this._ledgerDim) * (1 - Math.exp(-dt / LEDGER.dipTau));
-
-    if (this._ledgerFlare > 1e-4) this._ledgerFlare *= Math.exp(-dt / LEDGER.flareTau);
-    else this._ledgerFlare = 0;
-
-    const rest = this._ledgerRest;
-    const carrier = rest * LEDGER.carrier * Math.sin(ctx.time.elapsed * LEDGER.carrierRate);
-    gold.emissiveIntensity = this._ledgerDim * (rest + carrier) + this._ledgerFlare;
   }
 
   lateUpdate(dt, ctx) {
@@ -661,19 +482,16 @@ export class WorldSystem {
   }
 
   dispose() {
-    for (const off of this._off ?? []) off();
-    this._off = null;
-    this._fx = null;
-    // NERD OF DUTY standalone meshes carry their own geometry/material/texture
-    // (unique canvas-text signage), so free them explicitly — the Assembler
-    // only tracks what it merged/instanced.
-    const nc = this._nerdcon;
+    // The dress's standalone meshes carry their own geometry/material/texture
+    // (unique canvas-text signage and stencils), so free them explicitly — the
+    // Assembler only tracks what it merged/instanced.
+    const nc = this._dress;
     if (nc) {
       for (const m of nc.meshes) m.parent?.remove(m);
       for (const g of nc.geometries) g.dispose();
       for (const m of nc.materials) m.dispose();
       for (const t of nc.textures) t.dispose();
-      this._nerdcon = null;
+      this._dress = null;
     }
     this.A?.dispose();
     this.root?.parent?.remove(this.root);
