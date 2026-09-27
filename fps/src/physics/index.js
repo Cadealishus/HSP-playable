@@ -71,7 +71,13 @@ import { UNITS } from '../core/config.js';
 import { StaticWorld } from './bvh.js';
 import { CharacterController } from './character.js';
 import { RigidBody, RigidBodyWorld } from './rigidbody.js';
-import { Ragdoll, humanoidSpec, specFromSkeleton } from './ragdoll.js';
+import { Ragdoll, humanoidSpec, specFromSkeleton, BLAST } from './ragdoll.js';
+
+/** Blast velocity (m/s) given to loose rigid props at the centre of a frag
+ *  grenade, the tumble (rad/s) that goes with it, and a hard speed cap. */
+const PROP_BLAST = 11;
+const PROP_BLAST_SPIN = 22;
+const PROP_BLAST_MAX = 22;
 import { Ballistics } from './penetration.js';
 import { PhysicsDebugView } from './debug.js';
 import {
@@ -166,6 +172,7 @@ class Collider {
 }
 
 const _v = new THREE.Vector3();
+const _vo = new THREE.Vector3();
 const _m4 = new THREE.Matrix4();
 const _m4i = new THREE.Matrix4();
 const _one = new THREE.Vector3(1, 1, 1);
@@ -749,19 +756,28 @@ export class PhysicsSystem {
     const pos = e.position ?? e;
     const radius = e.radius ?? 5;
     const strength = e.impulse ?? (e.damage ?? 100) * 0.9;
-    this.bodies.applyRadialImpulse(pos.x, pos.y, pos.z, radius, strength * 0.06);
+    // FLOP OPS: `strength` 108 is a frag grenade (damage 120). Loose props get
+    // PROP_BLAST m/s per unit strength at the centre (a 0.3 kg magazine leaves
+    // at ~14 m/s, spinning); rigid bodies are swept (CCD) and carry lifetimes,
+    // so they bounce off walls and expire instead of leaving the level.
+    const s = strength / 108;
+    this.bodies.applyRadialImpulse(pos.x, pos.y, pos.z, radius, PROP_BLAST * s, PROP_BLAST_SPIN * s, PROP_BLAST_MAX);
+    // Corpses already on the floor get the same launch a fresh death does (see
+    // Ragdoll.blast). A doll killed by *this* blast is launched by `ai`, which
+    // hears the event after us and owns its own ragdoll hand-off.
+    // Occlusion is tested from just above the charge to just above the body:
+    // a grenade rests on the floor and a corpse lies on it, and a ray between
+    // two points 5 cm off a tessellated floor grazes it and reads as blocked.
+    _vo.set(pos.x, pos.y + 0.35, pos.z);
     for (const rd of this.ragdolls) {
       const cx = (rd.aabb.minx + rd.aabb.maxx) * 0.5;
       const cy = (rd.aabb.miny + rd.aabb.maxy) * 0.5;
       const cz = (rd.aabb.minz + rd.aabb.maxz) * 0.5;
-      const dx = cx - pos.x, dy = cy - pos.y, dz = cz - pos.z;
-      const d = Math.hypot(dx, dy, dz);
+      const d = Math.hypot(cx - pos.x, cy - pos.y, cz - pos.z);
       if (d > radius) continue;
-      _v.set(cx, cy, cz);
-      if (!this.lineOfSight(pos, _v, MASK.EXPLOSION)) continue;
-      const f = (1 - d / radius) * strength * 0.5;
-      const inv = 1 / (d || 1e-4);
-      rd.applyImpulse(pos.x, pos.y, pos.z, dx * inv * f, dy * inv * f + f * 0.4, dz * inv * f, radius);
+      _v.set(cx, Math.max(cy, rd.aabb.miny + 0.35), cz);
+      if (!this.lineOfSight(_vo, _v, MASK.EXPLOSION)) continue;
+      rd.blast(pos.x, pos.y, pos.z, radius, s);
     }
   }
 
@@ -1056,4 +1072,4 @@ function segmentHitsAabb(ox, oy, oz, dx, dy, dz, len, ab, pad = 0) {
   return hi >= Math.max(0, lo) && lo <= len;
 }
 
-export { LAYER, MASK, SURFACE, SURFACE_NAMES, SURFACE_PROPS, humanoidSpec, CharacterController, RigidBody, Ragdoll };
+export { LAYER, MASK, SURFACE, SURFACE_NAMES, SURFACE_PROPS, humanoidSpec, CharacterController, RigidBody, Ragdoll, BLAST };

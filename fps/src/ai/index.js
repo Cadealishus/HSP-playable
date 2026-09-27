@@ -20,6 +20,9 @@
  *   ai.spawn(variant, position, yaw, opts) -> Agent
  *   ai.agents                              live Agent list
  *   ai.debugStage('firefight')             staged combat tableau for captures
+ *   ai.debugStage('closeup' | 'flop')      one man at 4 m / a blast mid-launch
+ *   ai.faction                             { name, short } for UI copy
+ *   ai.radio.log                           recent `ai:radio` lines (dev)
  *   ai.prewarmMaterials()                  await: build + compile every character
  *                                          shader without spawning anything
  *   ai.grid / ai.cover                     navigation + cover queries
@@ -34,7 +37,9 @@
  * EVENTS consumed: weapon:fire, bullet:impact, damage:dealt, explosion,
  *   player:footstep
  * EVENTS emitted: weapon:fire (enemy muzzle), weapon:shell, bullet:tracer,
- *   damage:dealt (enemy hitting the player), actor:death
+ *   damage:dealt (enemy hitting the player), actor:death, ai:bark (audio),
+ *   ai:radio { enemy, kind: 'spot'|'cover'|'grenade'|'mandown', text } — a
+ *   short deadpan radio line for the UI to subtitle (see radio.js)
  */
 
 import * as THREE from 'three';
@@ -45,18 +50,21 @@ import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
+import { RadioNet, FACTION, callsign } from './radio.js';
 
 /**
- * LEGACY CORE SECURITY killfeed callsigns (NERDCON_CONTRACT copy bible). Assigned
- * per soldier in spawn(); once the pool is exhausted it recycles with a numeric
- * suffix (COBOL, …, LEDGERLOCK, COBOL-2, BATCH-2, …). The UI killfeed reads the
- * agent's `.name` straight off the `damage:dealt` / `actor:death` payloads, so a
- * name on the Agent IS the display name — no separate provider needed.
+ * Enemy names live in radio.js: FACTION (the opposing force's name for the UI),
+ * CALLSIGNS (killfeed, assigned per soldier in spawn(), recycled as GARY II,
+ * GARY III ...) and the RADIO subtitle lines. The UI killfeed reads the agent's
+ * `.name` / `.variantDisplay` straight off the `damage:dealt` / `actor:death`
+ * payloads, so a name on the Agent IS the display name.
  */
-export const CALLSIGNS = [
-  'COBOL', 'BATCH', 'FAX', 'MAINFRAME', 'T+2',
-  'MT-103', 'MICR', 'IVR', 'PDF_STMT', 'LEDGERLOCK',
-];
+export { CALLSIGNS, FACTION, RADIO } from './radio.js';
+
+/** Frames from detonation to the frozen still in the `flop` capture tableau:
+ *  0.37 s at 60 Hz — bodies near the top of their arc, fireball burnt down.
+ *  Capture it with --settle >= 30 so the shutter lands after the freeze. */
+const FLOP_FREEZE = 22;
 
 export class AiSystem {
   static id = 'ai';
@@ -89,6 +97,10 @@ export class AiSystem {
     this.forcePopulate = false;
     /** running index into CALLSIGNS for the killfeed display name */
     this._callsignSeq = 0;
+    /** The opposing force, for UI copy: `{ name, short }`. */
+    this.faction = FACTION;
+    /** Enemy radio net: emits `ai:radio { enemy, kind, text }` for subtitles. */
+    this.radio = new RadioNet(ctx);
     /** hard ceiling on concurrent live actors, so a runaway caller can never
      *  blow the frame budget. The game self-limits waves well under this. */
     this.maxAlive = 20;
@@ -117,6 +129,8 @@ export class AiSystem {
       flashScale: 0.8,
     };
     this._shellEvent = { position: new THREE.Vector3(), velocity: new THREE.Vector3() };
+    /** scratch blast descriptor handed to Agent.applyDamage by explosions */
+    this._blast = { position: null, radius: 6, strength: 1 };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
     this._grenades = [];
     this._grenadeGeo = null;
@@ -355,7 +369,12 @@ export class AiSystem {
         const f = 1 - d / radius;
         this._v.copy(a.position).sub(e.position).normalize();
         a.suppress(1.4 * f);
-        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v);
+        // `blast` rides along so a kill launches the doll from the charge
+        // (physics has already shoved everything that was dead before it)
+        this._blast.position = e.position;
+        this._blast.radius = radius;
+        this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
+        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast);
       }
     });
 
@@ -493,15 +512,12 @@ export class AiSystem {
   }
 
   /**
-   * Next killfeed callsign from the contract pool, recycling with a numeric
-   * suffix once exhausted. Public so a peer can pre-read the next name if needed;
+   * Next killfeed callsign from the pool (radio.js), recycling with a regnal
+   * number once exhausted. Public so a peer can pre-read the next name if needed;
    * normally callers just spawn and read `agent.name`.
    */
   nextCallsign() {
-    const i = this._callsignSeq++;
-    const base = CALLSIGNS[i % CALLSIGNS.length];
-    const cycle = (i / CALLSIGNS.length) | 0;
-    return cycle === 0 ? base : `${base}-${cycle + 1}`;
+    return callsign(this._callsignSeq++);
   }
 
   /**
@@ -574,7 +590,7 @@ export class AiSystem {
   }
 
   /* ================================================================== */
-  /* wave interface (HOLD THE LEDGER) — called by `src/game`            */
+  /* wave interface — called by `src/game`                             */
   /* ================================================================== */
 
   /**
@@ -691,7 +707,7 @@ export class AiSystem {
   }
 
   /**
-   * Retire the oldest settled corpses so a long HOLD THE LEDGER run cannot grow
+   * Retire the oldest settled corpses so a long wave run cannot grow
    * `this.agents` (and its ragdolls) without bound. Only bodies that have been
    * down long enough to have finished their death beat are disposed; the most
    * recent `keep` are always left on the ground.
@@ -840,6 +856,7 @@ export class AiSystem {
     const phys = this.phys;
     if (!phys) return;
     agent.bark('grenade');
+    agent.radio('grenade');
     this._ensureGrenade();
     const mesh = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
     this.root.add(mesh);
@@ -924,6 +941,7 @@ export class AiSystem {
       }
     }
     this._updateGrenades(dt);
+    if (this._flop) this._updateFlop();
     this.stats.agents = this.agents.length;
     this.stats.alive = alive;
   }
@@ -1103,7 +1121,7 @@ export class AiSystem {
         if (!g.walkable(ix, iz)) continue;
         const i = g.index(ix, iz);
         const fy = g.floor[i];
-        if (Math.abs(fy - yRef) > 1.0) continue;
+        if (Math.abs(fy - yRef) > 0.5) continue;
         const x = g.worldX(ix), z = g.worldZ(iz);
         // spacing from the men already placed
         let tooClose = false;
@@ -1122,6 +1140,10 @@ export class AiSystem {
           chest.set(x, fy + 1.25, z);
           if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
           chest.set(x, fy + 1.62, z);
+          if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
+          // and the legs: a man whose head clears a stall counter but whose
+          // body is behind it reads as a torso on a shelf
+          chest.set(x, fy + 0.45, z);
           if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
         }
         let score = Math.abs(ndc - ndcX) * 9 + Math.abs(depth - wantDepth) * 0.5;
@@ -1146,6 +1168,8 @@ export class AiSystem {
    * moving between positions, one reloading further back.
    */
   debugStage(name) {
+    if (name === 'closeup') return this._stageCloseup();
+    if (name === 'flop') return this._stageFlop();
     if (name !== 'firefight') return this.stats;
     if (this.inspect) return this._stageInspect();
     if (this._navPending) this._buildNav();
@@ -1219,6 +1243,127 @@ export class AiSystem {
     casualty.applyDamage(260, 'torso', hit, inc);
 
     return this.stats;
+  }
+
+  /**
+   * Put the shot camera at a LEVEL-space spot (the world is authored in level
+   * coordinates and rotated into place), eye `eyeH` above the floor, looking
+   * at another level-space point `lookH` above its floor. Both of the capture
+   * tableaux below own their framing: the shared shot poses land behind
+   * market stalls, and a character study needs clear floor and clean sky.
+   */
+  _frameLevel(cx, cz, eyeH, tx, tz, lookH) {
+    const world = this.ctx.peek('world');
+    const cam = this.ctx.camera;
+    const c = world?.levelToWorld ? world.levelToWorld(cx, 0, cz, new THREE.Vector3()) : new THREE.Vector3(cx, 0, cz);
+    const t = world?.levelToWorld ? world.levelToWorld(tx, 0, tz, new THREE.Vector3()) : new THREE.Vector3(tx, 0, tz);
+    c.y = this.groundAt(c.x, c.z, 30) + eyeH;
+    t.y = this.groundAt(t.x, t.z, 30) + lookH;
+    cam.position.copy(c);
+    cam.lookAt(t);
+    cam.updateMatrixWorld(true);
+    this.ctx.peek('player')?.teleport?.(cam.position, cam.rotation);
+    return { cam, c, t };
+  }
+
+  /** A walkable floor point at a LEVEL-space (x, z), snapped to the nav grid. */
+  _levelFloor(x, z) {
+    const world = this.ctx.peek('world');
+    const p = world?.levelToWorld ? world.levelToWorld(x, 0, z, new THREE.Vector3()) : new THREE.Vector3(x, 0, z);
+    p.y = this.groundAt(p.x, p.z, 30);
+    return p;
+  }
+
+  /**
+   * `debugStage('closeup')` — one rifleman about 4 m from the camera on the
+   * open ground where the main street meets the far cross street, up and
+   * aiming just past the lens: the distance a player meets a man coming round
+   * a corner.
+   */
+  _stageCloseup() {
+    if (this._navPending) this._buildNav();
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
+    const { cam } = this._frameLevel(0.6, -33.2, 1.62, 0.2, -37.6, 1.2);
+    const pos = this._levelFloor(0.2, -37.4);
+    const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.38;
+    const a = this.spawn('vanguard', pos, yaw);
+    a.staged = {
+      crouch: false,
+      speed: 0,
+      fire: false,
+      noDamage: true,
+      aimWeight: 1,
+      heading: new THREE.Vector3(0, 0, 1),
+    };
+    a.peeking = true;
+    a.aimTarget.copy(this.playerPosition(this._v3));
+    a.animator.update(0.016, 0);
+    return this.stats;
+  }
+
+  /**
+   * `debugStage('flop')` — a squad bunched round a grenade that has already
+   * landed among them, on the open ground at the south end of the main
+   * street, shot from a low eye so the launch reads against the sky. Two
+   * frames after staging it goes off; `FLOP_FREEZE` frames (fixed 60 Hz) later
+   * the dolls are frozen near the top of their arc and the clock slowed to a
+   * crawl, once the fireball has burnt down enough not to white out the frame.
+   */
+  _stageFlop() {
+    if (this._navPending) this._buildNav();
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
+    const { cam } = this._frameLevel(0.8, -29.0, 1.25, -0.2, -41.0, 2.6);
+    const squad = this.createSquad();
+    /** [variant, level x, level z] — a loose knot of four round the charge */
+    const LAYOUT = [
+      ['vanguard', -2.0, -39.4],
+      ['breacher', 1.4, -39.8],
+      ['irregular', -0.9, -42.6],
+      ['vanguard', 2.2, -42.2],
+    ];
+    const men = [];
+    for (const [variant, x, z] of LAYOUT) {
+      const pos = this._levelFloor(x, z);
+      const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z);
+      const a = this.spawn(variant, pos, yaw + (men.length - 1.5) * 0.5);
+      squad.add(a);
+      a.staged = {
+        crouch: false, speed: 0, fire: false, noDamage: true, aimWeight: 0.4,
+        heading: new THREE.Vector3(0, 0, 1),
+      };
+      a.animator.update(0.016, 0);
+      men.push(a);
+    }
+    // the charge, a little beyond the middle of the knot so the men come out
+    // sideways and toward the lens rather than straight away from it
+    const at = this._levelFloor(0.1, -41.6);
+    at.y += 0.25;
+    // a man already down behind them, so the blast also re-launches a corpse
+    const dPos = this._levelFloor(-0.4, -44.2);
+    const casualty = this.spawn('breacher', dPos, 0.6);
+    squad.add(casualty);
+    casualty.animator.update(0.016, 0);
+    const F = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion).setY(0).normalize();
+    casualty.applyDamage(260, 'torso', this._v2.set(dPos.x, dPos.y + 1.3, dPos.z), F);
+    this._flop = { frame: 0, at, men };
+    return this.stats;
+  }
+
+  /** Drive the flop tableau's script (see _stageFlop). Frame-counted. */
+  _updateFlop() {
+    const f = this._flop;
+    if (!f) return;
+    f.frame++;
+    if (f.frame === 2) {
+      for (const a of f.men) a.staged = null;
+      this.ctx.events.emit('explosion', { position: f.at, radius: 6.5, damage: 400 });
+    } else if (f.frame === 2 + FLOP_FREEZE) {
+      for (const rd of this.phys?.ragdolls ?? []) rd.frozen = true;
+      // near-freeze everything else too (fireball, smoke, rubble) so TAA can
+      // converge on a still frame; never exactly 0, no system divides by dt
+      this.ctx.time.scale = 0.02;
+      this._flop = null;
+    }
   }
 
   /** Model inspection line-up (dev only). */

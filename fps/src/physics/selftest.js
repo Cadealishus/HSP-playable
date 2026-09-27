@@ -446,6 +446,119 @@ section('Ragdolls');
   phys.removeRagdoll(rd);
 }
 
+/* ---------------- FLOP OPS blast launch ---------------- */
+section('Blast launch (too much force, still stable)');
+{
+  // Absolute length error in metres. A relative measure is dominated by the
+  // 8 cm neck, which a head-first landing at 10 m/s squashes by ~2 cm for two
+  // or three steps before the solver restores it; that is invisible, while a
+  // limb stretching by 5 cm is not.
+  const stretchOf = (rd, rest) => {
+    let m = 0;
+    for (let i = 0; i < rd.boneCount; i++) {
+      const a = rd.boneHead[i], c = rd.boneTail[i];
+      const l = Math.hypot(rd.px[c] - rd.px[a], rd.py[c] - rd.py[a], rd.pz[c] - rd.pz[a]);
+      m = Math.max(m, Math.abs(l - rest[i]));
+    }
+    return m;
+  };
+  const finite = (rd) => {
+    for (let i = 0; i < rd.particleCount; i++) if (!Number.isFinite(rd.px[i] + rd.py[i] + rd.pz[i])) return false;
+    return true;
+  };
+
+  // 1. open ground: a grenade 1 m in front of a standing man
+  {
+    const rd = phys.createRagdoll({ transform: new THREE.Matrix4().makeTranslation(20, 0.02, 20), height: 1.82, mass: 84, iterations: 8 });
+    const rest = Float32Array.from(rd.boneLen);
+    rd.blast(20, 0.3, 21, 6.5, 1);
+    let peak = 0, air = 0, maxStretch = 0, landed = -1;
+    for (let i = 0; i < 1200; i++) {
+      rd.step(1 / 120);
+      const low = rd.aabb.miny;
+      peak = Math.max(peak, low);
+      if (low > 0.25) air = (i + 1) / 120;
+      else if (air > 0 && landed < 0) landed = (i + 1) / 120;
+      if (air > 0) maxStretch = Math.max(maxStretch, stretchOf(rd, rest));
+    }
+    const travel = Math.hypot((rd.aabb.minx + rd.aabb.maxx) / 2 - 20, (rd.aabb.minz + rd.aabb.maxz) / 2 - 20);
+    ok(finite(rd), 'launched doll stays finite');
+    ok(peak > 1.2 && peak < 4.5, 'grenade at 1 m launches the body clear of the floor', `lowest point peaks at ${peak.toFixed(2)} m`);
+    ok(travel > 1.5 && travel < 12, 'lands a comedic but bounded distance away', `${travel.toFixed(2)} m`);
+    ok(landed > 0 && landed < 2.5, 'comes back down', `airborne ${air.toFixed(2)} s`);
+    ok(maxStretch < 0.04, 'bones hold together in flight and on landing', `max length error ${(maxStretch * 100).toFixed(1)} cm`);
+    ok(rd.sleeping, 'settles after the flop');
+    phys.removeRagdoll(rd);
+  }
+
+  // 2. thrown into the 0.2 m concrete wall at x = 4.9..5.1
+  {
+    const rd = phys.createRagdoll({ transform: new THREE.Matrix4().makeTranslation(3.9, 0.02, 0), height: 1.82, mass: 84, iterations: 8 });
+    rd.blast(2.7, 0.3, 0, 6.5, 1.5);
+    let maxX = -Infinity;
+    for (let i = 0; i < 900; i++) {
+      rd.step(1 / 120);
+      for (let k = 0; k < rd.particleCount; k++) maxX = Math.max(maxX, rd.px[k]);
+    }
+    ok(finite(rd) && maxX < 4.95, 'blast into a wall does not tunnel it', `max x ${maxX.toFixed(3)} (wall face 4.9)`);
+    phys.removeRagdoll(rd);
+  }
+
+  // 3. thrown at the 6 cm wooden partition at x = -4.03..-3.97
+  {
+    const rd = phys.createRagdoll({ transform: new THREE.Matrix4().makeTranslation(-3.3, 0.02, 0), height: 1.82, mass: 84, iterations: 8 });
+    rd.blast(-2.2, 0.3, 0, 6.5, 1.5);
+    let minX = Infinity;
+    for (let i = 0; i < 900; i++) {
+      rd.step(1 / 120);
+      for (let k = 0; k < rd.particleCount; k++) minX = Math.min(minX, rd.px[k]);
+    }
+    ok(finite(rd) && minX > -4.0, 'blast into a thin partition does not tunnel it', `min x ${minX.toFixed(3)} (face -3.97)`);
+    phys.removeRagdoll(rd);
+  }
+
+  // 4. the dramatic pirouette: a hard vertical spin on a limp doll
+  {
+    const rd = phys.createRagdoll({ transform: new THREE.Matrix4().makeTranslation(-20, 0.02, 20), height: 1.82, mass: 84, iterations: 8 });
+    const rest = Float32Array.from(rd.boneLen);
+    rd.limp(0.55);
+    rd.addSpin(0, 1, 0, 11);
+    rd.addVelocity(0.8, 2.4, 0.3);
+    let maxStretch = 0, highest = 0;
+    for (let i = 0; i < 1200; i++) {
+      rd.step(1 / 120);
+      maxStretch = Math.max(maxStretch, stretchOf(rd, rest));
+      highest = Math.max(highest, rd.aabb.maxy);
+    }
+    ok(finite(rd) && maxStretch < 0.04, 'pirouette death holds together', `max length error ${(maxStretch * 100).toFixed(1)} cm`);
+    ok(highest < 2.6, 'pirouette stays a stagger, not a launch', `top ${highest.toFixed(2)} m`);
+    ok(rd.sleeping, 'pirouette settles');
+    phys.removeRagdoll(rd);
+  }
+
+  // 5. physics.explode() on an existing corpse and on loose props
+  {
+    const rd = phys.createRagdoll({ transform: new THREE.Matrix4().makeTranslation(30, 0.3, -20), height: 1.82, mass: 84, iterations: 8 });
+    for (let i = 0; i < 400; i++) rd.step(1 / 120);
+    const b = phys.spawnDebris({ x: 31, y: 0.2, z: -20 }, { x: 0, y: 0, z: 0 }, { size: 0.12, lifetime: 999 });
+    for (let i = 0; i < 200; i++) phys.bodies.step(1 / 120);
+    phys.explode({ position: new THREE.Vector3(30.5, 0.2, -21), radius: 6.5, damage: 120 });
+    let rdPeak = 0, bPeak = 0, bFar = 0;
+    for (let i = 0; i < 900; i++) {
+      rd.step(1 / 120);
+      phys.bodies.step(1 / 120);
+      rdPeak = Math.max(rdPeak, rd.aabb.miny);
+      bPeak = Math.max(bPeak, b.position.y);
+      bFar = Math.max(bFar, Math.hypot(b.position.x - 31, b.position.z + 20));
+    }
+    ok(rdPeak > 0.5, 'explode() lifts a corpse that was already down', `${rdPeak.toFixed(2)} m`);
+    ok(bPeak > 1.5 && bPeak < 14, 'explode() throws a loose prop high, not to orbit', `peak ${bPeak.toFixed(2)} m, ${bFar.toFixed(1)} m out`);
+    ok(finite(rd) && Number.isFinite(b.position.x), 'post-blast state finite');
+    phys.removeRagdoll(rd);
+    phys.removeRigidBody(b);
+  }
+}
+
 /* ---------------- dynamic colliders ---------------- */
 section('Hitbox colliders');
 {

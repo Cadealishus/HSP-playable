@@ -164,7 +164,7 @@ console.log('\ncamouflage — linear luminance, and what is left of it at 25 m')
 console.log('\nalbedo budget — map avg x vertex tint, per part (linear)');
 {
   // stub material factory: the audit only needs the geometry + vertex colours
-  const stub = { get: () => ({}), glass: () => ({}), accent: () => ({}) };
+  const stub = { get: () => ({}), glass: () => ({}) };
   // Measured map averages, kept next to the bakes they describe. The nylon and
   // laminate bakes are written as `mean-before-calibration x KIT_CAL` so this
   // audit follows the one constant that scales the whole kit instead of silently
