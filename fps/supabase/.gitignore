@@ -1,0 +1,4 @@
+# Supabase CLI scratch — machine-local link state, never committed.
+.branches
+.temp
+.env

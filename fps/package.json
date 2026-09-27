@@ -1,23 +1,23 @@
 {
-  "name": "hsp-fps",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "name": "nerd-of-duty",
+  "version": "1.0.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "shoot": "node tools/shoot.mjs"
+    "preview": "vite preview --port 4173",
+    "shot": "node tools/capture.mjs"
   },
+  "author": "",
+  "license": "MIT",
+  "type": "module",
   "dependencies": {
-    "@dimforge/rapier3d-compat": "0.21.0",
-    "n8ao": "2.0.1",
-    "postprocessing": "6.39.5",
-    "three": "0.186.1",
-    "three-mesh-bvh": "0.9.15"
+    "@vercel/og": "^0.6.5",
+    "three": "^0.180.0"
   },
   "devDependencies": {
-    "playwright": "1.56.1",
-    "vite": "8.3.1"
-  }
+    "playwright": "^1.61.1",
+    "pngjs": "^7.0.0",
+    "vite": "^7.3.6"
+  },
+  "private": true
 }
