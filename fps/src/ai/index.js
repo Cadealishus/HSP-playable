@@ -62,8 +62,9 @@ import { RadioNet, FACTION, callsign } from './radio.js';
 export { CALLSIGNS, FACTION, RADIO } from './radio.js';
 
 /** Frames from detonation to the frozen still in the `flop` capture tableau:
- *  0.27 s at 60 Hz, just short of the apex of a centre-of-blast launch. */
-const FLOP_FREEZE = 16;
+ *  0.37 s at 60 Hz — bodies near the top of their arc, fireball burnt down.
+ *  Capture it with --settle >= 30 so the shutter lands after the freeze. */
+const FLOP_FREEZE = 22;
 
 export class AiSystem {
   static id = 'ai';
@@ -1120,7 +1121,7 @@ export class AiSystem {
         if (!g.walkable(ix, iz)) continue;
         const i = g.index(ix, iz);
         const fy = g.floor[i];
-        if (Math.abs(fy - yRef) > 1.0) continue;
+        if (Math.abs(fy - yRef) > 0.5) continue;
         const x = g.worldX(ix), z = g.worldZ(iz);
         // spacing from the men already placed
         let tooClose = false;
@@ -1139,6 +1140,10 @@ export class AiSystem {
           chest.set(x, fy + 1.25, z);
           if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
           chest.set(x, fy + 1.62, z);
+          if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
+          // and the legs: a man whose head clears a stall counter but whose
+          // body is behind it reads as a torso on a shelf
+          chest.set(x, fy + 0.45, z);
           if (!this.phys.lineOfSight(cam.position, chest, this.phys.MASK.SIGHT)) continue;
         }
         let score = Math.abs(ndc - ndcX) * 9 + Math.abs(depth - wantDepth) * 0.5;
@@ -1241,17 +1246,46 @@ export class AiSystem {
   }
 
   /**
-   * `debugStage('closeup')` — one rifleman about 4 m from the shot camera, up
-   * and aiming just past it, for judging the kit at the distance a player
-   * meets a man coming round a corner.
+   * Put the shot camera at a LEVEL-space spot (the world is authored in level
+   * coordinates and rotated into place), eye `eyeH` above the floor, looking
+   * at another level-space point `lookH` above its floor. Both of the capture
+   * tableaux below own their framing: the shared shot poses land behind
+   * market stalls, and a character study needs clear floor and clean sky.
+   */
+  _frameLevel(cx, cz, eyeH, tx, tz, lookH) {
+    const world = this.ctx.peek('world');
+    const cam = this.ctx.camera;
+    const c = world?.levelToWorld ? world.levelToWorld(cx, 0, cz, new THREE.Vector3()) : new THREE.Vector3(cx, 0, cz);
+    const t = world?.levelToWorld ? world.levelToWorld(tx, 0, tz, new THREE.Vector3()) : new THREE.Vector3(tx, 0, tz);
+    c.y = this.groundAt(c.x, c.z, 30) + eyeH;
+    t.y = this.groundAt(t.x, t.z, 30) + lookH;
+    cam.position.copy(c);
+    cam.lookAt(t);
+    cam.updateMatrixWorld(true);
+    this.ctx.peek('player')?.teleport?.(cam.position, cam.rotation);
+    return { cam, c, t };
+  }
+
+  /** A walkable floor point at a LEVEL-space (x, z), snapped to the nav grid. */
+  _levelFloor(x, z) {
+    const world = this.ctx.peek('world');
+    const p = world?.levelToWorld ? world.levelToWorld(x, 0, z, new THREE.Vector3()) : new THREE.Vector3(x, 0, z);
+    p.y = this.groundAt(p.x, p.z, 30);
+    return p;
+  }
+
+  /**
+   * `debugStage('closeup')` — one rifleman about 4 m from the camera on the
+   * open ground where the main street meets the far cross street, up and
+   * aiming just past the lens: the distance a player meets a man coming round
+   * a corner.
    */
   _stageCloseup() {
     if (this._navPending) this._buildNav();
-    const cam = this.ctx.camera;
-    this.ctx.peek('sky')?.setTimeOfDay?.(17.9);
-    const pos = this._stageSlot(cam, 0.12, 4.2, []);
-    // aim a little off-axis so the face, the carrier and the rifle all read
-    const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.42;
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
+    const { cam } = this._frameLevel(0.6, -33.2, 1.62, 0.2, -37.6, 1.2);
+    const pos = this._levelFloor(0.2, -37.4);
+    const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - 0.38;
     const a = this.spawn('vanguard', pos, yaw);
     a.staged = {
       crouch: false,
@@ -1269,30 +1303,27 @@ export class AiSystem {
 
   /**
    * `debugStage('flop')` — a squad bunched round a grenade that has already
-   * landed among them. Two frames after staging it goes off; `FLOP_FREEZE`
-   * frames (at the capture's fixed 60 Hz) later the dolls are frozen mid-air
-   * and the clock is slowed to a crawl, so the harness photographs the apex of
-   * the launch with the fireball still up — the frame the chaos pillar sells.
+   * landed among them, on the open ground at the south end of the main
+   * street, shot from a low eye so the launch reads against the sky. Two
+   * frames after staging it goes off; `FLOP_FREEZE` frames (fixed 60 Hz) later
+   * the dolls are frozen near the top of their arc and the clock slowed to a
+   * crawl, once the fireball has burnt down enough not to white out the frame.
    */
   _stageFlop() {
     if (this._navPending) this._buildNav();
-    const cam = this.ctx.camera;
-    this.ctx.peek('sky')?.setTimeOfDay?.(17.9);
+    this.ctx.peek('sky')?.setTimeOfDay?.(17.2);
+    const { cam } = this._frameLevel(0.8, -29.0, 1.25, -0.2, -41.0, 2.6);
     const squad = this.createSquad();
-    const placed = [];
-    /** [variant, ndcX, depth] — a loose knot of four, one already down */
+    /** [variant, level x, level z] — a loose knot of four round the charge */
     const LAYOUT = [
-      ['vanguard', -0.16, 10.5],
-      ['breacher', 0.1, 11.2],
-      ['irregular', -0.02, 13.0],
-      ['vanguard', 0.26, 12.6],
+      ['vanguard', -2.0, -39.4],
+      ['breacher', 1.4, -39.8],
+      ['irregular', -0.9, -42.6],
+      ['vanguard', 2.2, -42.2],
     ];
-    const centre = new THREE.Vector3();
     const men = [];
-    for (const [variant, ndcX, d] of LAYOUT) {
-      const pos = this._stageSlot(cam, ndcX, d, placed);
-      placed.push(pos.clone());
-      centre.add(pos);
+    for (const [variant, x, z] of LAYOUT) {
+      const pos = this._levelFloor(x, z);
       const yaw = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z);
       const a = this.spawn(variant, pos, yaw + (men.length - 1.5) * 0.5);
       squad.add(a);
@@ -1303,20 +1334,18 @@ export class AiSystem {
       a.animator.update(0.016, 0);
       men.push(a);
     }
-    centre.multiplyScalar(1 / LAYOUT.length);
-    // the charge sits a little beyond the group so they come out toward and
-    // across the camera rather than straight away from it
-    const F = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion).setY(0).normalize();
-    centre.addScaledVector(F, 0.8);
-    centre.y = this.groundAt(centre.x, centre.z, cam.position.y + 2) + 0.25;
-    // a man already down on the far side, so the blast also re-launches a
-    // corpse (physics.explode) as well as the fresh deaths
-    const dPos = this._stageSlot(cam, 0.02, 14.8, placed);
+    // the charge, a little beyond the middle of the knot so the men come out
+    // sideways and toward the lens rather than straight away from it
+    const at = this._levelFloor(0.1, -41.6);
+    at.y += 0.25;
+    // a man already down behind them, so the blast also re-launches a corpse
+    const dPos = this._levelFloor(-0.4, -44.2);
     const casualty = this.spawn('breacher', dPos, 0.6);
     squad.add(casualty);
     casualty.animator.update(0.016, 0);
+    const F = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion).setY(0).normalize();
     casualty.applyDamage(260, 'torso', this._v2.set(dPos.x, dPos.y + 1.3, dPos.z), F);
-    this._flop = { frame: 0, at: centre, men };
+    this._flop = { frame: 0, at, men };
     return this.stats;
   }
 

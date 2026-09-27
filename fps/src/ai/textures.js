@@ -270,15 +270,14 @@ export const CAMO = {
 };
 
 /**
- * Field-worn fabric. Printed camo straight off the bolt is far more saturated
- * than anything that has spent a season in the sun and the dust: the dyes
- * bleach, the grime settles into the weave, and at combat range a patrol reads
- * as a set of desaturated earth greys with only a lean toward tan or olive.
- * Each family is pulled `CAMO_DESAT` of the way toward its own Rec.709
- * luminance, so the value structure (and therefore `budget`) is untouched and
- * only the chroma drops. Urban kit is already neutral and barely moves.
+ * Fabric chroma. Each family is pushed `CAMO_DESAT` of the way toward (or,
+ * negative, away from) its own Rec.709 luminance, so the value structure (and
+ * therefore `budget`) is untouched and only the chroma moves. Under the bright
+ * warm sun and blue sky fill of the town, stock multicam read as a pale grey
+ * mannequin at 4 m; arid and woodland are pushed toward readable tan and
+ * olive, urban stays a worn neutral grey.
  */
-export const CAMO_DESAT = { arid: 0.34, woodland: 0.3, urban: 0.1 };
+export const CAMO_DESAT = { arid: -0.3, woodland: -0.35, urban: 0.1 };
 export function desaturate(c, k) {
   const l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
   return [c[0] + (l - c[0]) * k, c[1] + (l - c[1]) * k, c[2] + (l - c[2]) * k];

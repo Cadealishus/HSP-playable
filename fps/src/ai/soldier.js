@@ -96,14 +96,14 @@ const GEAR = {
 };
 
 /**
- * Field-faded kit tint: the variant tints are hue shifts at unit luminance, and
- * this pulls each one 40% of the way back to neutral so webbing, plates and
- * cloth read as worn, sun-bleached nylon rather than new-from-the-box colour.
- * Luminance is preserved, so the albedo budget above is unaffected.
+ * Kit tint: the variant tints are hue shifts at unit luminance; `k` moves the
+ * chroma (negative = richer) and `v` scales value. Webbing and plates are
+ * taken DOWN in value against the fabric so the carrier reads as a dark block
+ * over the camo at 4 m — the contrast a real plate carrier has.
  */
-function kit(t, k = 0.4) {
+function kit(t, k = 0.4, v = 1) {
   const l = t[0] * 0.2126 + t[1] * 0.7152 + t[2] * 0.0722;
-  return [t[0] + (l - t[0]) * k, t[1] + (l - t[1]) * k, t[2] + (l - t[2]) * k];
+  return [(t[0] + (l - t[0]) * k) * v, (t[1] + (l - t[1]) * k) * v, (t[2] + (l - t[2]) * k) * v];
 }
 
 /**
@@ -120,13 +120,13 @@ export const VARIANTS = {
   vanguard: {
     display: 'RIFLEMAN',
     camo: 'arid',
-    clothTint: kit([1.03, 1.0, 0.94]),
-    gearTint: kit([1.08, 0.98, 0.80]), // coyote brown, field-faded
-    plateTint: kit([1.02, 0.96, 0.84]),
+    clothTint: kit([1.03, 1.0, 0.94], -0.3),
+    gearTint: kit([1.08, 0.98, 0.80], -0.1, 0.62), // coyote brown, dark against the camo
+    plateTint: kit([0.92, 0.96, 0.84], 0, 0.5), // ranger-green carrier
     skinTint: [1.0, 0.94, 0.88],
     helmet: true,
     helmetCover: true,
-    helmetTint: [0.72, 0.72, 0.68],
+    helmetTint: [0.58, 0.56, 0.48],
     goggles: true,
     gogglesDown: true,
     faceWrap: true,
@@ -142,9 +142,9 @@ export const VARIANTS = {
   irregular: {
     display: 'VOLUNTEER',
     camo: 'woodland',
-    clothTint: kit([0.98, 1.02, 0.94]),
-    gearTint: kit([0.92, 0.96, 0.74]), // olive drab, field-faded
-    plateTint: kit([0.90, 0.94, 0.80]),
+    clothTint: kit([0.98, 1.02, 0.94], -0.3),
+    gearTint: kit([0.92, 0.96, 0.74], -0.1, 0.6), // olive drab chest rig
+    plateTint: kit([0.90, 0.94, 0.80], 0, 0.55),
     skinTint: [0.86, 0.80, 0.74],
     helmet: false,
     headWrap: true,
@@ -165,13 +165,13 @@ export const VARIANTS = {
   breacher: {
     display: 'BREACHER',
     camo: 'urban',
-    clothTint: kit([0.98, 0.99, 1.02]),
-    gearTint: kit([0.84, 0.86, 0.90]), // wolf grey
-    plateTint: kit([0.86, 0.88, 0.92]),
+    clothTint: kit([0.98, 0.99, 1.02], 0, 0.9),
+    gearTint: kit([0.84, 0.86, 0.90], 0, 0.6), // wolf grey, near-black
+    plateTint: kit([0.86, 0.88, 0.92], 0, 0.5),
     skinTint: [1.06, 0.98, 0.92],
     helmet: true,
     helmetCover: false, // bare painted shell instead of a cloth cover
-    helmetTint: [0.82, 0.83, 0.86],
+    helmetTint: [0.5, 0.51, 0.53],
     // goggles parked on the shell (not over the eyes like vanguard) plus a hard
     // ballistic half-mask: same helmet family, completely different head read
     goggles: true,
