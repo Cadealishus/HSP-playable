@@ -16,12 +16,95 @@ import { DEG } from './mathx.js';
  */
 
 export const WEAPON_DEFS = {
+  /**
+   * The ESF primary: an M4A1-pattern carbine (14.5" barrel, A2 birdcage,
+   * free-float M-LOK rail, FDE furniture) under a holographic sight.
+   * Model: models/carbine.js. Fire/reload audio and the muzzle profile route
+   * exactly like the rifle's (`audio: 'rifle'`, `class: 'carbine'`).
+   */
+  carbine: {
+    id: 'carbine',
+    displayName: 'KESTREL 556',
+    label: 'KESTREL 556',
+    blurb: 'Standard-issue 5.56 carbine with a holographic sight. Auto and semi.',
+    class: 'carbine',
+    audio: 'rifle',
+    caliber: '5.56x45',
+    rpm: 830,
+    modes: ['auto', 'semi'],
+    burstCount: 3,
+    burstRpm: 950,
+    burstDelay: 0.16,
+    magSize: 30,
+    reserve: 210,
+    muzzleVelocity: 880,
+    damage: 32,
+    penetration: 1.0,
+    dropoff: 0.6,
+    maxRange: 400,
+    dragK: 0.28,
+    tracerEvery: 3,
+    spreadHip: 1.95,
+    spreadAds: 0.22,
+    spreadPerShot: 0.28,
+    spreadMax: 3.3,
+    spreadDecay: 3.8,
+    recoil: {
+      pitch: 0.0081,
+      yaw: 0.002,
+      kickBack: 0.018,
+      kickUp: 0.0068,
+      roll: 0.03,
+      punch: 0.34,
+      freq: 8.8,
+      damping: 0.42,
+      patternLength: 30,
+      patternSeed: 0x6b1e53,
+      climbShape: [1.4, 1.26, 1.12, 1.04, 1.0],
+      drift: 0.5,
+    },
+    adsTime: 0.2,
+    adsFov: 0.74,
+    viewFov: 0.86,
+    reloadTac: 2.05,
+    reloadEmpty: 2.8,
+    inspectTime: 3.2,
+    drawTime: 0.6,
+    holsterTime: 0.4,
+    /* Pose: the rifle's bore-axis solve (see there) carries over because the
+     * carbine is placed so its rail, grip and optic height land within ~1 cm of
+     * the rifle's (models/carbine.js PLACEMENT). The carbine's muzzle is 41 mm
+     * further out, so the gun sits 12 mm further from the eye to keep the crown
+     * in the same part of the frame, and the holo (a taller, wider box than the
+     * tube sight) is rolled 0.01 less so its left flank does not fill the
+     * lower-right quarter. */
+    hipPos: [0.12, -0.186, -0.31],
+    hipRot: [-0.05, 0.081, -0.125],
+    adsCant: [0, 0, 0],
+    /* Eye to the holo WINDOW (the sight node is the window centre, not the rear
+     * of the hood). 0.105 frames the 35 x 27.5 mm window at about a third of the
+     * frame height with the hood's arch inside the frame, which is where a modern
+     * shooter frames a holographic sight; see models/carbine.js buildHolo. */
+    eyeRelief: 0.105,
+    sprintPos: [0.09, -0.262, -0.28],
+    sprintRot: [-0.4, 0.6, 0.2],
+    lowReadyPos: [0.112, -0.28, -0.295],
+    lowReadyRot: [-0.46, 0.125, -0.09],
+    swayScale: 0.96,
+    bobScale: 1,
+    magLen: 0.17,
+  },
+
   rifle: {
     id: 'rifle',
-    // Display name only (HUD ammo panel reads def.label via getHudState). The
-    // internal id 'rifle' is the stable key every other subsystem references.
-    label: 'RULES ENGINE MK4',
+    // `displayName` is the ESF designation shown in the loadout and the HUD
+    // (`label` mirrors it for the HUD adapter, which has always read `label`).
+    // The internal id 'rifle' is the stable key every other subsystem references.
+    displayName: 'HARRIER 556',
+    label: 'HARRIER 556',
+    blurb: 'Rifle-length flat-top with a 1x tube sight. Three fire modes.',
     class: 'carbine',
+    audio: 'rifle',
     caliber: '5.56x45',
     /* --- fire control --- */
     rpm: 800,
@@ -147,8 +230,11 @@ export const WEAPON_DEFS = {
 
   smg: {
     id: 'smg',
-    label: 'VELOCITY-9',
+    displayName: 'MERLIN 9',
+    label: 'MERLIN 9',
+    blurb: '9 mm submachine gun. Fast handling, short reach.',
     class: 'smg',
+    audio: 'smg',
     caliber: '9x19',
     rpm: 950,
     modes: ['auto', 'semi'],
@@ -212,8 +298,11 @@ export const WEAPON_DEFS = {
 
   pistol: {
     id: 'pistol',
-    label: 'SIDECAR',
+    displayName: 'P19 SIDEARM',
+    label: 'P19 SIDEARM',
+    blurb: '9 mm service pistol, 17 rounds.',
     class: 'pistol',
+    audio: 'pistol',
     caliber: '9x19',
     rpm: 460,
     modes: ['semi'],

@@ -18,12 +18,13 @@ import { Rng } from '../core/rng.js';
 import { WeaponMaterials } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
 import { WEAPON_DEFS } from './defs.js';
+import { buildCarbine } from './models/carbine.js';
 import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
 import { buildPistol } from './models/pistol.js';
 
 const params = new URLSearchParams(location.search);
-const WEAPON = params.get('w') ?? 'rifle';
+const WEAPON = params.get('w') ?? 'carbine';
 const VIEW = params.get('view') ?? 'hero';
 const TIME = Number(params.get('t') ?? 0);
 const ARMS = params.get('arms') !== '0';
@@ -116,9 +117,9 @@ if (!FIRST_PERSON) {
   vm.rigOverride = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() };
 }
 
-const builders = { rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
+const builders = { carbine: buildCarbine, rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
 const stats = {};
-for (const id of ['rifle', 'smg', 'pistol']) {
+for (const id of ['carbine', 'rifle', 'smg', 'pistol']) {
   const def = { ...WEAPON_DEFS[id] };
   def.cycleTime = 60 / def.rpm;
   const entry = vm.addWeapon(builders[id](), def);

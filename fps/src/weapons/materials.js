@@ -270,78 +270,6 @@ export const WEAPON_MATERIALS = {
   ],
 
   /**
-   * ── NERDCON ACCENTS ──────────────────────────────────────────────────────
-   * Colour-anodised billet aluminium (Type-II dye), the same class as `alu`:
-   * mag baseplates, safety selectors, slide-stop levers. This is a real gunsmith
-   * finish — a dyed oxide over machined alloy — NOT paint and NOT a decal, so it
-   * inherits `alu`'s whole surface treatment: the anodising grain, the cavity
-   * grime, and (the part that sells it) the edge-wear layer that chips the dye
-   * back to bare alloy on the corners. Only `tint` changes.
-   *
-   * The tint is a raw linear multiplier on the 0.0334 baked albedo (see `alu`).
-   * Peaks land ~0.02-0.024 linear — about 2x `alu`'s neutral 0.0117 so the colour
-   * reads as intentional, but still cheated to a third of physical so it cannot
-   * glow under the viewmodel light rig (see README: ~20x irradiance/albedo). A
-   * saturated hue at a dark value is exactly what a deep anodise looks like.
-   */
-  accent_blue: [
-    'rubber',
-    {
-      ...BASE,
-      bake: { size: 1024, seed: 821, relief: 0.005 },
-      scale: 0.095,
-      // NerdCon Blue #3568FF, driven blue-dominant and deep.
-      tint: c(0.13, 0.26, 0.72),
-      roughness: [0.66, 0.09, 0.24],
-      three: { physical: true, specularIntensity: 0.11 },
-      normalStrength: 1.5,
-      detail: [22, 1.2, 0.72, 5],
-      wear: [0.2, 0.6, 0.5, 0],
-      wearColor: 0x34383d,
-      wearMaterial: [0.54, 0.8, 0, 0.8],
-      grimeColor: 0x080a0c,
-    },
-  ],
-
-  accent_cyan: [
-    'rubber',
-    {
-      ...BASE,
-      bake: { size: 1024, seed: 839, relief: 0.005 },
-      scale: 0.095,
-      // Cyan Pulse #00E5FF as a teal anodise: red suppressed, green+blue up.
-      tint: c(0.1, 0.44, 0.6),
-      roughness: [0.66, 0.09, 0.24],
-      three: { physical: true, specularIntensity: 0.11 },
-      normalStrength: 1.5,
-      detail: [22, 1.2, 0.72, 5],
-      wear: [0.2, 0.6, 0.5, 0],
-      wearColor: 0x34383d,
-      wearMaterial: [0.54, 0.8, 0, 0.8],
-      grimeColor: 0x080b0c,
-    },
-  ],
-
-  accent_gold: [
-    'rubber',
-    {
-      ...BASE,
-      bake: { size: 1024, seed: 857, relief: 0.005 },
-      scale: 0.095,
-      // Loot Gold #FFD700 as a burnt-bronze anodise: warm, blue killed.
-      tint: c(0.66, 0.44, 0.1),
-      roughness: [0.66, 0.09, 0.24],
-      three: { physical: true, specularIntensity: 0.11 },
-      normalStrength: 1.5,
-      detail: [22, 1.2, 0.72, 5],
-      wear: [0.2, 0.6, 0.5, 0],
-      wearColor: 0x3a383d,
-      wearMaterial: [0.54, 0.8, 0, 0.8],
-      grimeColor: 0x0c0a08,
-    },
-  ],
-
-  /**
    * Parkerised / phosphated steel: barrel, gas block, pins, small parts.
    * Manganese phosphate is a genuine metal conversion coating — metalness 1,
    * F0 pulled well below neutral steel and roughness pushed up near 0.8, which
@@ -1095,11 +1023,8 @@ export class WeaponMaterials {
       ior: 1.52,
       reflectivity: 0.55,
       specularIntensity: 1,
-      // CYAN-GREEN at normal incidence — the residual an AR stack cannot cancel,
-      // pulled toward Cyan Pulse #00E5FF so the lens carries a faint NerdCon tint
-      // on axis. Still a plausible multi-coat residual (cyan is a real one), just
-      // biased teal instead of the neutral green it was.
-      specularColor: new THREE.Color(0x3fc4c2),
+      // GREEN at normal incidence — the residual an AR stack cannot cancel.
+      specularColor: new THREE.Color(0x59c489),
       /**
        * The AR stack. A broadband anti-reflective coating IS a thin film, so the
        * physically-correct way to get "cyan on axis, magenta at the rim" is

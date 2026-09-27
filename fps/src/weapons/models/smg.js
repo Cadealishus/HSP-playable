@@ -248,7 +248,6 @@ export function buildSmg() {
     rimR: 0.00478,
     bulletLen: 0.0132,
     poly: 'polymer',
-    baseplateMat: 'accent_cyan', // NerdCon: VELOCITY-9 anodised cyan baseplate
   });
 
   // Non-reciprocating charging handle: a paddle in the cocking tube.
@@ -304,18 +303,17 @@ export function buildSmg() {
   trigger.add(trg.geo, 'steel_bright', {});
   trg.geo.dispose();
 
-  // NerdCon: ambi safety selector in NerdCon Blue #3568FF anodise (shared accent).
   const selector = new Assembly('smg-selector');
-  const sel = selectorPart('accent_blue', 'steel');
-  selector.add(sel.geo, 'accent_blue', {});
+  const sel = selectorPart('alu', 'steel');
+  selector.add(sel.geo, 'alu', {});
   sel.geo.dispose();
-  const selR = selectorPart('accent_blue', 'steel');
-  selector.add(selR.geo, 'accent_blue', { sx: -1 });
+  const selR = selectorPart('alu', 'steel');
+  selector.add(selR.geo, 'alu', { sx: -1 });
   selR.geo.dispose();
 
   return {
     id: 'smg',
-    label: 'VELOCITY-9',
+    label: 'MERLIN 9',
     fxClass: 'smg',
     body,
     moving: { magazine, charging, bolt, trigger, selector },
