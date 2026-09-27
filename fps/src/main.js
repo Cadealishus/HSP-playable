@@ -163,7 +163,7 @@ if (lockstep) {
     engine.events.emit('boot:progress', {
       phase: 'warmup',
       pct: BOOT_BANDS.init + BOOT_BANDS.prewarm + (i / WARM_FRAMES) * BOOT_BANDS.warm,
-      detail: 'FINAL RECONCILIATION',
+      detail: 'CONFIDENCE AT MAXIMUM',
     });
     // Identical __READY__ semantics to the old rAF probe: three frames after
     // start(), whatever the loading screen is doing.

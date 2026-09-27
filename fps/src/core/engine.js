@@ -49,7 +49,7 @@ const BOOT_WEIGHTS = {
 const BOOT_WEIGHT_DEFAULT = 0.15;
 
 /**
- * Phase captions. ALL CAPS, dry, fintech-literate — the loading screen is the
+ * Phase captions. ALL CAPS, dry, deadpan (Flop Ops tone) — the loading screen is the
  * first copy anyone reads, so it carries the same voice as the killfeed.
  */
 const BOOT_CAPTIONS = {
@@ -57,14 +57,14 @@ const BOOT_CAPTIONS = {
   materials: 'STAMPING TEXTURES',
   sky: 'CLEARING THE SKY',
   physics: 'ENFORCING GRAVITY',
-  world: 'BUILDING THE PLAZA',
+  world: 'BUILDING THE TOWN',
   weapons: 'RACKING WEAPONS',
   fx: 'MIXING PYRO',
-  ai: 'ONBOARDING LEGACY CORE SECURITY',
-  player: 'ISSUING YOUR BADGE',
+  ai: 'BRIEFING THE HOSTILES',
+  player: 'LOCATING DOUG',
   ui: 'PROVISIONING THE HUD',
-  audio: 'TUNING THE EXPO FLOOR',
-  game: 'OPENING THE LEDGER',
+  audio: 'TUNING THE RADIO',
+  game: 'FINALISING THE PLAN',
 };
 
 /**
