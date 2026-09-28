@@ -597,6 +597,41 @@ export class Arm {
     this.glove = buildGlove(materials, { scale: this.scale });
     this.handInner.add(this.glove);
     this.root.add(this.hand);
+    /**
+     * WRIST. The forearm is aimed elbow->wrist and the hand is aimed by the grip,
+     * so on the support side the two meet at 30-50 deg and, with nothing between
+     * them, the cuff reads as a plank butted against a paddle. A glove gauntlet
+     * (tapered, slightly flattened, with a hook-and-loop strap) is oriented HALF
+     * WAY between the two bones every frame, so the joint reads as a wrist bending
+     * onto the handguard rather than a hinge.
+     */
+    const gaunt = latheZ(
+      [
+        [-0.03 * this.scale, 0],
+        [-0.03 * this.scale, 0.026 * this.scale],
+        [-0.012 * this.scale, 0.03 * this.scale],
+        [0.012 * this.scale, 0.031 * this.scale],
+        [0.028 * this.scale, 0.028 * this.scale],
+        [0.03 * this.scale, 0],
+      ],
+      28
+    );
+    gaunt.scale(1, 0.8, 1);
+    const strapG = latheZ(
+      [
+        [-0.006 * this.scale, 0.0305 * this.scale],
+        [-0.005 * this.scale, 0.0335 * this.scale],
+        [0.008 * this.scale, 0.0335 * this.scale],
+        [0.009 * this.scale, 0.031 * this.scale],
+      ],
+      28
+    );
+    strapG.scale(1, 0.8, 1);
+    this.wrist = new THREE.Object3D();
+    this.wrist.add(new THREE.Mesh(gaunt, materials.glove));
+    this.wrist.add(new THREE.Mesh(strapG, materials.pad));
+    this.root.add(this.wrist);
+    this._foreQ = new THREE.Quaternion();
 
     // Fingers: index is separate so it can work the trigger.
     const fingerSpecs = [
@@ -1038,6 +1073,9 @@ export class Arm {
     _up.set(0, 1, 0).applyQuaternion(targetQuat);
     _hp.copy(targetPos).sub(_elbow);
     if (_hp.lengthSq() > 1e-12) aimBone(this.forePivot.quaternion, _hp, _up);
+    // Gauntlet at the wrist, half way between forearm and hand orientation.
+    this.wrist.position.copy(targetPos);
+    this.wrist.quaternion.copy(this.forePivot.quaternion).slerp(targetQuat, 0.5);
     return this;
   }
 
