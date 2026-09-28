@@ -457,20 +457,21 @@ function festivalBanner(A, root, disp, rng, cable, aniso) {
     condense: 0.9,
     track: 0.06,
     ink: '#f4ead2',
-    fill: 0.74,
+    fill: 0.66,
+    dy: -H * 0.08,
     pad: 0.16,
     shadow: 'rgba(60,25,10,0.35)',
   });
   // the pasted strip, slightly crooked, with its own shadow and torn corner
   g.save();
-  g.translate(W * 0.64, H * 0.56);
-  g.rotate(-0.09);
+  g.translate(W * 0.7, H * 0.8);
+  g.rotate(-0.07);
   g.fillStyle = 'rgba(0,0,0,0.22)';
   g.fillRect(-250 + 5, -44 + 6, 500, 88);
   g.fillStyle = '#e9e3d2';
   g.fillRect(-250, -44, 500, 88);
   g.fillStyle = '#9b1f16';
-  g.font = `900 64px ${STENCIL}`;
+  g.font = `900 60px ${STENCIL}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.letterSpacing = '6px';
