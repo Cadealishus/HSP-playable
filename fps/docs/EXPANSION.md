@@ -1,0 +1,113 @@
+# FLOP OPS: expansion contract (modes, missions, maps, arsenal, equipment, AI)
+
+Read `ARCHITECTURE.md` (the engine contract) and `docs/FLOP_OPS.md` (the tone) first. This file
+defines the NEW shared interfaces so several agents can build in parallel. Every agent codes
+against these names. If you must change one, keep the old name working and say so in your report.
+
+Golden rules for this expansion (the user's own words): extend the existing game, never rebuild
+it; no placeholders pretending to work: if a button, weapon, mode or objective exists, it must
+actually work; playable, working systems over screenshots; keep performance (pooling, no
+per-frame allocation, staggered AI).
+
+## 1. Sessions: what the player launched
+
+`src/game/session.js` (owned by MODES) exports `SESSION_KEY = 'flopops.session'` and
+`resolveSession(params) → { kind, mode, map, mission, loadout, difficulty }`:
+
+- `kind`: `'mp'` (bot match) | `'survival'` | `'mission'`
+- `mode`: `'tdm' | 'dom' | 'hp' | 'sd' | 'survival'` (null for missions)
+- `map`: a map id from `src/world/maps/index.js`
+- `mission`: `'underground' | 'flight717' | 'hostage'` (only for kind `'mission'`)
+- `loadout`: `{ primary, secondary, lethal: 'frag', tactical: 'flash' }` (weapon ids)
+- `difficulty`: `'recruit' | 'regular' | 'hardened' | 'veteran'`
+
+Resolution order: URL params (`?mode=&map=&mission=`), then **localStorage `flopops.session`**,
+then defaults (survival on `town`). Menus launch by writing localStorage and calling
+`location.reload()` **without** query strings. (The artifact viewer strips query strings, so this
+is what makes launching work on the shared link.) A mission forces its own map.
+`main.js` resolves the session before the engine boots and puts it on `ctx.config.session`;
+`ctx.config.map` stays the map id so existing code keeps working.
+
+## 2. Teams and actors
+
+- Team ids: `'esf'` (Doug's team), `'hostile'`, `'civ'` (non-combatants).
+- The player is on `'esf'`. `ai.spawn(variant, position, yaw, opts)` accepts
+  `opts.team` (default `'hostile'`), `opts.role`, `opts.weapon`, `opts.skill`.
+- Every Agent has `.team`, `.role`, `.alive`, `.position`. ESF bots must look distinct from
+  hostiles (different kit colour) and carry an IFF cue (a small blue chevron/name over allies).
+- `ai.actors` is every live combatant (agents plus the player proxy) for targeting;
+  AI never targets its own team; **friendly fire is off** for bots and the player.
+- Kill accounting for modes: `actor:death` carries `{ actor, team, killer, killerTeam, headshot? }`.
+
+## 3. Modes direct bots through orders (the AI executes tactically)
+
+`ai.setOrderProvider(fn)` where `fn(agent) → order | null`, called at the agent's think rate.
+An order is `{ kind, pos?, radius?, targetId? }` with kinds:
+`'hunt'` (seek and fight the enemy team) · `'capture'` (stand inside a zone until owned) ·
+`'defend'` (hold around a zone and use cover near it) · `'attack'` (push toward a position) ·
+`'plant'` / `'defuse'` (reach a bomb site, then call `mode.interact(agent)` while alive and
+unhurt) · `'escort'` (follow targetId) · `'hold'` (a scripted position, for missions) ·
+`'patrol'` (a route of points, `pos` = array).
+The AI decides HOW (routes, cover, flanking, suppression). The mode decides WHAT. With no provider,
+bots fall back to their own behaviour (survival/hunt).
+
+## 4. Mode framework
+
+`src/game/modes/` (owned by MODES). Each mode is a class with
+`static id, static label, static teams, static respawn`, and:
+`init(ctx, session)`, `start()`, `update(dt)` (fixed or frame), `orderFor(agent)`,
+`hudState() → { scoreEsf, scoreHostile, limit, timeLeft, objectives:[{id,label,owner,progress,contested,active}], round?, message? }`,
+`onDeath(e)`, `interact(actor)` (plant/defuse/capture ticks), `isOver() → { winner } | null`.
+The existing wave loop becomes the `survival` mode (keep its scoring/continue behaviour).
+Modes emit `mode:announce { text, kind }` for Command/announcer lines and `game:over` with
+`{ winner, mode, ... }`. Respawns: `mode.respawn(actor)` picks a spawn from
+`world.spawns[team]` far from enemies.
+
+## 5. Maps: data every map must provide
+
+Registry entries (`src/world/maps/index.js`) gain `modes: [...]` (which modes the map supports)
+and optional `missionOnly: true`. The built map (and so `ctx.get('world')`) exposes:
+- `spawns: { esf: [{pos, yaw}], hostile: [{pos, yaw}] }` (at least 6 each for MP maps)
+- `objectives: { dom: {A,B,C}, hp: [zone...], sd: {A, B, attackers:'esf'|'hostile'}, survival: zone }`,
+  zone = `{ pos: Vector3, radius }` (only the modes it supports)
+- `anchors: { name: Vector3 | {pos, yaw} | Box3 }`: named points and trigger volumes for missions
+- `lighting: 'day' | 'dusk' | 'night' | 'underground'` (the sky/render set up that preset)
+- `bounds`, a nav grid built by AI from physics (as today), `audioAnchors` optional
+The existing `town` map is **URBAN PLAZA** (display name) and must support all MP modes plus
+survival. The existing `airport` supports MP modes and hosts Flight 717.
+
+## 6. Weapons, loadouts and equipment
+
+`src/weapons/defs.js` is the single registry of weapon definitions (data-driven: class, slot,
+damage/falloff, rpm, fire modes, pellets, magazine, reserve, reload/tactical-reload times, ADS
+time/zoom/position, recoil pattern, spread, move-speed mult, penetration, projectile{…},
+scope{zoom, overlay}, sounds profile, model id). Adding a gun must be adding a def plus a model.
+- `weapons.setLoadout({ primary, secondary, lethal, tactical })` and `weapons.loadout`.
+- `weapons.getHudState()` returns REAL `lethalCount` / `tacticalCount` (no hard-coded HUD numbers).
+- Equipment lives in `src/weapons/equipment.js`: frag (lethal) and flashbang (tactical), thrown with a
+  real arc (physics rigid body), cooked by holding, and limited counts refilled by modes/resupply.
+- Events: `grenade:throw { kind, owner, position, velocity }`, the existing `explosion { position,
+  radius, damage, owner, kind }`, and `flash:detonate { position, radius, owner }`.
+- The flash effect on the player is `player.flash(intensity, duration)` (weapons implements it via the
+  UI/render hooks it needs); on bots `agent.stun(intensity, duration)` (AI implements it: aim wrecked,
+  blind-fire or cover, recover gradually).
+- Keys: **G frag, Q flashbang** (lean moves to **Alt + Q / Alt + E**), 1/2/3/Tab weapons, and
+  mouse wheel to cycle. Update `src/core/input.js` and the controls screen together.
+- AI weapons use the same defs by id through `ai.spawn(..., { weapon })` (stats come from defs;
+  the AI carries its own third-person model per class).
+
+## 7. Civilians, hostages, VIPs (missions)
+
+`ai.spawnCivilian(position, yaw, opts)` gives an actor on team `'civ'` with `opts.behavior`:
+`'cower'` (crouched, hands up, flinches at shots), `'flee'` (runs to `opts.to`),
+`'hostage'` (held by `opts.captor`; stands where placed), `'follow'` (follows `opts.target`, used
+for escort, with pathing). Shooting a civ emits `civilian:hit { civ, killer }`; missions decide
+the penalty. `ai.spawn(..., { holding: civ })` lets a hostage-taker shield a hostage.
+
+## 8. Missions
+
+`src/game/missions/<id>.js` (owned by MISSIONS), driven by the mode framework as mode
+`'mission'`: an ordered objective list with trigger volumes from `world.anchors`, scripted
+encounters (squads activated by triggers or alerts, **never spawned in the player's view**),
+radio lines through the existing UI radio, fail conditions, and a debrief. Missions ids:
+`underground` (map `underground`), `flight717` (map `airport`), `hostage` (map `estate`).
