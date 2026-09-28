@@ -165,7 +165,7 @@ export const VARIANTS = {
   breacher: {
     display: 'BREACHER',
     camo: 'urban',
-    clothTint: kit([0.98, 0.99, 1.02], 0, 0.9),
+    clothTint: kit([0.98, 1.0, 0.97], 0, 0.8),
     gearTint: kit([0.84, 0.86, 0.90], 0, 0.6), // wolf grey, near-black
     plateTint: kit([0.86, 0.88, 0.92], 0, 0.5),
     skinTint: [1.06, 0.98, 0.92],
