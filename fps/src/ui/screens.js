@@ -205,7 +205,7 @@ export class AttractScreen {
     // If the title layout reserves a slot for the picker (an element with the
     // class `ow-att-mapslot`, e.g. under the mission card), dock it there and
     // let the slot own the position instead of the top-right default.
-    const slot = this.root.querySelector('.ow-att-mapslot');
+    const slot = this.slot ?? this.root.querySelector('.ow-att-slot, .ow-att-mapslot');
     if (slot) {
       slot.appendChild(mp);
       setClass(mp, 'docked', true);
