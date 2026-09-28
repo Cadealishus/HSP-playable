@@ -310,7 +310,11 @@ export class AttractScreen {
     if (!Array.isArray(info)) return;
     LOADOUTS.forEach((L, i) => {
       const w = info.find((x) => x.id === L.weapon);
-      if (w?.displayName) setText(this.kitEls[i], `${w.displayName} · ${L.kit}`);
+      if (!w?.displayName) return;
+      // Drop a leading class word the designation already says (P19 SIDEARM · SIDEARM …).
+      const first = L.kit.split(' · ')[0];
+      const kit = w.displayName.includes(first) ? L.kit.split(' · ').slice(1).join(' · ') : L.kit;
+      setText(this.kitEls[i], kit ? `${w.displayName} · ${kit}` : w.displayName);
     });
   }
 
