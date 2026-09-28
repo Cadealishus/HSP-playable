@@ -21,7 +21,10 @@ export function explode(fx, o) {
   const rng = fx.rng;
   const q = fx.pScale;
   const p = o.position ?? o;
-  const R = Math.max(0.6, o.radius ?? 5);
+  // VISUAL radius. `o.radius` is the damage radius (6.5 m for a frag), and
+  // scaling the fireball by it put a 10 m white disc over the frame; a frag's
+  // fireball is 2-3 m across. The damage radius still drives the force.
+  const R = Math.min(3.0, Math.max(0.6, o.radius ?? 5));
   const up = o.up ?? { x: 0, y: 1, z: 0 };
   const px = p.x;
   const py = p.y;
@@ -31,15 +34,31 @@ export function explode(fx, o) {
   let s = resetSpawn();
   s.x = px; s.y = py; s.z = pz;
   s.tile = P.FLASH_CORE;
-  s.size0 = R * 0.35;
-  s.size1 = R * 1.5;
+  s.size0 = R * 0.3;
+  s.size1 = R * 1.1;
   s.sizeCurve = 0.3;
-  s.life = 0.085;
+  s.life = 0.07;
   s.drag = 5;
-  s.r0 = 1; s.g0 = 0.95; s.b0 = 0.85; s.i0 = 85;
+  s.r0 = 1; s.g0 = 0.95; s.b0 = 0.85; s.i0 = 40;
   s.r1 = 1; s.g1 = 0.42; s.b1 = 0.1; s.i1 = 0;
   s.alphaCurve = 0.5;
   s.soft = 0.5;
+  s.seed = rng.float();
+  fx.emitAdd(s);
+
+  // second flash layer: a wider, cooler-orange bloom that outlives the core
+  s = resetSpawn();
+  s.x = px; s.y = py + R * 0.15; s.z = pz;
+  s.tile = P.FLASH_CORE;
+  s.size0 = R * 0.6;
+  s.size1 = R * 1.6;
+  s.sizeCurve = 0.4;
+  s.life = 0.16;
+  s.drag = 4;
+  s.r0 = 1; s.g0 = 0.6; s.b0 = 0.25; s.i0 = 9;
+  s.r1 = 1; s.g1 = 0.3; s.b1 = 0.06; s.i1 = 0;
+  s.alphaCurve = 0.8;
+  s.soft = 0.6;
   s.seed = rng.float();
   fx.emitAdd(s);
 
@@ -63,7 +82,7 @@ export function explode(fx, o) {
     s.rot = rng.float() * TWO_PI;
     s.spin = rng.signed() * 2.2;
     s.r0 = 1; s.g0 = rng.range(0.7, 0.92); s.b0 = rng.range(0.4, 0.62);
-    s.i0 = rng.range(7, 17);
+    s.i0 = rng.range(4, 9);
     s.r1 = 1; s.g1 = 0.22; s.b1 = 0.04; s.i1 = 0.3;
     s.alphaCurve = 0.55;
     s.soft = 0.6;
@@ -71,30 +90,34 @@ export function explode(fx, o) {
     fx.emitAdd(s);
   }
 
-  // dark hot smoke boiling off the fireball immediately
-  const nBoil = Math.round(9 * q) + 4;
-  for (let i = 0; i < nBoil; i++) {
-    cone(V, rng, up.x, up.y, up.z, 1.4, 0.7);
-    const sp = rng.range(1.2, 4) * (R / 4);
+  // ---- dark smoke ---------------------------------------------------------
+  // 12-20 sprites of dark brown-grey (#3a3530) that start ~1 m across and
+  // grow to ~6 m over 2.5 s, drifting up and out: the body of the blast once
+  // the fire is gone. `size` is the sprite diameter.
+  const nSmoke = Math.min(20, Math.round(8 * q) + 12);
+  for (let i = 0; i < nSmoke; i++) {
+    cone(V, rng, up.x, up.y, up.z, 1.3, 0.6);
+    const sp = rng.range(0.8, 3.2);
     s = resetSpawn();
-    s.x = px + V.x * R * 0.12; s.y = py + R * 0.08; s.z = pz + V.z * R * 0.12;
-    s.vx = V.x * sp; s.vy = V.y * sp + 1.0; s.vz = V.z * sp;
+    s.x = px + V.x * 0.3; s.y = py + 0.3 + rng.float() * 0.5; s.z = pz + V.z * 0.3;
+    s.vx = V.x * sp; s.vy = V.y * sp * 0.6 + 0.6; s.vz = V.z * sp;
     s.tile = i % 2 ? P.SMOKE_A : P.SMOKE_B;
-    s.size0 = R * rng.range(0.2, 0.34);
-    s.size1 = R * rng.range(0.8, 1.35);
-    s.sizeCurve = 0.5;
-    s.life = rng.range(1.1, 2.2);
-    s.delay = rng.range(0.03, 0.16);
-    s.drag = 1.9;
-    s.gravity = 0.9;
+    s.size0 = rng.range(0.8, 1.2);
+    s.size1 = rng.range(5.0, 6.5);
+    s.sizeCurve = 0.55;
+    s.life = rng.range(2.2, 2.8);
+    s.delay = rng.range(0.02, 0.12);
+    s.drag = 1.6;
+    s.gravity = 0.35;
     s.rot = rng.float() * TWO_PI;
-    s.spin = rng.signed() * 0.9;
-    s.r0 = 0.1; s.g0 = 0.095; s.b0 = 0.09;
-    s.r1 = 0.19; s.g1 = 0.185; s.b1 = 0.18;
-    s.alpha = rng.range(0.55, 0.85);
-    s.alphaCurve = 1.5;
-    s.soft = 0.7;
-    s.turb = R * 0.06; s.turbFreq = 1.1; s.seed = rng.float();
+    s.spin = rng.signed() * 0.5;
+    // #3a3530 in linear
+    s.r0 = 0.042; s.g0 = 0.036; s.b0 = 0.030;
+    s.r1 = 0.07; s.g1 = 0.064; s.b1 = 0.058;
+    s.alpha = rng.range(0.6, 0.85);
+    s.alphaCurve = 1.6;
+    s.soft = 0.8;
+    s.turb = 0.25; s.turbFreq = 0.9; s.seed = rng.float();
     fx.emitLit(s);
   }
 
@@ -202,8 +225,10 @@ export function explode(fx, o) {
 
   // ---- light + ground scorch ---------------------------------------------
   if (fx.lights) {
-    fx.lights.flash(px, py + R * 0.15, pz, 1, 0.72, 0.4, 420 * (R / 4), 0.45, 8, R * 8, 4);
+    // intensity 40, 15 m reach, ~150 ms decay
+    fx.lights.flash(px, py + 0.6, pz, 1, 0.72, 0.4, 40, 0.15, 12, 15, 4);
   }
-  fx.scorch(px, py, pz, R);
+  // a 2.5 m scorch
+  fx.scorch(px, py, pz, 2.4);
   return true;
 }

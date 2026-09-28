@@ -165,7 +165,7 @@ export const VARIANTS = {
   breacher: {
     display: 'BREACHER',
     camo: 'urban',
-    clothTint: kit([0.98, 0.99, 1.02], 0, 0.9),
+    clothTint: kit([0.98, 1.0, 0.97], 0, 0.8),
     gearTint: kit([0.84, 0.86, 0.90], 0, 0.6), // wolf grey, near-black
     plateTint: kit([0.86, 0.88, 0.92], 0, 0.5),
     skinTint: [1.06, 0.98, 0.92],
@@ -612,6 +612,15 @@ export function buildSoldier(name, { rng, materials }) {
       dust: 0.55,
       wear: 0.4,
       name: 'helmet',
+    });
+    // rubber edge trim, its own near-black piece (see P.helmetLip)
+    B.add(P.helmetLip(head), {
+      material: 'polymer',
+      bone: 'Head',
+      colour: [0.35, 0.34, 0.33],
+      grime: 0.3,
+      wear: 0.2,
+      name: 'helmetLip',
     });
     B.add(P.helmetHardware(nz, head), {
       material: 'polymer',

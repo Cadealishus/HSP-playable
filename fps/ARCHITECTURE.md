@@ -91,6 +91,7 @@ Emit and listen via `ctx.events`. Payloads are plain objects. The canonical set:
 | `explosion` | `{ position, radius, damage }` | any |
 | `resize` | `{ width, height }` | engine |
 | `ai:bark` | `{ kind, agent, position, voice }` — `position` (agent's world position) drives spatialisation, `voice` seeds per-agent formant variation; kinds per `src/audio/vox.js` BARKS; consumed by audio | ai |
+| `ai:radio` | `{ enemy, kind, text }`: a deadpan hostile radio line (`spot`/`cover`/`grenade`/`mandown`, from `src/ai/radio.js`), rate-limited; the UI subtitles it under `enemy.name` | ai |
 | `boot:progress` | `{ phase, pct, detail?, ms? }` — pct 0..1 monotonic across boot | engine |
 | `boot:done` | `{ totalMs }` | engine |
 | `ui:attract` | `{}` — return to attract state (cabinet idle reset) | ui |

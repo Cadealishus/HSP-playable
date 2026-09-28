@@ -58,9 +58,10 @@ export const SHOTS = {
   'world-square': {
     // Eye level in the square, the ESF supply crate (the objective) at 5 m,
     // the north street, HESCO and the ESF truck behind it. Level (1.0, 6.2)
-    // looking at (-1.3, 10.0); see src/world/flopops.js OBJECTIVE.
+    // looking at (-2.7, 9.6), so the crate sits left of the viewmodel; see
+    // src/world/flopops.js OBJECTIVE.
     pos: [5.17, 1.62, 5.95],
-    look: [5.36, 0.85, 10.38],
+    look: [3.98, 0.9, 10.83],
     fov: 62,
     time: 17.2,
     doc: 'The objective in the square at eye level — crate, stencils, tank traps, north street.',
@@ -177,10 +178,10 @@ export const SHOTS = {
   'ai-flop': {
     pos: [4, 2.0, 12],
     look: [-6, 1.6, -4],
-    fov: 70,
+    fov: 80,
     time: 16.5,
     apply: (e) => e.ctx.peek('ai')?.debugStage?.('flop'),
-    doc: 'Frozen frame 0.27 s after a grenade lands in a squad — ragdolls and rubble mid-air.',
+    doc: 'Frozen frame 0.5 s after a grenade lands in a squad — ragdolls and rubble mid-air (capture with --settle=40).',
   },
   hud: {
     pos: [12, 1.75, 18],

@@ -145,8 +145,8 @@ try {
         }), n);
       await pump(60);
 
-      /* --- PA announcer: output, own cooldown, independent of barks --- */
-      // Runs BEFORE debugStorm so the announcer's cooldown is still pristine.
+      /* --- Command radio fallback: own cooldown, independent of barks --- */
+      // Runs BEFORE debugStorm so the cooldown is still pristine.
       const pa = await page.evaluate(async () => {
         const a = window.__AUDIO__;
         const before = a.stats.events;
@@ -163,7 +163,7 @@ try {
       const paOk = pa.first === true && pa.bark === true && pa.inside === false &&
         pa.forced === true && pa.unknown === false && pa.after === true &&
         pa.voicesFired === 3;
-      console.log(`\n=== PA ANNOUNCER — ${paOk ? 'PASS' : 'FAIL'} ===`);
+      console.log(`\n=== COMMAND RADIO (announce) — ${paOk ? 'PASS' : 'FAIL'} ===`);
       console.log(' ', JSON.stringify(pa));
       console.log('  expect: fires, bark still allowed, refused inside cooldown,' +
         ' force bypasses, unknown kind refused, fires again after 2.6 s, 3 voices built');

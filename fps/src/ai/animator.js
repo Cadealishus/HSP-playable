@@ -438,8 +438,9 @@ export class Animator {
     } else {
       t.copy(this.foregripLocal).applyMatrix4(hand.matrixWorld);
     }
-    // pole: elbow down and out to the character's left
-    this._pole.set(0.6, -1, -0.25).applyQuaternion(this.bones[0].parent.getWorldQuaternion(this._q2));
+    // pole: elbow down and well out to the character's left, so the forearm
+    // clears the plate carrier (~8 cm) instead of lying along it
+    this._pole.set(1.15, -0.8, 0.05).applyQuaternion(this.bones[0].parent.getWorldQuaternion(this._q2));
     this._twoBone(this.armL, t, this._pole);
   }
 

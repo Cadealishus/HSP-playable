@@ -17,17 +17,37 @@ import { resetSpawn } from './particles.js';
 
 const MIN_SPEED = 55;
 const MAX_SPEED = 340;
+/** A tracer whose path passes closer than this to the camera is cut off
+ *  before it gets there: a velocity-stretched sprite a metre from the lens is a
+ *  screen-wide bar lying across the frame, not a bullet. */
+const LENS_CLEAR = 2.2;
 
 export function spawnTracer(fx, from, to, speed, opts) {
   const rng = fx.rng;
   let dx = to.x - from.x;
   let dy = to.y - from.y;
   let dz = to.z - from.z;
-  const dist = Math.hypot(dx, dy, dz);
+  let dist = Math.hypot(dx, dy, dz);
   if (dist < 0.35) return;
   dx /= dist;
   dy /= dist;
   dz /= dist;
+  // stop short of the lens (see LENS_CLEAR)
+  const cam = fx.ctx?.camera;
+  if (cam) {
+    const cx = cam.position.x - from.x, cy = cam.position.y - from.y, cz = cam.position.z - from.z;
+    const t = cx * dx + cy * dy + cz * dz;
+    if (t > 0 && t < dist) {
+      const px = cx - dx * t, py = cy - dy * t, pz = cz - dz * t;
+      const miss = Math.hypot(px, py, pz);
+      if (miss < LENS_CLEAR) {
+        // end where the path is still LENS_CLEAR from the eye
+        const back = Math.sqrt(Math.max(0, LENS_CLEAR * LENS_CLEAR - miss * miss));
+        dist = t - back;
+        if (dist < 1.0) return;
+      }
+    }
+  }
   const v = Math.min(MAX_SPEED, Math.max(MIN_SPEED, speed || 260));
   const life = dist / v;
   const warm = opts?.warm ?? 1;
@@ -41,9 +61,10 @@ export function spawnTracer(fx, from, to, speed, opts) {
   s.x = ox; s.y = oy; s.z = oz;
   s.vx = dx * v; s.vy = dy * v; s.vz = dz * v;
   s.tile = P.STREAK;
-  s.size0 = 0.055;
-  s.size1 = 0.04;
-  s.stretch = 0.26;
+  // 3 cm wide, ~0.8 m long at 260 m/s (length = size * (1 + stretch * v))
+  s.size0 = 0.03;
+  s.size1 = 0.026;
+  s.stretch = 0.1;
   s.life = life;
   s.drag = 0.02;
   s.gravity = -1.2;
@@ -59,9 +80,10 @@ export function spawnTracer(fx, from, to, speed, opts) {
   s.x = ox; s.y = oy; s.z = oz;
   s.vx = dx * v; s.vy = dy * v; s.vz = dz * v;
   s.tile = P.STREAK;
-  s.size0 = 0.09;
-  s.size1 = 0.07;
-  s.stretch = 0.6;
+  // 4 cm afterglow, ~1.3 m (it used to be a 9 cm x 14 m bar)
+  s.size0 = 0.04;
+  s.size1 = 0.034;
+  s.stretch = 0.12;
   s.life = life;
   s.drag = 0.02;
   s.gravity = -1.2;
@@ -77,8 +99,8 @@ export function spawnTracer(fx, from, to, speed, opts) {
   s.x = ox; s.y = oy; s.z = oz;
   s.vx = dx * v; s.vy = dy * v; s.vz = dz * v;
   s.tile = P.SPARK;
-  s.size0 = 0.05;
-  s.size1 = 0.042;
+  s.size0 = 0.032;
+  s.size1 = 0.026;
   s.life = life;
   s.drag = 0.02;
   s.gravity = -1.2;
