@@ -1090,7 +1090,16 @@ export function rubbleMound(A, rng, x, y, z, radius, count, opts = {}) {
       { masks: [0.3, 0.75, 0.45] }
     );
   }
-  A.box(A.surfaceOf(key), x, y + radius * 0.14, z, radius * 1.5, radius * 0.34, radius * 1.5);
+  // Terraced collision: one box radius*0.34 tall was a sheer 0.6 m wall round a
+  // big mound — over the 0.42 m step, so a heap of bricks in a doorway blocked
+  // it outright. Tiers of <= 0.3 m, each narrower, climb like the heap looks.
+  const H = radius * 0.34;
+  const n = Math.max(1, Math.ceil(H / 0.3));
+  for (let k = 1; k <= n; k++) {
+    const hk = (H * k) / n;
+    const sk = radius * 1.5 * (1 - ((k - 1) / n) * 0.62);
+    A.box(A.surfaceOf(key), x, y - 0.1 + (hk + 0.1) / 2, z, sk, hk + 0.1, sk);
+  }
 }
 
 // --------------------------------------------------------------- utilities --

@@ -358,18 +358,25 @@ function bladeSign(A, root, disp, rng, sign, aniso) {
 
   const texture = signTexture(sign, rng, aniso);
   const geo = new THREE.PlaneGeometry(w, h);
+  // Painted both sides, and read correctly from both: two front-facing planes
+  // back to back, 1 cm apart, rather than one double-sided plane that mirrors
+  // the lettering for anybody walking the other way down the street.
   const mat = new THREE.MeshStandardMaterial({
     map: texture,
     roughness: 0.78,
     metalness: 0.0,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
   });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = `flop_sign_${sign.id}`;
-  mesh.matrix.copy(worldMatrix(A, newTrs(cx, cy, z, 0)));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  addStandalone(root, disp, mesh, geo, mat, texture);
+  for (const face of [0, 1]) {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = `flop_sign_${sign.id}_${face}`;
+    mesh.matrix.copy(worldMatrix(A, newTrs(cx, cy, z + (face ? -0.006 : 0.006), face * Math.PI)));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    addStandalone(root, disp, mesh, face ? null : geo, face ? null : mat, face ? null : texture);
+  }
+  // the board's edge thickness between the two faces
+  A.addBox('sign_board', BOX_FINE(A), cx, cy, z, 0, w, h, 0.01, { masks: [0.6, 0.5, 0.3] });
 
   // a timber frame round the board, so it has an edge and a thickness
   const fr = 0.035;
@@ -450,20 +457,21 @@ function festivalBanner(A, root, disp, rng, cable, aniso) {
     condense: 0.9,
     track: 0.06,
     ink: '#f4ead2',
-    fill: 0.74,
+    fill: 0.66,
+    dy: -H * 0.08,
     pad: 0.16,
     shadow: 'rgba(60,25,10,0.35)',
   });
   // the pasted strip, slightly crooked, with its own shadow and torn corner
   g.save();
-  g.translate(W * 0.64, H * 0.56);
-  g.rotate(-0.09);
+  g.translate(W * 0.7, H * 0.8);
+  g.rotate(-0.07);
   g.fillStyle = 'rgba(0,0,0,0.22)';
   g.fillRect(-250 + 5, -44 + 6, 500, 88);
   g.fillStyle = '#e9e3d2';
   g.fillRect(-250, -44, 500, 88);
   g.fillStyle = '#9b1f16';
-  g.font = `900 64px ${STENCIL}`;
+  g.font = `900 60px ${STENCIL}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.letterSpacing = '6px';
@@ -770,7 +778,7 @@ export function dressFlopOps(A, root, disp, opts = {}) {
 
   // ---- shopfronts ------------------------------------------------------
   for (const s of SIGNS) {
-    bladeSign(A, root, disp, rng, { ...s, y: 2.45, skin: BOARDS[s.skin] }, aniso);
+    bladeSign(A, root, disp, rng, { ...s, y: 2.95, skin: BOARDS[s.skin] }, aniso);
   }
 
   // ---- the festival that was not ------------------------------------------
