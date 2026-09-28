@@ -189,7 +189,7 @@ export class SkySystem {
       turbidity: 1.45,
       /** Fewer, deeper cumulus. Below ~0.34 the deck breaks into discrete
        *  masses with clean blue between them instead of one lumpy sheet. */
-      cloudCoverage: 0.30,
+      cloudCoverage: 0.26,
       /** Raised with the coverage drop: a cloud that survives the erosion is
        *  now optically deep, so its self-shadowed base sits 2-3 stops under its
        *  sunlit top and the billow reads as a solid with volume. */
@@ -202,8 +202,8 @@ export class SkySystem {
        * blue for free and at the old settings it dominated the upper half of every
        * daylight frame and read as hatching.
        */
-      cirrusCoverage: 0.21,
-      cirrusOpacity: 0.30,
+      cirrusCoverage: 0.12,
+      cirrusOpacity: 0.18,
       windSpeed: 0.0042, // km/s at the cloud deck (~4 m/s)
       windAngle: 0.7,
       horizonMurk: 0.13,
@@ -256,7 +256,7 @@ export class SkySystem {
        * scales its 1/4pi floor too, and that floor is not a shaft, it is a veil
        * over every pixel of the frame.
        */
-      shaftGain: 2.6,
+      shaftGain: 2.1,
       /**
        * Kept well under the key gain: the shafts are all contrast, and a strong
        * ambient term is exactly what washes that contrast out.
