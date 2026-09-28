@@ -257,6 +257,7 @@ export class WorldSystem {
     this._addLights(A);
     A.finalize(this.root, physics);
     A.releaseCache();
+    map.afterFinalize?.(this.root);
 
     this._v = new THREE.Vector3();
     this._inv = new THREE.Matrix4().copy(A.xform).invert();

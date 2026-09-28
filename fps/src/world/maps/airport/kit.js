@@ -185,7 +185,7 @@ export function curtainWall(A, x0, z0, x1, z1, y0, y1, openings = [], o = {}) {
     }
     // glass pane, one quad per run (both faces lit through DoubleSide)
     A.add('glazing', G.pane(A), trs(_m, cx, (gy0 + y1) / 2, cz, ry, w, y1 - gy0, 1));
-    A.box('glass', cx, (y0 + y1) / 2, cz, w, y1 - y0, 0.2, ry);
+    if (solid) A.box('glass', cx, (y0 + y1) / 2, cz, w, y1 - y0, 0.2, ry);
     if (!solid) {
       // door head transom
       A.add(mk, G.box(A), trs(_m, cx, y0 + door, cz, ry, w, 0.12, 0.16));
