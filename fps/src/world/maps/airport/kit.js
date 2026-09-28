@@ -224,8 +224,11 @@ export function rampZ(A, key, xc, w, zA, yA, zB, yB, thick = 0.3, o = {}) {
   const dy = yB - yA;
   const L = Math.hypot(dz, dy);
   const th = Math.atan2(-dy, dz);
-  const ny = Math.cos(th);
-  const nz = Math.sin(th);
+  // the slab's local +y; flipped so the offset always pushes the slab DOWN
+  // under the line (a ramp authored top-to-bottom would otherwise float)
+  const sg = Math.cos(th) < 0 ? -1 : 1;
+  const ny = Math.cos(th) * sg;
+  const nz = Math.sin(th) * sg;
   const cy = (yA + yB) / 2 - (ny * thick) / 2;
   const cz = (zA + zB) / 2 - (nz * thick) / 2;
   trs(_m, xc, cy, cz, 0, w, thick, L, th, 0);
@@ -242,8 +245,9 @@ export function rampX(A, key, zc, w, xA, yA, xB, yB, thick = 0.3, o = {}) {
   const dy = yB - yA;
   const L = Math.hypot(dx, dy);
   const ph = Math.atan2(dy, dx);
-  const nx = -Math.sin(ph);
-  const ny = Math.cos(ph);
+  const sg = Math.cos(ph) < 0 ? -1 : 1;
+  const nx = -Math.sin(ph) * sg;
+  const ny = Math.cos(ph) * sg;
   const cx = (xA + xB) / 2 - (nx * thick) / 2;
   const cy = (yA + yB) / 2 - (ny * thick) / 2;
   trs(_m, cx, cy, zc, 0, L, thick, w, 0, ph);

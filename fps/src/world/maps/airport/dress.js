@@ -189,8 +189,8 @@ export function dressTerminal(A, rng) {
     slab(A, 'plastic_dark', x - 0.5, 0.82, -22.42, x + 0.5, 1.3, -22.38);
     slab(A, 'plastic_dark', x - 0.5, 0.82, -20.42, x + 0.5, 1.3, -20.38);
     // body-scanner arch (posts collide, the gap does not)
-    for (const s of [-1, 1]) slab(A, 'gse_white', x + s * 0.55 - 0.12, 0, -16.9, x + s * 0.55 + 0.12, 2.2, -16.3, { collide: 'metal' });
-    slab(A, 'gse_white', x - 0.67, 2.2, -16.9, x + 0.67, 2.45, -16.3);
+    for (const s of [-1, 1]) slab(A, 'gse_white', x + s * 0.55 - 0.12, 0, -16.9, x + s * 0.55 + 0.12, 2.5, -16.3, { collide: 'metal' });
+    slab(A, 'gse_white', x - 0.67, 2.5, -16.9, x + 0.67, 2.75, -16.3);
     // trays
     for (let k = 0; k < 3; k++) slab(A, 'plastic_dark', x - 0.3, 0.82 + k * 0.07, -23.8 + k * 0.02, x + 0.3, 0.88 + k * 0.07, -23.4 + k * 0.02);
   }
@@ -236,7 +236,11 @@ export function dressTerminal(A, rng) {
   ]) slab(A, 'wood_prop', x - 0.6, 0, z - 0.5, x + 0.6, 1.0, z + 0.5, { collide: 'wood' });
 
   // ------------------------------------------------ service rooms (NE) --
-  for (let z = -25.4; z < -9; z += 1.2) slab(A, 'wall_grey', 29.9, 0, z, 30.45, 1.9, z + 1.0, { collide: 'metal', masks: [0.4, 0.5, 0.3] });
+  // lockers down the corridor's east wall, stopping short of each room door
+  for (let z = -25.4; z < -9; z += 1.2) {
+    if ((z > -24.8 && z < -22.2) || (z > -18.6 && z < -16.0) || (z > -13.4 && z < -10.8)) continue;
+    slab(A, 'wall_grey', 29.9, 0, z, 30.45, 1.9, z + 1.0, { collide: 'metal', masks: [0.4, 0.5, 0.3] });
+  }
   for (const [x, z, w, d] of [
     [34.5, -23.8, 3.4, 0.7],
     [36.8, -18.0, 0.7, 3.0],
@@ -264,8 +268,9 @@ export function dressTerminal(A, rng) {
   planter(A, -35.4, 9.9, 2.4, 1.0);
 
   // ------------------------------------------------------ kitchen (SW) --
-  counter(A, -30.6, 12.0, -21.6, 12.8, 0.95, 'steel');
-  counter(A, -30.6, 25.6, -24.0, 26.6, 0.95, 'steel');
+  counter(A, -30.6, 12.0, -28.0, 12.8, 0.95, 'steel');
+  counter(A, -24.4, 12.0, -21.6, 12.8, 0.95, 'steel');
+  counter(A, -30.6, 25.6, -28.2, 26.6, 0.95, 'steel');
   counter(A, -27.4, 17.0, -24.0, 20.0, 0.95, 'steel');
   for (const z of [14.5, 16.2, 21.5, 23.2]) slab(A, 'steel', -30.7, 0, z, -29.8, 2.1, z + 1.5, { collide: 'metal', masks: [0.4, 0.4, 0.3] });
   slab(A, 'steel', -26.2, 2.3, 17.4, -25.2, 3.2, 19.6);
@@ -345,7 +350,7 @@ export function dressTerminal(A, rng) {
   }
   stanchions(A, ln);
   stanchions(A, ls);
-  planter(A, 28.0, -8.8, 1.4, 1.4);
+  planter(A, 24.0, -9.2, 1.4, 1.2);
   for (let i = 0; i < 7; i++) suitcase(A, rng, rng.range(16.5, 28.5), rng.range(-9.5, 10.5), rng.float() * 6.28);
   A.put('ap_trolley', 28.2, 5.2, 0, 2.0);
 

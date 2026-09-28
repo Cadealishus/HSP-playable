@@ -6,6 +6,7 @@ import { buildPlane, buildBridge } from './plane.js';
 import { buildApron, TARMAC, KERB } from './apron.js';
 import { dressTerminal } from './dress.js';
 import { buildSigns } from './signs.js';
+import { runSelfTest } from './selftest.js';
 
 /**
  * MAP 02 — HOLDING PATTERN. Port Ellery International, Gate 12.
@@ -116,6 +117,8 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
       return inRect(x, z, KERB, m);
     },
     floors: FLOORS,
+    /** Collision/clearance self-test (dev; moves the player). See selftest.js. */
+    selfTest: (c, world) => runSelfTest(c, world),
     /**
      * Glazing must not cast into the shadow cascades (the cascade pass draws
      * with an opaque override material, so a curtain wall would black out the

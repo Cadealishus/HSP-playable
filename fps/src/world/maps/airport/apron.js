@@ -192,8 +192,8 @@ function roundhouse(A) {
     const cx = x + Math.cos(a) * r * 0.96;
     const cz = z + Math.sin(a) * r * 0.96;
     const side = 2 * r * Math.tan(Math.PI / 8) + 0.2;
-    A.box('concrete', x + Math.cos(a) * (r - 0.4), h / 2, z + Math.sin(a) * (r - 0.4), side, h, 0.8, -a + Math.PI / 2);
-    if (k % 2 === 0) boxAt(A, 'corrugated', cx + Math.cos(a) * 0.35, 1.9, cz + Math.sin(a) * 0.35, 3.4, 3.8, 0.12, -a + Math.PI / 2);
+    A.box('concrete', x + Math.cos(a) * (r - 0.4), h / 2, z + Math.sin(a) * (r - 0.4), side, h, 0.8, Math.PI / 2 - a);
+    if (k % 2 === 0) boxAt(A, 'corrugated', cx + Math.cos(a) * 0.35, 1.9, cz + Math.sin(a) * 0.35, 3.4, 3.8, 0.12, Math.PI / 2 - a);
   }
 }
 

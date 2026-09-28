@@ -154,7 +154,8 @@ export function buildPlane(A, rng) {
   const fz = P.fz;
   const zN = P.cabinZ0; // north (building side) inner cabin face
   const zS = P.cabinZ1; // south (apron side) inner cabin face
-  const doorH = 1.95;
+  /** Clear door height: a standing player (1.78 m capsule) never has to duck. */
+  const doorH = 2.45;
 
   // ---------------------------------------------------------------- skin --
   const cuts = [
@@ -282,7 +283,7 @@ export function buildPlane(A, rng) {
   slab(A, 'steel', P.hatch.x1 + 0.2, fy, fz + 0.49, P.cockpitX - 0.1, fy + 0.008, fz + 0.52);
   // door sills that bridge the lining to the hull
   slab(A, 'steel', P.doorL1[0], fy - 0.15, zN - 0.75, P.doorL1[1], fy, zN, { collide: 'metal' });
-  slab(A, 'steel', P.doorSlide[0], fy - 0.15, zS, P.doorSlide[1], fy, zS + 0.7, { collide: 'metal' });
+  slab(A, 'steel', P.doorSlide[0], fy - 0.15, zS, P.doorSlide[1], fy, zS + 0.26, { collide: 'metal' });
 
   // sidewalls: collision full height, with the two open doors
   const wallT = 0.35;
@@ -304,8 +305,8 @@ export function buildPlane(A, rng) {
   A.box('plaster', P.aftBulkhead - 0.1, fy + 1.5, fz, 0.2, 3.0, zS - zN + 0.8);
 
   // lining: lower sidewall, window reveals, bins, ceiling
-  const binY = fy + 1.9;
-  const ceilY = fy + 2.3;
+  const binY = fy + 2.05;
+  const ceilY = fy + 2.55;
   for (const [zi, sgn, door] of [
     [zN, -1, P.doorL1],
     [zS, 1, P.doorSlide],
@@ -318,7 +319,7 @@ export function buildPlane(A, rng) {
       slab(A, 'plastic_dark', a, fy, zi - 0.03 * sgn - 0.02, b, fy + 0.12, zi - 0.03 * sgn + 0.02);
     }
     // over the door: the header panel
-    slab(A, 'plastic_light', door[0], fy + doorH, Math.min(zi, zi + sgn * 0.05), door[1], binY, Math.max(zi, zi + sgn * 0.05));
+    slab(A, 'plastic_light', door[0], fy + doorH, Math.min(zi, zi + sgn * 0.05), door[1], ceilY, Math.max(zi, zi + sgn * 0.05));
     // overhead bins: a continuous run, lip at 1.9 m, curved door face
     const zb0 = sgn < 0 ? zi : zi - 0.62;
     const zb1 = sgn < 0 ? zi + 0.62 : zi;
@@ -394,9 +395,9 @@ export function buildPlane(A, rng) {
   }
   slab(A, 'plastic_light', P.cockpitX - 0.1, fy, zN, P.cockpitX + 0.1, ceilY, fz - 0.55, { collide: 'plaster' });
   slab(A, 'plastic_light', P.cockpitX - 0.1, fy, fz + 0.55, P.cockpitX + 0.1, ceilY, zS, { collide: 'plaster' });
-  slab(A, 'plastic_light', P.cockpitX - 0.1, fy + 2.0, fz - 0.55, P.cockpitX + 0.1, ceilY, fz + 0.55);
+  slab(A, 'plastic_light', P.cockpitX - 0.1, fy + 2.45, fz - 0.55, P.cockpitX + 0.1, ceilY, fz + 0.55);
   // the cockpit door, jammed open against the bulkhead
-  slab(A, 'plastic_dark', P.cockpitX + 0.12, fy, fz + 0.52, P.cockpitX + 0.92, fy + 1.98, fz + 0.56);
+  slab(A, 'plastic_dark', P.cockpitX + 0.12, fy, fz + 0.52, P.cockpitX + 0.92, fy + 2.4, fz + 0.56);
 
   // ------------------------------------------------------------ cockpit --
   const cz0 = fz - 1.55;

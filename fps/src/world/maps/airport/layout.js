@@ -74,7 +74,7 @@ export const PARTITIONS = [
   // Security / Retail
   [7, -26, 7, -16, LOW_CEIL + 0.4, [[4.0, 5.6]], 'wall_paint'],
   // Retail / Service: the staff door (the flank)
-  [27, -26, 27, -8, ROOF_Y, [[5.0, 6.6], [16.2, 18.0]], 'concrete_white'],
+  [27, -26, 27, -8, ROOF_Y, [[5.0, 6.6]], 'concrete_white'],
   // Retail back wall along the deck's north edge (full height above the deck)
   [7, -16, 27, -16, ROOF_Y, [[1.2, 2.8], [10.2, 11.8]], 'concrete_white'],
   // Food court / west hall: a wide colonnade opening
@@ -186,7 +186,7 @@ export const BRIDGE = {
   rot: { x: 37.5, z: 8.5, r: 1.3, y: 1.4 },
   seg2: { x: 37.5, z0: 9.8, z1: 21.8, y0: 1.4, y1: 3.4 },
   inner: 1.9, // inside width
-  wallH: 2.4,
+  wallH: 2.7,
 };
 
 /** The Roundhouse: a circular ground-service building on the apron. */

@@ -208,7 +208,8 @@ function buildDeck(A) {
   slab(A, 'terrazzo', x0, y - t, z0, x1, y, z1, { collide: true });
   // soffit and the fascia band on the atrium edge
   slab(A, 'ceiling', x0, y - t - 0.05, z0, x1, y - t, z1);
-  slab(A, 'concrete_white', x0, y - 0.95, z1 - 0.02, x1, y + 0.05, z1 + 0.28, { masks: [0.3, 0.3, 0.1] });
+  // (the south fascia is laid per balustrade run below, so it stops at the
+  // escalator heads and the stair instead of cutting across them)
   slab(A, 'concrete_white', x0 - 0.28, y - 0.95, z0, x0, y + 0.05, z1 + 0.28);
   // glass balustrade with a steel handrail: the south edge (gaps for the
   // escalator heads and the east stair) and the open west end
@@ -223,7 +224,11 @@ function buildDeck(A) {
     s = b;
   }
   if (s < x1) segs.push([s, x1]);
-  for (const [a, b] of segs) balustradeX(A, a, b, z1 + 0.12, y);
+  for (const [a, b] of segs) {
+    balustradeX(A, a, b, z1 + 0.12, y);
+    slab(A, 'concrete_white', a, y - 0.95, z1 - 0.02, b, y + 0.05, z1 + 0.28, { masks: [0.3, 0.3, 0.1] });
+  }
+  for (const [a, b] of gaps) slab(A, 'concrete_white', a, y - t, z1 - 0.02, b, y, z1 + 0.02);
   balustradeZ(A, x0 + 0.1, z0, z1 + 0.12, y);
 }
 

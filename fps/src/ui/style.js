@@ -852,6 +852,7 @@ const CSS = `
   width: calc(440px * var(--k));
   display:grid; gap: calc(var(--u) * 2.4);
 }
+.ow-att-maps.docked { position:static; width:auto; margin-top: calc(var(--u) * 5); }
 .ow-mp-card {
   position:relative; cursor:pointer; text-align:left;
   display:grid; grid-template-columns: calc(136px * var(--k)) 1fr; gap: calc(var(--u) * 4);

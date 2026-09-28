@@ -266,6 +266,8 @@ export class WorldSystem {
     this.objective = map.objective;
     this.bounds = map.bounds;
     this.stats = A.stats;
+    /** Map self-test hook (dev / capture eval only). */
+    this.selfTest = () => map.selfTest?.(ctx, this) ?? null;
 
     console.info(
       `[world] map "${id}" built in ${(performance.now() - t0).toFixed(0)}ms — ` +
