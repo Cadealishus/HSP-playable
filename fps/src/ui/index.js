@@ -951,9 +951,7 @@ export class UiSystem {
   /**
    * Publish which front-end screen owns the frame: `ui:screen {name}` with
    * name 'title' | 'death' | 'report' | null, emitted on change only.
-   * src/weapons hides the first-person viewmodel on it. Until a subsystem
-   * claims that job (`weapons.setViewmodelHidden`), the UI falls back to
-   * hiding the whole view scene, which only ever holds the viewmodel.
+   * src/weapons listens and hides the first-person viewmodel on any screen.
    */
   _syncScreen(ctx) {
     const name = this.attract.open ? 'title' : this.death.open ? 'death' : this.over.open ? 'report' : null;
@@ -962,9 +960,6 @@ export class UiSystem {
     this._screen = name;
     if (name === 'title' && was !== 'title') this._dolly = 0;
     ctx.events.emit('ui:screen', { name });
-    const w = ctx.peek('weapons');
-    if (typeof w?.setViewmodelHidden === 'function') w.setViewmodelHidden(!!name);
-    else if (ctx.viewScene) ctx.viewScene.visible = !name;
   }
 
   /**
