@@ -39,7 +39,7 @@ export const WALL_T = 0.4;
  */
 export const OUTLINE = [
   // north façade (landside): the main entrance bays in the entry hall
-  [-22, -26, 38, -26, 'solid', [[-17.5, -14.5], [-11.5, -8.5]]],
+  [-22, -26, 38, -26, 'solid', [[4.5, 7.5], [10.5, 13.5]]],
   // service rooms, east side: the staff door onto the east apron
   [38, -26, 38, -8, 'solid', [[12.5, 14.3]]],
   // service rooms, south side: a door into the gap between service and gate
@@ -172,7 +172,7 @@ export const PLANE = {
   cargoDoor: [10.0, 11.8],
   // aft hold (the cargo bay), with the hatch up into the aft galley
   hold: { x0: 8.8, x1: 18.0, z0: 22.4, z1: 27.6 },
-  hatch: { x0: 9.6, x1: 11.6, z0: 24.5, z1: 25.5 },
+  hatch: { x0: 9.4, x1: 11.8, z0: 24.5, z1: 25.5 },
   // rows: first/last seat-pan centres and pitch, with the overwing exit gap
   rowsAft: [12.7, 13.52],
   rowsMain: { from: 16.1, to: 35.0, pitch: 0.82 },

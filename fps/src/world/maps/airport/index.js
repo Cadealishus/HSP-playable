@@ -22,10 +22,10 @@ import { buildSigns } from './signs.js';
 
 /** Spawn points in LEVEL space: [x, z, facing-dx, facing-dz, tag]. Index 0 is Doug's. */
 const SPAWNS = [
-  [25.2, 2.2, -1, -0.35, 'gate 12'],
+  [25.0, 0.6, -1, -0.35, 'gate 12'],
   [-13, -30.5, 0.1, 1, 'kerb doors'],
   [-18.5, -22, 0.6, 1, 'entry hall'],
-  [-33.5, 2.5, 1, 0.1, 'food court'],
+  [-32.5, 9.3, 1, -0.3, 'food court'],
   [-36, 20, 1, 0, 'kitchen yard'],
   [-12, 22, 1, -0.4, 'arrivals'],
   [-4, 40, 0.4, -1, 'south apron'],
@@ -116,5 +116,20 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
       return inRect(x, z, KERB, m);
     },
     floors: FLOORS,
+    /**
+     * Glazing must not cast into the shadow cascades (the cascade pass draws
+     * with an opaque override material, so a curtain wall would black out the
+     * sun it exists to let in) nor write the prepass (SSR and AO would read
+     * the pane as a wall).
+     */
+    afterFinalize: (root) => {
+      for (const o of root.children) {
+        if (o.name === 'world_glazing') {
+          o.castShadow = false;
+          o.userData.owNoShadow = true;
+          o.userData.owNoPrepass = true;
+        }
+      }
+    },
   };
 }

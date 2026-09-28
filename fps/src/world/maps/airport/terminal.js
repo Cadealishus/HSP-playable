@@ -164,6 +164,13 @@ export function buildTerminal(A) {
   // --------------------------------------------------------------- deck --
   buildDeck(A);
   buildEscalators(A);
+  // the deck's second way up: a straight stair down into the gate lounge
+  {
+    const S = EAST_STAIR;
+    stairZ(A, 'terrazzo', S.x, S.w, S.zTop + S.steps * S.run, 0, S.steps, S.rise, S.run, -1);
+    balustradeZ(A, S.x - S.w / 2 - 0.08, S.zTop, S.zTop + S.steps * S.run, 0, 1.1);
+    balustradeZ(A, S.x + S.w / 2 + 0.08, S.zTop, S.zTop + S.steps * S.run, 0, 1.1);
+  }
 
   // ------------------------------------------------------------ columns --
   for (const [x, z] of COLUMNS) column(A, x, z);

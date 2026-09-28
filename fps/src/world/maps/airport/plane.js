@@ -361,9 +361,9 @@ export function buildPlane(A, rng) {
 
   // ---------------------------------------------------- galleys and lavs --
   // aft galley: carts and ovens against the bulkhead
-  slab(A, 'steel', P.aftBulkhead, fy, zN, P.aftBulkhead + 0.6, fy + 1.0, zS, { collide: 'metal', masks: [0.5, 0.3, 0.2] });
-  slab(A, 'steel', P.aftBulkhead, fy + 1.45, zN, P.aftBulkhead + 0.45, fy + 2.2, zS, { masks: [0.4, 0.3, 0.2] });
-  for (let z = zN + 0.3; z < zS - 0.2; z += 0.42) slab(A, 'plastic_dark', P.aftBulkhead + 0.58, fy + 0.08, z, P.aftBulkhead + 0.62, fy + 0.95, z + 0.36);
+  slab(A, 'steel', P.aftBulkhead, fy, zN, P.aftBulkhead + 0.36, fy + 1.0, zS, { collide: 'metal', masks: [0.5, 0.3, 0.2] });
+  slab(A, 'steel', P.aftBulkhead, fy + 1.45, zN, P.aftBulkhead + 0.36, fy + 2.2, zS, { masks: [0.4, 0.3, 0.2] });
+  for (let z = zN + 0.3; z < zS - 0.2; z += 0.42) slab(A, 'plastic_dark', P.aftBulkhead + 0.35, fy + 0.08, z, P.aftBulkhead + 0.39, fy + 0.95, z + 0.36);
   // aft lavatories either side of the hatch
   for (const [z0, z1] of [
     [zN, fz - 1.15],
@@ -455,7 +455,7 @@ export function buildPlane(A, rng) {
     slab(A, 'alu', x - 0.6, P.holdY, z - 0.5, x + 0.6, P.holdY + 1.05, z + 0.5, { collide: 'metal', masks: [0.5, 0.5, 0.3] });
   }
   // the hatch: a stair of five treads climbing east under the opening
-  stairX(A, 'steel', (P.hatch.z0 + P.hatch.z1) / 2, P.hatch.z1 - P.hatch.z0 - 0.02, P.hatch.x0 + 0.1, P.holdY, 5, (fy - P.holdY) / 5, 0.36, 1);
+  stairX(A, 'steel', (P.hatch.z0 + P.hatch.z1) / 2, P.hatch.z1 - P.hatch.z0 - 0.02, P.hatch.x0 + 0.5, P.holdY, 5, (fy - P.holdY) / 5, 0.38, 1);
   // hatch lid, thrown open against the aisle
   boxAt(A, 'alu', P.hatch.x0 + 0.95, fy + 0.5, P.hatch.z0 - 0.08, 1.0, 1.0, 0.05, 0, { rx: 0.1 });
   slab(A, 'livery_red', P.hatch.x0 - 0.04, fy, P.hatch.z0 - 0.04, P.hatch.x1 + 0.04, fy + 0.01, P.hatch.z0);
@@ -465,28 +465,29 @@ export function buildPlane(A, rng) {
   const sx = (P.doorSlide[0] + P.doorSlide[1]) / 2;
   const sTop = zS + 0.2;
   const sBot = sTop + 7.2;
-  rampZ(A, 'slide_yellow', sx, 1.5, sTop, fy, sBot, 0.02, 0.3, { collide: 'rubber', masks: [0.2, 0.3, 0.1] });
+  rampZ(A, 'slide_yellow', sx, 1.5, sTop, fy, sBot + 0.25, -0.1, 0.3, { collide: 'rubber', masks: [0.2, 0.3, 0.1] });
   for (const side of [-1, 1]) {
     rampZ(A, 'slide_yellow', sx + side * 0.85, 0.36, sTop, fy + 0.45, sBot, 0.4, 0.36, { collide: false, geo: G.soft });
   }
   // the inflated head arch round the door
   slab(A, 'slide_yellow', sx - 1.05, fy - 0.2, sTop - 0.1, sx + 1.05, fy + 0.35, sTop + 0.6, { geo: G.soft });
-  slab(A, 'slide_yellow', sx - 1.0, 0, sBot - 0.3, sx + 1.0, 0.35, sBot + 0.3, { geo: G.soft, collide: 'rubber' });
+  // the inflated sill at the foot: a soft bump either side of the running surface
+  for (const side of [-1, 1]) slab(A, 'slide_yellow', sx + side * 0.95 - 0.2, 0, sBot - 0.3, sx + side * 0.95 + 0.2, 0.4, sBot + 0.3, { geo: G.soft });
 
   // ------------------------------------------------------- belt loader --
   const bx = (P.cargoDoor[0] + P.cargoDoor[1]) / 2;
   const bTop = fz + hullHalfWidth(P.holdY) + 0.25;
   const bBot = bTop + 6.8;
-  rampZ(A, 'rubber', bx, 1.1, bTop, P.holdY + 0.02, bBot, 0.35, 0.25, { collide: 'rubber' });
+  rampZ(A, 'rubber', bx, 1.1, bTop, P.holdY + 0.02, bBot + 1.1, 0.0, 0.25, { collide: 'rubber' });
   for (const side of [-1, 1]) {
     rampZ(A, 'gse_yellow', bx + side * 0.62, 0.12, bTop, P.holdY + 0.25, bBot, 0.6, 0.35, { collide: 'metal' });
     rampZ(A, 'steel', bx + side * 0.62, 0.05, bTop + 0.3, P.holdY + 1.0, bBot, 1.2, 0.05, { collide: false });
   }
   // chassis and cab
-  slab(A, 'gse_yellow', bx - 0.9, 0.35, bBot - 3.6, bx + 0.9, 1.0, bBot + 0.4, { collide: 'metal', masks: [0.4, 0.5, 0.3] });
+  slab(A, 'gse_yellow', bx - 0.9, 0.3, bBot - 5.2, bx + 0.9, 0.62, bBot - 2.2, { collide: 'metal', masks: [0.4, 0.5, 0.3] });
   slab(A, 'gse_white', bx + 0.95, 0.35, bBot - 2.2, bx + 2.0, 2.1, bBot - 0.4, { collide: 'metal', masks: [0.4, 0.5, 0.3] });
   slab(A, 'window_dark', bx + 1.2, 1.35, bBot - 2.25, bx + 1.95, 1.95, bBot - 2.18);
-  for (const dz of [-3.1, 0]) {
+  for (const dz of [-4.8, -2.6]) {
     for (const s2 of [-1, 1]) {
       const wh = cylPart(0.34, 0.24, 0, 0, 0, 12, 0, Math.PI / 2);
       wh.applyMatrix4(trs(_m, bx + s2 * 0.95, 0.34, bBot + dz));

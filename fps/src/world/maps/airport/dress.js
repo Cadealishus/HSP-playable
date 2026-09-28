@@ -261,7 +261,7 @@ export function dressTerminal(A, rng) {
   }
   // oak slat ceiling
   for (let x = -36.6; x < -22.4; x += 0.35) slab(A, 'oak', x, 6.2, -5.8, x + 0.12, 6.32, 10.8);
-  planter(A, -23.2, 1.0, 1.2, 4.0);
+  planter(A, -35.4, 9.9, 2.4, 1.0);
 
   // ------------------------------------------------------ kitchen (SW) --
   counter(A, -30.6, 12.0, -21.6, 12.8, 0.95, 'steel');
@@ -320,7 +320,7 @@ export function dressTerminal(A, rng) {
   // the gate's back panel: a stone pylon between the podiums
   slab(A, 'sandstone', d.x - 0.35, 0, d.z + 0.5, d.x + 0.35, 3.2, d.z + 1.0, { collide: 'concrete', masks: [0.3, 0.3, 0.3] });
   // waiting-area seating: back-to-back pairs, then a row on the glass
-  for (const x of [17.9, 20.6, 23.3, 26.0]) {
+  for (const x of [17.9, 20.6, 23.3]) {
     seatPair(A, x, -7.0);
     seatPair(A, x, -4.2);
   }
