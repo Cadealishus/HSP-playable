@@ -265,6 +265,8 @@ export class WorldSystem {
     this.playerSpawnIndex = map.playerSpawnIndex ?? 0;
     this.objective = map.objective;
     this.bounds = map.bounds;
+    /** { escalator, jet } world-space Vector3s for src/audio (airport only). */
+    this.audioAnchors = map.audioAnchors ?? null;
     this.stats = A.stats;
     /** Map self-test hook (dev / capture eval only). */
     this.selfTest = () => map.selfTest?.(ctx, this) ?? null;
