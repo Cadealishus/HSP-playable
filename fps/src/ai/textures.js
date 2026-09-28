@@ -258,7 +258,7 @@ export const CAMO = {
   urban: {
     // wolf grey / near-black urban kit: the darkest of the three, and the one
     // that reads as a plaster mannequin if it is allowed anywhere near 0.2
-    budget: 0.083,
+    budget: 0.066, // darker: wolf grey in full sun read as a white figure at 15 m
     pale: [0.330, 0.334, 0.342],
     base: [0.226, 0.230, 0.239],
     mid: [0.150, 0.154, 0.163],
