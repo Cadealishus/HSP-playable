@@ -777,7 +777,7 @@ export function dressFlopOps(A, root, disp, opts = {}) {
 
   // ---- shopfronts ------------------------------------------------------
   for (const s of SIGNS) {
-    bladeSign(A, root, disp, rng, { ...s, y: 2.45, skin: BOARDS[s.skin] }, aniso);
+    bladeSign(A, root, disp, rng, { ...s, y: 2.95, skin: BOARDS[s.skin] }, aniso);
   }
 
   // ---- the festival that was not ------------------------------------------

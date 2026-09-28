@@ -1527,7 +1527,8 @@ function dressBuilding(A, rng, info) {
   }
   for (const dr of info.doors) {
     if (rng.float() < 0.5) {
-      const wp = worldOf(dr.pm, dr.x + rng.range(-0.2, 0.2), 2.55, -0.12);
+      // hung clear above the (2.58 m) door head casing
+      const wp = worldOf(dr.pm, dr.x + rng.range(-0.2, 0.2), 3.0, -0.12);
       A.put('sign_hang', wp[0], wp[1], wp[2], ryOf(dr.pm) + Math.PI, rng.range(0.85, 1.15), [1, 1.2, 1]);
     }
     // step, mat, and the junk that lives beside a doorway
@@ -1801,11 +1802,14 @@ export function scatterDebris(A, rng) {
       else if (pick < 0.95) id = rng.pick(['box_card_a', 'box_card_b', 'bucket', 'jerry_can']);
       else id = rng.pick(['slab_shard', 'rebar', 'gas_bottle']);
       const y = groundY(x, z);
-      A.put(id, x, y + 0.015, z, rng.float() * 6.28, rng.range(0.7, 1.2), [
-        1,
-        rng.range(1.0, 1.5),
-        1,
-      ]);
+      const ry = rng.float() * 6.28;
+      const sc = rng.range(0.7, 1.2);
+      const gm = rng.range(1.0, 1.5);
+      // Colliding clutter never lands in a walkable door's approach. The RNG
+      // draws above happen either way, so the stream downstream is unchanged.
+      const big = id.startsWith('barrel') || id.startsWith('crate');
+      if (big && A.nearDoorway(x, z)) continue;
+      A.put(id, x, y + 0.015, z, ry, sc, [1, gm, 1]);
       // big items get a collision box; scatter does not
       if (id.startsWith('barrel')) A.box('metal', x, y + 0.45, z, 0.62, 0.9, 0.62);
       else if (id.startsWith('crate')) A.box('wood', x, y + 0.3, z, 0.62, 0.6, 0.62);

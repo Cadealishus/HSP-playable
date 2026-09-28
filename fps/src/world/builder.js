@@ -79,6 +79,18 @@ export class Assembler {
     this.stats = { staticTris: 0, instTris: 0, instances: 0, drawCalls: 0, collideTris: 0 };
   }
 
+  /**
+   * True within `r` metres (level space) of the street-side approach to a
+   * walkable door. Filled by buildings.js; set dressing that adds collision
+   * uses it so a door is never walled in by a pair of oil drums.
+   */
+  nearDoorway(x, z, r = 1.4) {
+    for (const [dx, dz] of this.doorways ?? []) {
+      if ((x - dx) * (x - dx) + (z - dz) * (z - dz) < r * r) return true;
+    }
+    return false;
+  }
+
   // -------------------------------------------------------------- transform --
   /**
    * Place LEVEL space into WORLD space. The map is authored around a street

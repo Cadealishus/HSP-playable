@@ -148,6 +148,64 @@ function terrace(A, rng, spec, y, t) {
  * @returns {object} anchors for the dressing pass:
  *   { facades:[{side, x, y, ry, wx, wz, nx, nz}], roof:{...}, doors:[], balconies:[] }
  */
+/**
+ * Walkable door opening height, panel floor to head. The standing capsule is 1.78 m;
+ * 2.58 m (2.44 m clear over the 0.14 m ground-floor slab) leaves clear head room over the threshold, the ground-slab step and the
+ * frame head casing that stands proud of the wall, with nothing that has to be
+ * ducked. Every walkable door in the town (street doors, balcony doors, interior
+ * partitions, the roof penthouse) uses it. The ground storey is 3.45 m and the
+ * upper storeys 3.05 m, so a 2.45 m opening still keeps a proportionate lintel
+ * band under the next slab.
+ */
+export const DOOR_H = 2.58;
+/** Roof stair penthouse wall height: tall enough to take a DOOR_H opening. */
+const PENTHOUSE_H = 3.0;
+
+/**
+ * The plinth of an enterable building as a perimeter ring (visual + collision)
+ * with a gap under every ground-floor door, and a flush threshold step at the
+ * interior floor level in each gap.
+ */
+function plinthRing(A, spec, info, t, plinthH) {
+  const key = spec.plinthKey ?? 'concrete';
+  const x0 = spec.x - (spec.w + 0.14) / 2;
+  const x1 = spec.x + (spec.w + 0.14) / 2;
+  const z0 = spec.z - (spec.d + 0.14) / 2;
+  const z1 = spec.z + (spec.d + 0.14) / 2;
+  const ring = t + 0.07;
+  const gapHalf = 0.62;
+  // door centres along each side, in level coordinates
+  const cuts = [[], [], [], []];
+  for (const d of info.doors) {
+    if (d.wp[1] > 0.5) continue; // upper-floor balcony doors
+    cuts[d.side].push(d.side === 0 || d.side === 2 ? d.wp[0] : d.wp[2]);
+  }
+  const run = (side, a, b) => {
+    const list = cuts[side].slice().sort((p, q) => p - q);
+    const segs = [];
+    let u = a;
+    for (const c of list) {
+      if (c - gapHalf > u) segs.push([u, c - gapHalf]);
+      u = Math.max(u, c + gapHalf);
+    }
+    if (b > u) segs.push([u, b]);
+    return segs;
+  };
+  const put = (cx, cz, sx, sz, h = plinthH, k = key) => {
+    A.add(k, BOX(A), LL(IDENT, cx, h / 2, cz, 0, sx, h, sz), { masks: [0.55, 0.75, 0.45] });
+    A.box('concrete', cx, h / 2, cz, sx, h, sz);
+  };
+  // side 0 (-Z) and 2 (+Z) run along X; 1 (+X) and 3 (-X) along Z, inside the corners
+  for (const [side, zc] of [[0, z0 + ring / 2], [2, z1 - ring / 2]]) {
+    for (const [a, b] of run(side, x0, x1)) put((a + b) / 2, zc, b - a, ring);
+    for (const c of cuts[side]) put(c, zc, gapHalf * 2, ring, 0.13, 'floor_concrete');
+  }
+  for (const [side, xc] of [[1, x1 - ring / 2], [3, x0 + ring / 2]]) {
+    for (const [a, b] of run(side, z0 + ring, z1 - ring)) put(xc, (a + b) / 2, ring, b - a);
+    for (const c of cuts[side]) put(xc, c, ring, gapHalf * 2, 0.13, 'floor_concrete');
+  }
+}
+
 export function buildBuilding(A, rng, spec) {
   const t = spec.t ?? 0.34;
   const floors = spec.floors ?? 3;
@@ -170,13 +228,21 @@ export function buildBuilding(A, rng, spec) {
   // A base course everywhere: catches the ground grime band and stops the walls
   // reading as slabs dropped on a plane.
   const plinthH = spec.plinthH ?? 0.42;
-  A.add(
-    spec.plinthKey ?? 'concrete',
-    BOX(A),
-    LL(IDENT, spec.x, plinthH / 2, spec.z, 0, spec.w + 0.14, plinthH, spec.d + 0.14),
-    { masks: [0.55, 0.75, 0.45] }
-  );
-  A.box('concrete', spec.x, plinthH / 2, spec.z, spec.w + 0.14, plinthH, spec.d + 0.14);
+  // An enterable building must NOT get a solid plinth: a 0.42 m collision block
+  // under the whole footprint is a floor 0.42 m up, which left a 2.16 m door
+  // with 1.74 m of clear height — under the 1.78 m standing capsule, so the
+  // player had to crouch through every door. Enterable shells get a perimeter
+  // ring instead, cut at every ground-floor door (see `plinthRing`, built once
+  // the doors are known).
+  if (!spec.enterable) {
+    A.add(
+      spec.plinthKey ?? 'concrete',
+      BOX(A),
+      LL(IDENT, spec.x, plinthH / 2, spec.z, 0, spec.w + 0.14, plinthH, spec.d + 0.14),
+      { masks: [0.55, 0.75, 0.45] }
+    );
+    A.box('concrete', spec.x, plinthH / 2, spec.z, spec.w + 0.14, plinthH, spec.d + 0.14);
+  }
 
   let y = 0;
   info.terraces = [];
@@ -200,6 +266,7 @@ export function buildBuilding(A, rng, spec) {
   }
   info.roofY = y;
   info.top = y;
+  if (spec.enterable) plinthRing(A, spec, info, t, plinthH);
 
   // ------------------------------------------------------------------ roof --
   const ts = floorSpec(spec, floors - 1);
@@ -319,7 +386,7 @@ function buildFacade(A, rng, spec, info, ctx) {
 
     switch (kind) {
       case 'door': {
-        const o = { x: bx, y: 1.08, w: 1.12, h: 2.16, kind };
+        const o = { x: bx, y: DOOR_H / 2, w: 1.12, h: DOOR_H, kind };
         openings.push(o);
         deco.push(() =>
           doorUnit(A, pm, o, rng, {
@@ -329,6 +396,12 @@ function buildFacade(A, rng, spec, info, ctx) {
           })
         );
         info.doors.push({ side, x: bx, pm, wp: worldOf(pm, bx, 0, 0).slice() });
+        // walkable street doors: dressing keeps its colliding clutter out of
+        // the approach (see `Assembler.nearDoorway`)
+        if (info.spec.enterable) {
+          const a = worldOf(pm, bx, 0, -0.9);
+          (A.doorways ??= []).push([a[0], a[2]]);
+        }
         break;
       }
       case 'shop': {
@@ -398,7 +471,7 @@ function buildFacade(A, rng, spec, info, ctx) {
       }
       case 'balconyDoor': {
         const ww = Math.min(room, 1.15);
-        const o = { x: bx, y: 1.12, w: ww, h: 2.24, kind };
+        const o = { x: bx, y: DOOR_H / 2, w: ww, h: DOOR_H, kind };
         openings.push(o);
         const bwid = Math.min(bw - 0.35, 2.6);
         deco.push(() => {
@@ -670,7 +743,17 @@ function buildInterior(A, rng, spec, info, t, groundH, upperH, floors) {
         const pm = new THREE.Matrix4().compose(_p, _q, _s);
         const holes = [];
         if (doorAt !== undefined && doorAt !== null) {
-          holes.push({ x: -len / 2 + doorAt * len, y: 1.06, w: 1.05, h: 2.12 });
+          holes.push({ x: -len / 2 + doorAt * len, y: DOOR_H / 2, w: 1.05, h: DOOR_H });
+          // recorded for the doorway walk check (src/world/doorcheck.mjs)
+          const c = worldOf(pm, -len / 2 + doorAt * len, 0, it / 2);
+          const n = worldOf(pm, -len / 2 + doorAt * len, 0, it / 2 + 1);
+          (info.innerDoors ??= []).push({
+            x: c[0],
+            y: fy,
+            z: c[2],
+            nx: n[0] - c[0],
+            nz: n[2] - c[2],
+          });
         }
         facadeWall(A, pm, {
           w: len,
@@ -750,10 +833,10 @@ function buildInterior(A, rng, spec, info, t, groundH, upperH, floors) {
     const y = info.roofY;
     for (let side = 0; side < 4; side++) {
       const pm = panelMatrix({ x: px, z: pz, w: 2.4, d: 2.6 }, side, y).clone();
-      const holes = side === 2 ? [{ x: 0, y: 1.08, w: 1.05, h: 2.16 }] : [];
+      const holes = side === 2 ? [{ x: 0, y: DOOR_H / 2, w: 1.05, h: DOOR_H }] : [];
       facadeWall(A, pm, {
         w: side === 0 || side === 2 ? 2.4 : 2.6,
-        h: 2.5,
+        h: PENTHOUSE_H,
         t: 0.22,
         key: spec.wallKey ?? 'plaster_cream',
         openings: holes,
@@ -761,10 +844,10 @@ function buildInterior(A, rng, spec, info, t, groundH, upperH, floors) {
         warp: 0.015,
       });
     }
-    A.add('concrete', BOX(A), LL(IDENT, px, y + 2.6, pz, 0, 2.7, 0.2, 2.9), {
+    A.add('concrete', BOX(A), LL(IDENT, px, y + PENTHOUSE_H + 0.1, pz, 0, 2.7, 0.2, 2.9), {
       masks: [0.5, 0.45, 0.2],
     });
-    A.box('concrete', px, y + 2.6, pz, 2.7, 0.2, 2.9);
+    A.box('concrete', px, y + PENTHOUSE_H + 0.1, pz, 2.7, 0.2, 2.9);
   }
 }
 
