@@ -102,8 +102,14 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
   });
 
   const inRect = (x, z, r, m = 0) => x > r[0] + m && x < r[2] - m && z > r[1] + m && z < r[3] - m;
+  // world positions audio plays its sources from (escalator hum, jet idle)
+  const audioAnchors = {
+    escalator: A.toWorld(7.0, 2.2, -6.0),
+    jet: A.toWorld(23.6, 1.8, PLANE.fz + 5.4),
+  };
   return {
     A,
+    audioAnchors,
     spawnPoints,
     playerSpawnIndex: 0,
     objective,
