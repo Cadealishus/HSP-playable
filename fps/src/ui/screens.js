@@ -176,6 +176,8 @@ export class AttractScreen {
       el('div', 'v', grid, v);
     }
 
+    /** Empty slot under the mission card, reserved for a map / mission picker. */
+    this.slot = el('div', 'ow-att-slot', left);
     // ---- map select --------------------------------------------------------
     // One card per registry map. Picking a different one saves the choice and
     // reloads onto it (a map is a whole level build); the active card is lit.
