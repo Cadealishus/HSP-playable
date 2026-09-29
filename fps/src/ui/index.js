@@ -13,7 +13,9 @@ import { WorldMarkers } from './markers.js';
 import { Prompt, Banner, ScorePop } from './prompts.js';
 import { PauseMenu } from './menu.js';
 import { CombatDemo } from './demo.js';
-import { AttractScreen, DeathScreen, GameOverScreen, LOADOUTS } from './screens.js';
+import { DeathScreen, GameOverScreen, MatchOverScreen } from './screens.js';
+import { MainMenu } from './mainmenu.js';
+import { ModeHud } from './modehud.js';
 import { RadioSubs } from './radio.js';
 
 /**
@@ -54,7 +56,7 @@ const CALLOUT = {
  * ---------------------------------------------------------------------------
  * PUBLIC API — `const ui = ctx.get('ui')`
  * ---------------------------------------------------------------------------
- *   ui.hitmarker(kind)                  'hit' | 'armour' | 'head' | 'kill'
+ *   ui.hitmarker(kind)                  'hit' | 'armour' | 'head' | 'kill' | 'headkill'
  *   ui.damageNumber(worldPos, n, kind)  'hit' | 'hs' | 'armour' | 'kill'
  *   ui.hurt(amount, dirX, dirZ)         directional arc + flash + flinch
  *   ui.killfeed.push({attacker,attackerVariant,victim,victimVariant,headshot,
@@ -122,7 +124,10 @@ export class UiSystem {
     this.scorePop = new ScorePop(this.centreLayer);
 
     // Front-end screens (over the HUD chrome, under the radio and pause menu).
-    this.attract = new AttractScreen(this.root, (id) => this._startRun(id));
+    // The main menu (mainmenu.js). Everything it offers is asked of the game /
+    // weapons / map registry at runtime, so it only lists what actually works.
+    this.attract = new MainMenu(this.root, this._menuHost(ctx));
+    this.modeHud = new ModeHud(this.chromeLayer, this.centreLayer);
     this.death = new DeathScreen(this.root, {
       onContinue: () => {
         this.death.hide();
@@ -143,6 +148,18 @@ export class UiSystem {
       },
       onReturn: () => {
         this.over.hide();
+        ctx.events.emit('ui:attract', {});
+      },
+    });
+    this.match = new MatchOverScreen(this.root, {
+      onRestart: () => {
+        this.match.hide();
+        this._resetRunState();
+        ctx.events.emit('ui:restart', {});
+        ctx.input?.requestPointerLock?.();
+      },
+      onReturn: () => {
+        this.match.hide();
         ctx.events.emit('ui:attract', {});
       },
     });
@@ -184,8 +201,9 @@ export class UiSystem {
       reloadProgress: 0,
       weaponName: 'ASSAULT RIFLE',
       fireMode: 'AUTO',
-      lethalCount: 2,
-      tacticalCount: 1,
+      /** Real counts from weapons.getHudState(); null hides the equipment row. */
+      lethalCount: null,
+      tacticalCount: null,
       move: 0,
       sprint: false,
       crouch: false,
@@ -277,7 +295,9 @@ export class UiSystem {
         }
         return;
       }
-      const kind = e.killed ? 'kill' : e.headshot ? 'head' : e.armour ? 'armour' : 'hit';
+      // Bots shoot bots now: only Doug's own rounds (no source, or him) draw feedback.
+      if (e.source && !this._isPlayerTarget(e.source)) return;
+      const kind = e.killed ? (e.headshot ? 'headkill' : 'kill') : e.headshot ? 'head' : e.armour ? 'armour' : 'hit';
       this.hitmarker(kind);
       if (e.point) {
         this.damageNumber(
@@ -297,6 +317,7 @@ export class UiSystem {
           headshot: !!e.headshot,
           mine: true,
         });
+        this.modeHud.confirmKill(e.target?.name ?? null, !!e.headshot);
         // The game's own score delta for this kill arrives on game:score from
         // inside the same event cascade (ai → actor:death → game), before this
         // handler runs. Fall back to the base value when no game drives score.
@@ -344,6 +365,30 @@ export class UiSystem {
 
     // Two or more kills inside the 1.2 s window (src/game/scoring.js). A feed
     // note, not a banner; three or more and Command notices.
+    // Command on the net for the bot-match modes (src/game/modes/lines.js).
+    on('mode:announce', (e) => {
+      if (!e?.text) return;
+      const tier = e.kind === 'result' ? 5 : e.kind === 'start' || e.kind === 'round' ? 3 : 2;
+      this.radio.sayExact('command', e.text, e.reply ?? null, tier);
+      if (e.banner) this.banner.show(e.banner.title, e.banner.sub ?? '', 2.6, e.banner.kind ?? 'info');
+    });
+
+    // Kills Doug did not make (bot on bot, EXPANSION §2 actor:death payload).
+    on('actor:death', (e) => {
+      const k = e?.killer;
+      if (!k || this._isPlayerTarget(k) || !e.actor) return;
+      const kTeam = e.killerTeam ?? k.team;
+      this.killfeed.push({
+        attacker: k.name ?? null,
+        attackerVariant: k.variantDisplay ?? null,
+        victim: e.actor.name ?? null,
+        victimVariant: e.actor.variantDisplay ?? null,
+        headshot: !!e.headshot,
+        mine: false,
+        attackerFriendly: kTeam === 'esf',
+      });
+    });
+
     on('game:multiKill', (e) => {
       const n = Math.max(2, Math.round(e?.count ?? 2));
       const note = n === 2 ? 'DOUBLE KILL · NOTED' : n === 3 ? 'TRIPLE KILL · NOTED' : n + ' AT ONCE · COMMAND IS CONCERNED';
@@ -426,6 +471,14 @@ export class UiSystem {
     on('game:over', (e) => {
       this.death.hide();
       this.attract.hide();
+      if (e?.mode && e.mode !== 'survival') {
+        const map = (globalThis.__FLOP_MAPS__?.list ?? []).find((m) => m.id === e.map);
+        this.match.show({ ...e, mapName: map?.name ?? null });
+        this.clearPrompt();
+        this._releasePointer();
+        this.sfx('run_over', 0.8);
+        return;
+      }
       this.over.show(e ?? {});
       this._releasePointer();
       this.sfx('run_over', 0.8);
@@ -439,13 +492,19 @@ export class UiSystem {
       if (this._pin !== 'title') this.attract.hide();
       if (this._pin !== 'death') this.death.hide();
       this.over.hide();
+      this.match.hide();
     });
 
     this.resize(ctx.canvas.clientWidth || innerWidth, ctx.canvas.clientHeight || innerHeight, ctx);
     this._prevPos.copy(this._playerPos());
 
-    // Boot straight into the title screen (no game subsystem required).
+    // Boot straight into the main menu (no game subsystem required), or, after a
+    // menu launch reloaded onto another map, the one-click deploy card.
     this.attract.setBest(this._bestRecord());
+    const sess = ctx.config?.session;
+    // Built on the first frame: the game (which knows what is playable) may
+    // initialise after this subsystem.
+    this._pendingDeploy = sess?.pending && !ctx.config?.deterministic ? sess : null;
     this.attract.show(true);
   }
 
@@ -533,19 +592,128 @@ export class UiSystem {
     }
   }
 
-  /** Loadout card clicked on the title screen → deploy into the run. */
-  _startRun(id) {
+  /** The menu launched a session: the game starts it here or reloads onto its map. */
+  _launch(session) {
     this.attract.hide();
     this.death.hide();
     this.over.hide();
+    this.match.hide();
     this.radio.clear();
     this._resetRunState();
-    const L = LOADOUTS.find((l) => l.id === id) ?? LOADOUTS[0];
-    this.state.job = L.id;
-    this.state.weaponName = this._weaponName(L.weapon) ?? L.kit;
-    this.ctx.events.emit('ui:startRun', { job: this.state.job });
+    this.ctx.events.emit('ui:launch', { session });
     // Hand off to the game's click-to-lock flow (this call is inside the gesture).
     this.ctx.input?.requestPointerLock?.();
+  }
+
+  /** Everything the main menu needs, asked of other systems at runtime. */
+  _menuHost(ctx) {
+    const game = () => ctx.peek('game');
+    const maps = () => globalThis.__FLOP_MAPS__?.list ?? [];
+    return {
+      launch: (s) => this._launch(s),
+      modes: () =>
+        game()?.availableModes?.() ?? [{ id: 'survival', label: 'SURVIVAL', available: true, maps: maps().map((m) => m.id) }],
+      missions: () => game()?.availableMissions?.() ?? [],
+      maps,
+      activeMap: () => globalThis.__FLOP_MAPS__?.active ?? ctx.config?.map ?? 'town',
+      session: () => game()?.session ?? ctx.config?.session ?? null,
+      setDifficulty: (d) => game()?.setDifficulty?.(d),
+      saveLoadout: (l) => game()?.saveLoadout?.(l),
+      weapons: () => this._loadoutInfo() ?? [],
+      equipment: () => this._equipmentInfo(),
+      openSettings: (onBack) => this.menu.openSettings(onBack),
+      settingsOpen: () => this.menu.open,
+      bindingLive: (a) => this._bindingLive(a),
+      extraControls: () => this._extraControls(),
+    };
+  }
+
+  /**
+   * Lethal / tactical options. Only offered when the weapons system has real
+   * equipment (EXPANSION §6: setLoadout + live counts in getHudState()).
+   */
+  _equipmentInfo() {
+    const w = this.ctx.peek('weapons');
+    if (!w) return null;
+    if (typeof w.equipmentInfo === 'function') return w.equipmentInfo();
+    const hs = this._weaponState();
+    if (typeof w.setLoadout !== 'function' || hs?.lethalCount === undefined) return null;
+    return {
+      lethal: [{ id: 'frag', label: 'FRAG GRENADE', desc: 'Cooks while held. Thrown with feeling.' }],
+      tactical: [{ id: 'flash', label: 'FLASHBANG', desc: 'Blinds and deafens. Politely.' }],
+    };
+  }
+
+  /** Whether an input action is consumed by the running build (controls page). */
+  _bindingLive(a) {
+    const w = this.ctx.peek('weapons');
+    const ai = this.ctx.peek('ai');
+    switch (a) {
+      case 'reload':
+      case 'pause':
+        return true;
+      case 'use':
+        return true; // plant / defuse (src/game)
+      case 'grenade':
+      case 'lethal':
+      case 'frag':
+      case 'tactical':
+      case 'flash':
+      case 'flashbang':
+        return this._equipmentInfo() !== null;
+      case 'melee':
+        return typeof w?.melee === 'function';
+      case 'aiDebug':
+        return typeof ai?.toggleDebug === 'function' || ai?.debugOverlay !== undefined;
+      case 'flashlight':
+        return typeof w?.toggleLight === 'function' || typeof this.ctx.peek('player')?.toggleFlashlight === 'function';
+      default:
+        return false;
+    }
+  }
+
+  /** Weapon keys owned by src/weapons (not in the ACTIONS map). */
+  _extraControls() {
+    const w = this.ctx.peek('weapons');
+    if (typeof w?.controls === 'function') return w.controls();
+    const n = w?.weaponIds?.length ?? 4;
+    const out = [
+      [[`1 – ${n}`], 'SELECT WEAPON'],
+      [['TAB', 'WHEEL'], 'NEXT WEAPON'],
+      [['B'], 'FIRE MODE'],
+      [['I'], 'INSPECT'],
+    ];
+    const ai = this.ctx.peek('ai');
+    if (typeof ai?.toggleDebug === 'function') out.push([['F3'], 'AI DEBUG OVERLAY']);
+    return out;
+  }
+
+  /** After a launch reload: the one-click deploy card instead of the menu. */
+  _deployCard(session) {
+    const maps = globalThis.__FLOP_MAPS__?.list ?? [];
+    const map = maps.find((m) => m.id === session.map) ?? null;
+    const g = this.ctx.peek('game');
+    const modes = g?.availableModes?.() ?? [];
+    const missions = g?.availableMissions?.() ?? [];
+    const mode = modes.find((m) => m.id === session.mode);
+    const mission = missions.find((m) => m.id === session.mission);
+    const title = mission?.label ?? mode?.label ?? 'SURVIVAL';
+    const L = session.loadout ?? {};
+    const wname = (id) => this._weaponName(id) ?? String(id ?? '').toUpperCase();
+    const rows = [
+      ['MAP', map?.name ?? session.map],
+      ['DIFFICULTY', String(session.difficulty ?? 'regular').toUpperCase()],
+      ['PRIMARY', wname(L.primary)],
+    ];
+    if (L.secondary) rows.push(['SECONDARY', wname(L.secondary)]);
+    for (const r of mode?.rules ?? []) rows.push(['', r]);
+    this.attract.showDeploy(session, {
+      kicker: mission ? 'SPECIAL OPERATION' : mode && mode.id !== 'survival' ? 'BOT MATCH' : 'SURVIVAL',
+      title,
+      blurb: mission?.blurb ?? mode?.blurb ?? map?.objectiveLabel ?? '',
+      map,
+      rows,
+    });
   }
 
   /** Reflect `game:state` transitions onto the screens and the radio. */
@@ -556,8 +724,9 @@ export class UiSystem {
         this.over.hide();
         this.radio.clear();
         this._resetRunState();
+        this.match.hide();
+        this.modeHud.reset();
         this.attract.setBest(this._bestRecord());
-        this.attract.setWeaponNames(this._loadoutInfo());
         this.attract.show();
         this._releasePointer();
         break;
@@ -565,6 +734,7 @@ export class UiSystem {
         this.attract.hide();
         this.death.hide();
         this.over.hide();
+        this.match.hide();
         break;
       case 'down':
         this.attract.hide();
@@ -592,8 +762,8 @@ export class UiSystem {
     this.hit.spawn(kind);
     this.crosshair.onHit();
     this.sfx(
-      kind === 'kill' ? 'hit_kill' : kind === 'head' ? 'hit_head' : kind === 'armour' ? 'hit_armour' : 'hit_flesh',
-      kind === 'kill' ? 1 : 0.7
+      kind === 'kill' || kind === 'headkill' ? 'hit_kill' : kind === 'head' ? 'hit_head' : kind === 'armour' ? 'hit_armour' : 'hit_flesh',
+      kind === 'kill' || kind === 'headkill' ? 1 : 0.7
     );
   }
 
@@ -680,6 +850,7 @@ export class UiSystem {
     this.attract.hide();
     this.death.hide();
     this.over.hide();
+    this.match.hide();
     this._pin = null;
     if (name === 'clean') {
       this.demo?.stop(this);
@@ -702,7 +873,7 @@ export class UiSystem {
     if (name === 'title') {
       this._pin = 'title';
       this.attract.setBest({ score: 18450, wave: 4 });
-      this.attract.setWeaponNames(this._loadoutInfo());
+      this.attract.home();
       this.attract.show(true);
       this.hudVisible = 0;
       return { state: 'title' };
@@ -833,6 +1004,11 @@ export class UiSystem {
     // ---- ai blips --------------------------------------------------------
     this._collectBlips();
 
+    if (this._pendingDeploy) {
+      this._deployCard(this._pendingDeploy);
+      this._pendingDeploy = null;
+    }
+
     // ---- front-end screen state -------------------------------------------
     this._syncScreen(ctx);
     if (this._screen === 'title') this._titleCamera(ctx, rawDt);
@@ -881,6 +1057,14 @@ export class UiSystem {
     this.attract.update(rawDt);
     this.death.update(rawDt);
     this.over.update(rawDt);
+    this.match.update(rawDt);
+
+    // ---- bot-match HUD (score bar, zones, rounds, respawn, spectate) -----
+    const g = ctx.peek('game');
+    const mh = this.state.simulate ? null : g?.hudState?.() ?? null;
+    const mp = mh && mh.mode !== 'survival' ? mh : null;
+    this.modeHud.update(rawDt, mp, this);
+    setStyle(this.runBar.root, 'display', mp ? 'none' : '');
 
     this._buildCompassObjectives(pos);
     this.compass.update(heading, this._compassObjs);
@@ -954,7 +1138,18 @@ export class UiSystem {
    * src/weapons listens and hides the first-person viewmodel on any screen.
    */
   _syncScreen(ctx) {
-    const name = this.attract.open ? 'title' : this.death.open ? 'death' : this.over.open ? 'report' : null;
+    const mh = this.modeHud;
+    const name = this.attract.open
+      ? 'title'
+      : this.death.open
+        ? 'death'
+        : this.over.open || this.match.open
+          ? 'report'
+          : mh.spectating
+            ? 'spectate'
+            : mh.respawning
+              ? 'respawn'
+              : null;
     if (name === this._screen) return;
     const was = this._screen;
     this._screen = name;
@@ -991,7 +1186,9 @@ export class UiSystem {
   }
 
   _screenOpen() {
-    return this.attract.open || this.death.open || this.over.open;
+    return (
+      this.attract.open || this.death.open || this.over.open || this.match.open || this.modeHud.spectating || this.modeHud.respawning
+    );
   }
 
   _buildCompassObjectives(pos) {
@@ -1041,6 +1238,8 @@ export class UiSystem {
     this.attract.dispose();
     this.death.dispose();
     this.over.dispose();
+    this.match.dispose();
+    this.modeHud.dispose();
     this.menu.dispose();
     this.root.remove();
     removeStyles();

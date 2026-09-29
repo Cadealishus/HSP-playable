@@ -111,6 +111,8 @@ export class GameSystem {
     this._installDebugApi();
 
     this._setState('attract');
+    // Nobody walks around under the main menu (capture poses the player itself).
+    if (!ctx.config?.deterministic) p?.setControlEnabled?.(false);
     console.info(`[game] session ${this.session.kind}/${this.session.mode ?? this.session.mission} on ${this.session.map} — state=attract`);
   }
 

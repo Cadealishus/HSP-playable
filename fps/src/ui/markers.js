@@ -156,6 +156,13 @@ export class WorldMarkers {
         setText(node._letter, o.label ?? '');
         setText(node._dist, metres(p.dist));
         setText(node._name, o.name ?? '');
+        // Team colour on the diamond (zones); amber is the default objective.
+        const col = o.color ?? 'rgba(237,181,76,.95)';
+        if (node._col !== col) {
+          node._col = col;
+          node._dia.firstChild?.setAttribute('fill', col);
+          node._chev.firstChild?.setAttribute('fill', col);
+        }
         const edge = p.offscreen;
         setStyle(node._dia, 'display', edge ? 'none' : '');
         setStyle(node._chev, 'display', edge ? '' : 'none');
