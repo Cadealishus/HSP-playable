@@ -91,6 +91,8 @@ export class Clip {
         o.parts.charge = lerp(a.charge ?? 0, b.charge ?? 0, w);
         o.parts.bolt = lerp(a.bolt ?? 0, b.bolt ?? 0, w);
         o.parts.slide = lerp(a.slide ?? 0, b.slide ?? 0, w);
+        o.parts.pump = lerp(a.pump ?? 0, b.pump ?? 0, w);
+        o.parts.lift = lerp(a.lift ?? 0, b.lift ?? 0, w);
       });
     }
     return out;
@@ -103,7 +105,7 @@ export function makeSampleResult() {
     pos: [0, 0, 0],
     rot: [0, 0, 0],
     lhand: { pos: [0, 0, 0], finger: [0, 0, 0], back: [0, 0, 0], pose: 'wrap', weight: 0 },
-    parts: { mag: 0, magVisible: true, charge: 0, bolt: 0, slide: 0 },
+    parts: { mag: 0, magVisible: true, charge: 0, bolt: 0, slide: 0, pump: 0, lift: 0 },
   };
 }
 
@@ -314,5 +316,136 @@ export function buildClips(nodes, def) {
     events: [{ t: 0.995 * holT, name: 'end' }],
   });
 
-  return { reloadTac, reloadEmpty, inspect, draw, holster };
+  const out = { reloadTac, reloadEmpty, inspect, draw, holster };
+
+  /* ------------------------------------------------------------- manual action */
+  // One stroke of a pump or a bolt between shots. `eject` is when the fired case
+  // leaves the port; `end` releases the trigger for the next shot.
+  if (def.action === 'pump') {
+    const d = (def.cycleTime ?? 0.62) * 0.92;
+    const tr = nodes.pumpTravel ?? [0, 0, 0.078];
+    const back = v3(hgP[0] + tr[0], hgP[1] + tr[1], hgP[2] + tr[2]);
+    out.cycle = new Clip('cycle', d, {
+      weapon: [
+        { t: 0, p: v3(0, 0, 0), r: v3(0, 0, 0) },
+        { t: 0.35 * d, p: v3(-0.004, -0.006, 0.012), r: v3(0.03, -0.02, 0.05) },
+        { t: 0.7 * d, p: v3(0.002, -0.002, -0.004), r: v3(-0.02, 0.01, -0.02), ease: 'out' },
+        { t: d, p: v3(0, 0, 0), r: v3(0, 0, 0) },
+      ],
+      lhand: [
+        { t: 0, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+        { t: 0.1 * d, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+        { t: 0.42 * d, p: back, finger: wrapFinger, back: wrapBack, pose: 'wrap', ease: 'out' },
+        { t: 0.52 * d, p: back, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+        { t: 0.82 * d, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap', ease: 'out' },
+        { t: d, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+      ],
+      parts: [
+        { t: 0, mag: 0, magVisible: 1, pump: 0 },
+        { t: 0.1 * d, mag: 0, magVisible: 1, pump: 0 },
+        { t: 0.42 * d, mag: 0, magVisible: 1, pump: 1, ease: 'out' },
+        { t: 0.52 * d, mag: 0, magVisible: 1, pump: 1 },
+        { t: 0.82 * d, mag: 0, magVisible: 1, pump: 0, ease: 'out' },
+        { t: d, mag: 0, magVisible: 1, pump: 0 },
+      ],
+      events: [
+        { t: 0.4 * d, name: 'eject' },
+        { t: 0.8 * d, name: 'chamber' },
+        { t: 0.99 * d, name: 'end' },
+      ],
+    });
+  } else if (def.action === 'bolt') {
+    const d = (def.cycleTime ?? 1.05) * 0.92;
+    out.cycle = new Clip('cycle', d, {
+      weapon: [
+        { t: 0, p: v3(0, 0, 0), r: v3(0, 0, 0) },
+        { t: 0.2 * d, p: v3(0.006, -0.012, 0.01), r: v3(-0.04, 0.08, 0.3) },
+        { t: 0.75 * d, p: v3(0.006, -0.012, 0.012), r: v3(-0.05, 0.1, 0.34) },
+        { t: d, p: v3(0, 0, 0), r: v3(0, 0, 0), ease: 'out' },
+      ],
+      parts: [
+        { t: 0, mag: 0, magVisible: 1, bolt: 0, lift: 0 },
+        { t: 0.12 * d, mag: 0, magVisible: 1, bolt: 0, lift: 0 },
+        { t: 0.26 * d, mag: 0, magVisible: 1, bolt: 0, lift: 1, ease: 'out' },
+        { t: 0.44 * d, mag: 0, magVisible: 1, bolt: 1, lift: 1, ease: 'out' },
+        { t: 0.52 * d, mag: 0, magVisible: 1, bolt: 1, lift: 1 },
+        { t: 0.68 * d, mag: 0, magVisible: 1, bolt: 0, lift: 1 },
+        { t: 0.8 * d, mag: 0, magVisible: 1, bolt: 0, lift: 0, ease: 'back' },
+        { t: d, mag: 0, magVisible: 1, bolt: 0, lift: 0 },
+      ],
+      events: [
+        { t: 0.44 * d, name: 'eject' },
+        { t: 0.68 * d, name: 'chamber' },
+        { t: 0.99 * d, name: 'end' },
+      ],
+    });
+  }
+
+  /* ------------------------------------------------------ shell-by-shell load */
+  // start (cant the gun, support hand to the loading port) -> shell x N (each
+  // one: hand down to the carrier, a shell up into the port, `shell` event) ->
+  // end (hand back to the pump). Firing interrupts at any point.
+  if (def.reloadStyle === 'shell') {
+    const ds = def.reloadStart ?? 0.36;
+    const dl = def.reloadShell ?? 0.5;
+    const de = def.reloadEnd ?? 0.5;
+    const cantP = v3(0.012, -0.024, 0.02);
+    const cantR = v3(-0.12, 0.28, 0.55);
+    const port = v3(seat[0] + 0.004, seat[1] - 0.06, seat[2] + 0.02);
+    const belowPort = v3(seat[0] + 0.03, seat[1] - 0.11, seat[2] + 0.06);
+    const carrier = v3(seat[0] + 0.1, seat[1] - 0.2, seat[2] + 0.14);
+    const hold = { weapon: [{ t: 0, p: cantP, r: cantR }] };
+    out.reloadStart = new Clip('reloadStart', ds, {
+      weapon: [
+        { t: 0, p: v3(0, 0, 0), r: v3(0, 0, 0) },
+        { t: ds, p: cantP, r: cantR, ease: 'out' },
+      ],
+      lhand: [
+        { t: 0, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+        { t: ds, p: belowPort, finger: magFinger, back: magBack, pose: 'open', ease: 'out' },
+      ],
+      parts: [{ t: 0, mag: 0, magVisible: 0 }],
+      events: [
+        { t: 0.02 * ds, name: 'start' },
+        { t: 0.99 * ds, name: 'end' },
+      ],
+    });
+    out.reloadShell = new Clip('reloadShell', dl, {
+      ...hold,
+      lhand: [
+        { t: 0, p: belowPort, finger: magFinger, back: magBack, pose: 'open' },
+        { t: 0.3 * dl, p: carrier, finger: magFinger, back: magBack, pose: 'pinch', ease: 'out' },
+        { t: 0.55 * dl, p: belowPort, finger: magFinger, back: magBack, pose: 'pinch' },
+        { t: 0.72 * dl, p: port, finger: magFinger, back: magBack, pose: 'pinch', ease: 'out' },
+        { t: 0.82 * dl, p: port, finger: magFinger, back: magBack, pose: 'open' },
+        { t: dl, p: belowPort, finger: magFinger, back: magBack, pose: 'open', ease: 'out' },
+      ],
+      parts: [
+        { t: 0, mag: 0, magVisible: 0 },
+        { t: 0.28 * dl, mag: 1, magVisible: 0 },
+        { t: 0.3 * dl, mag: 1, magVisible: 1 },
+        { t: 0.72 * dl, mag: 1, magVisible: 1, ease: 'out' },
+        { t: 0.74 * dl, mag: 0, magVisible: 0 },
+        { t: dl, mag: 0, magVisible: 0 },
+      ],
+      events: [
+        { t: 0.72 * dl, name: 'shell' },
+        { t: 0.99 * dl, name: 'end' },
+      ],
+    });
+    out.reloadEnd = new Clip('reloadEnd', de, {
+      weapon: [
+        { t: 0, p: cantP, r: cantR },
+        { t: de, p: v3(0, 0, 0), r: v3(0, 0, 0), ease: 'out' },
+      ],
+      lhand: [
+        { t: 0, p: belowPort, finger: magFinger, back: magBack, pose: 'open' },
+        { t: 0.7 * de, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap', ease: 'out' },
+        { t: de, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+      ],
+      parts: [{ t: 0, mag: 0, magVisible: 0 }],
+      events: [{ t: 0.99 * de, name: 'end' }],
+    });
+  }
+  return out;
 }
