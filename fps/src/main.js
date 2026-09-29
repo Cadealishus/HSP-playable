@@ -15,7 +15,8 @@ import { AudioSystem } from './audio/index.js';
 import { GameSystem } from './game/index.js';
 
 import { installShotApi } from './dev/shots.js';
-import { MAPS, resolveMapId, switchMap } from './world/maps/index.js';
+import { MAPS } from './world/maps/index.js';
+import { resolveSession, resolveSettings, consumePending, launchSession } from './game/session.js';
 import { prewarm } from './core/prewarm.js';
 
 /** Wall clock at the first line of the module graph — `boot:done.totalMs`. */
@@ -29,20 +30,30 @@ const capture = params.get('capture') === '1';
 // free-run. See the long comment in src/dev/shots.js.
 const lockstep = capture && params.get('lockstep') === '1';
 
+// Settings the menu persisted (quality, sensitivity, FOV, invert) survive the
+// launch reload. `?q=` still wins; capture never reads storage.
+const settings = resolveSettings(params);
 const config = createConfig({
-  quality: params.get('q') ?? 'ultra',
+  quality: params.get('q') ?? settings.quality ?? 'ultra',
   deterministic: capture,
+  ...settings.config,
 });
 
-// The active map (see src/world/maps/index.js): `?map=`, else the last choice
-// made on the title screen, else the town. The world system builds it; the
-// title screen reads the list and the active id off window.__FLOP_MAPS__ (the
-// UI never imports the world), and `select(id)` saves and reloads onto a map.
-config.map = resolveMapId(params);
+// The SESSION (src/game/session.js, docs/EXPANSION.md §1): `?mode=&map=&mission=`
+// (dev/capture), else what the menu stored in localStorage, else survival on the
+// town. Resolved before boot because the world builds `config.map`. A menu
+// launch is stored as pending: consume it now so a refresh returns to the menu.
+const session = resolveSession(params, { maps: MAPS });
+if (session.pending) consumePending();
+config.session = session;
+config.map = session.map;
+// The title screen reads the map list and the active id off window.__FLOP_MAPS__
+// (the UI never imports the world). `select(id)` relaunches onto another map
+// through storage, without a query string.
 window.__FLOP_MAPS__ = {
   active: config.map,
   list: MAPS.map(({ load, ...meta }) => meta),
-  select: (id) => (id === config.map ? false : switchMap(id)),
+  select: (id) => (id === config.map ? false : launchSession({ ...session, map: id })),
 };
 
 const canvas = document.getElementById('game');
