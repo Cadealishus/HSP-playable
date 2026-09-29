@@ -40,12 +40,31 @@ export const CALLSIGNS = Object.freeze([
   'NOT LEN',
 ]);
 
-const ROMAN = ['', '', ' II', ' III', ' IV', ' V', ' VI', ' VII', ' VIII', ' IX', ' X'];
+/**
+ * ESF bot callsigns: Doug's unit. The IFF tag and the killfeed print these.
+ * Same regnal recycling as the Committee's, for the same reasons.
+ */
+export const ESF_CALLSIGNS = Object.freeze([
+  'HOLLIS',
+  'PADGETT',
+  'SMITH (J.)',
+  'SMITH (OTHER J.)',
+  'OKAFOR',
+  'LUMLEY',
+  'PRICE (NOT THAT ONE)',
+  'VANCE',
+  'DOYLE',
+  'MCCREADY',
+  'BRICK',
+  'TANNER',
+]);
+
+const ROMAN =['', '', ' II', ' III', ' IV', ' V', ' VI', ' VII', ' VIII', ' IX', ' X'];
 
 /** Callsign for the i-th soldier spawned this session. */
-export function callsign(i) {
-  const base = CALLSIGNS[i % CALLSIGNS.length];
-  const gen = ((i / CALLSIGNS.length) | 0) + 1;
+export function callsign(i, pool = CALLSIGNS) {
+  const base = pool[i % pool.length];
+  const gen = ((i / pool.length) | 0) + 1;
   return base + (ROMAN[gen] ?? ` ${gen}`);
 }
 

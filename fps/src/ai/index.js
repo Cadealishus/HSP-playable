@@ -45,13 +45,41 @@
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
 import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
-import { PlayerProxy } from './teams.js';
+import { PlayerProxy, normTeam } from './teams.js';
+import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
+import { IffTags } from './iff.js';
+
+const EMPTY = Object.freeze([]);
+
+/**
+ * Ray (unit `d`) against a capsule: closest approach of the ray to the
+ * capsule's segment, then back off to the surface. Returns t, or -1.
+ */
+function rayCapsule(o, d, ax, ay, az, bx, by, bz, r, maxT) {
+  const ux = bx - ax, uy = by - ay, uz = bz - az;
+  const wx = o.x - ax, wy = o.y - ay, wz = o.z - az;
+  const b = d.x * ux + d.y * uy + d.z * uz;
+  const c = ux * ux + uy * uy + uz * uz;
+  const dd = d.x * wx + d.y * wy + d.z * wz;
+  const e = ux * wx + uy * wy + uz * wz;
+  const den = c - b * b;
+  let t = den > 1e-9 ? (e - b * dd) / den : 0;
+  t = c > 1e-9 ? Math.max(0, Math.min(1, t)) : 0;
+  const qx = ax + ux * t, qy = ay + uy * t, qz = az + uz * t;
+  const s = (qx - o.x) * d.x + (qy - o.y) * d.y + (qz - o.z) * d.z;
+  if (s < 0 || s > maxT + r) return -1;
+  const px = o.x + d.x * s - qx, py = o.y + d.y * s - qy, pz = o.z + d.z * s - qz;
+  const m2 = px * px + py * py + pz * pz;
+  if (m2 > r * r) return -1;
+  const hit = s - Math.sqrt(r * r - m2);
+  return hit < 0 ? 0 : hit;
+}
 import { RIG } from './rig.js';
 import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
-import { RadioNet, FACTION, callsign } from './radio.js';
+import { RadioNet, FACTION, callsign, ESF_CALLSIGNS } from './radio.js';
 
 /**
  * Enemy names live in radio.js: FACTION (the opposing force's name for the UI),
@@ -102,6 +130,10 @@ export class AiSystem {
     this.forcePopulate = false;
     /** running index into CALLSIGNS for the killfeed display name */
     this._callsignSeq = 0;
+    this._esfSeq = 0;
+    this._roleSeq = 0;
+    /** IFF chevrons over friendly bots */
+    this.iff = new IffTags(this.root);
     /** The opposing force, for UI copy: `{ name, short }`. */
     this.faction = FACTION;
     /** Enemy radio net: emits `ai:radio { enemy, kind, text }` for subtitles. */
@@ -137,6 +169,16 @@ export class AiSystem {
     /** scratch blast descriptor handed to Agent.applyDamage by explosions */
     this._blast = { position: null, radius: 6, strength: 1 };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
+    this._pelletDir = new THREE.Vector3();
+    this._hitFrom = new THREE.Vector3();
+    this._actorHit = { actor: null, t: 0, part: 'torso', scale: 1 };
+    this._civLists = [null, null];
+    /** non-combatants (civilian.js); never in `agents`, never targeted */
+    this.civilians = [];
+    this._fleshEvent = {
+      point: new THREE.Vector3(), normal: new THREE.Vector3(), incident: new THREE.Vector3(),
+      surface: 'flesh', surfaceIndex: 9, damage: 0, exit: false, actor: null, part: null, ai: true,
+    };
     this._grenades = [];
     this._grenadeGeo = null;
     this._grenadeMat = null;
@@ -330,17 +372,12 @@ export class AiSystem {
     const on = (t, fn) => this._off.push(ctx.events.on(t, fn));
 
     on('weapon:fire', (e) => {
-      if (!e || !e.origin || e.weapon === 'ai_rifle') return; // ignore our own
-      // A gunshot is the loudest thing in the level: everybody hears it, and
-      // anyone near the line of fire also feels suppressed by it.
-      for (const a of this.agents) {
-        if (!a.alive) continue;
-        a.hear(e.origin, 90);
-        if (e.dir) {
-          const d = this._distanceToRay(a.position, e.origin, e.dir, a.eyeHeight);
-          if (d < 2.6) a.suppress(0.45 * (1 - d / 2.6) + 0.12);
-        }
-      }
+      if (!e || !e.origin || e.ai === true) return; // ours are heard in onAgentFire
+      // The player's shot. Loudness scales with the weapon's `noise` (defs.js):
+      // a suppressed gun carries a fraction of the 90 m an open rifle does.
+      const w = e.weapon;
+      const noise = typeof w === 'object' && w ? w.noise ?? (w.suppressed ? 0.3 : 1) : 1;
+      this.onShot(this.player, e.origin, e.dir, 90 * noise);
     });
 
     on('bullet:impact', (e) => {
@@ -357,19 +394,26 @@ export class AiSystem {
       if (!e || !e.target || !(e.target instanceof Agent)) return;
       const a = e.target;
       if (!a.alive) return;
-      const amount = e.amount * this._falloff(e.point);
-      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, e.incident);
+      // physics names no shooter: an unattributed round on a bot is Doug's
+      const src = e.source instanceof Agent ? e.source : this.player;
+      // friendly fire is off (ESF hitboxes are off MASK.BULLET anyway)
+      if (src !== a && src.team === a.team && a.team !== 'civ') { e.amount = 0; return; }
+      const amount = e.amount * (src === this.player ? this._falloff(e.point) : 1);
+      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, e.incident, null, src);
       if (!a.alive) e.killed = true;
     });
 
     on('explosion', (e) => {
       if (!e || !e.position) return;
       const radius = e.radius ?? 5;
+      const owner = this._resolveOwner(e.owner ?? e.source);
       for (const a of this.agents) {
         if (!a.alive) continue;
         const d = a.position.distanceTo(e.position) + 0.001;
         a.hear(e.position, 120);
         if (d > radius) continue;
+        // friendly fire off: the owner's teammates are spared (not the owner)
+        if (owner && owner !== a && owner.team === a.team) continue;
         if (this.phys && !this.phys.lineOfSight(e.position, a.eye, this.phys.MASK.EXPLOSION)) continue;
         const f = 1 - d / radius;
         this._v.copy(a.position).sub(e.position).normalize();
@@ -379,15 +423,40 @@ export class AiSystem {
         this._blast.position = e.position;
         this._blast.radius = radius;
         this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
-        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast);
+        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast, owner);
       }
     });
 
     on('player:footstep', (e) => {
       if (!e || !e.position) return;
       const loud = e.running ? 24 : 11;
-      for (const a of this.agents) if (a.alive) a.hear(e.position, loud);
+      for (const a of this.agents) if (a.alive && a.team === 'hostile') a.hear(e.position, loud);
     });
+  }
+
+  /** An explosion/damage owner as an actor: an Agent, the player proxy, or null. */
+  _resolveOwner(o) {
+    if (!o) return null;
+    if (o instanceof Agent) return o;
+    if (o === 'player' || o.isPlayer === true || o === this.ctx.peek('player')) return this.player;
+    return null;
+  }
+
+  /**
+   * A gunshot from `shooter` (an Agent or the player proxy) at `origin`,
+   * audible out to `radius` metres. Enemies of the shooter hear a threat;
+   * anyone near the line of fire is suppressed.
+   */
+  onShot(shooter, origin, dir, radius) {
+    for (const a of this.agents) {
+      if (!a.alive || a === shooter) continue;
+      if (shooter && a.team === shooter.team) continue;
+      a.hear(origin, radius);
+      if (dir) {
+        const d = this._distanceToRay(a.position, origin, dir, a.eyeHeight);
+        if (d < 2.6) a.suppress(0.45 * (1 - d / 2.6) + 0.12);
+      }
+    }
   }
 
   _falloff(point) {
@@ -512,11 +581,34 @@ export class AiSystem {
   /* spawning                                                           */
   /* ================================================================== */
 
+  /**
+   * Spawn a combatant.
+   * @param variantName  body: 'vanguard' | 'irregular' | 'breacher' (null: the
+   *                     role picks); ESF bots get the same body in ESF kit
+   * @param opts  { team: 'hostile'|'esf', role, weapon (def id), skill 0..1,
+   *                name, patrol: Vector3[], squad, holding: Civilian }
+   */
   spawn(variantName, position, yaw = 0, opts = {}) {
-    const a = new Agent(this, { variant: variantName, position, yaw, ...opts });
-    if (!a.name) a.name = this.nextCallsign();
+    const team = normTeam(opts.team ?? 'hostile');
+    const role = roleFor(opts.role);
+    let variant = variantName;
+    if (!variant || !VARIANTS[String(variant).replace(/^esf_/, '')]) {
+      const list = role.variant ?? ['vanguard'];
+      variant = list[this._roleSeq++ % list.length];
+    }
+    variant = String(variant).replace(/^esf_/, '');
+    const model = opts.model ?? (opts.role ? modelFor(role, variant) : null);
+    const a = new Agent(this, { ...opts, variant, position, yaw, team, model });
+    if (!a.name) a.name = team === 'esf' ? callsign(this._esfSeq++, ESF_CALLSIGNS) : this.nextCallsign();
+    if (opts.skill !== undefined) a.setDifficulty(opts.skill);
+    if (team === 'esf') this.iff.attach(a);
     this.agents.push(a);
     return a;
+  }
+
+  /** Called by Agent.die(): drop the IFF tag, free any claims. */
+  onAgentDeath(a) {
+    this.iff.detach(a);
   }
 
   /**
@@ -773,17 +865,27 @@ export class AiSystem {
 
   onAgentFire(agent, origin, dir) {
     const ctx = this.ctx;
-    const phys = this.phys;
+    const W = agent.weapon;
 
-    // muzzle flash, light and smoke come from fx via the canonical event
+    // muzzle flash, light and smoke come from fx via the canonical event; the
+    // `weapon` name picks the audio profile (ai_smg -> smg, ai_lmg -> lmg ...)
     const fe = this._fireEvent;
+    fe.weapon = W?.suppressed ? { id: W.audio, audio: W.audio, suppressed: true } : W?.audio ?? 'ai_rifle';
+    fe.ai = true;
+    fe.actor = agent;
     fe.origin.copy(origin);
     fe.dir.copy(dir);
-    fe.intensity = this._flashGain();
+    fe.intensity = this._flashGain() * (W?.suppressed ? 0.25 : 1);
     fe.light = this._flashLight();
-    fe.flashScale = 0.8;
+    fe.flashScale = W?.cls === 'shotgun' || W?.cls === 'lmg' ? 1.0 : 0.8;
     fe.seed = (agent.id * 2654435761 + ctx.time.frame) >>> 0;
     ctx.events.emit('weapon:fire', fe);
+    this.onShot(agent, origin, dir, 90 * (W?.noise ?? 1));
+
+    if (W?.projectile) {
+      this.launchProjectile?.(agent, origin, dir);
+      return;
+    }
 
     // ejected case
     const se = this._shellEvent;
@@ -791,57 +893,170 @@ export class AiSystem {
     se.velocity.set(dir.z, 0.55, -dir.x).multiplyScalar(2.1).addScaledVector(dir, -0.6);
     ctx.events.emit('weapon:shell', se);
 
-    // the round itself
-    let end = null;
-    if (phys) {
-      const impacts = phys.fireBullet({
-        origin,
-        dir,
-        damage: agent.weaponDamage,
-        penetration: 0.9,
-        maxDist: 200,
-        mask: phys.MASK.BULLET,
-      });
-      if (impacts.length) end = impacts[0].point;
+    const pellets = Math.max(1, W?.pellets ?? 1);
+    const ps = W?.pelletSpread ?? 0;
+    const pd = this._pelletDir;
+    for (let i = 0; i < pellets; i++) {
+      pd.copy(dir);
+      if (pellets > 1) {
+        pd.x += agent.rng.gauss() * ps;
+        pd.y += agent.rng.gauss() * ps * 0.8;
+        pd.z += agent.rng.gauss() * ps;
+        pd.normalize();
+      }
+      this._fireOne(agent, origin, pd, i === 0);
     }
-    // physics has no player collider, so test the player capsule ourselves.
-    // Staged agents shoot for the camera, not for blood: a capture must not be
-    // graded through the player's low-health filter.
-    if (!agent.staged?.noDamage) this._testPlayerHit(agent, origin, dir, end);
-
-    this._tracerFrom.copy(origin);
-    if (end) this._tracerTo.copy(end);
-    else this._tracerTo.copy(origin).addScaledVector(dir, 120);
-    if ((agent.id + agent.ammo) % 3 === 0) ctx.events.emit('bullet:tracer', this._tracerEvent);
   }
 
-  _testPlayerHit(agent, origin, dir, end) {
-    const p = this.playerPosition(this._v);
-    if (!p) return;
-    const maxT = end ? origin.distanceTo(end) : 200;
-    const px = p.x - origin.x, py = p.y - origin.y, pz = p.z - origin.z;
-    const t = px * dir.x + py * dir.y + pz * dir.z;
-    if (t < 0.5 || t > maxT) return;
-    const miss = Math.hypot(px - dir.x * t, py - dir.y * t, pz - dir.z * t);
-    const player = this.ctx.peek('player');
-    if (miss > 0.42) {
-      if (miss < 1.6) player?.onNearMiss?.(miss); // whip-crack past the ear
-      return;
+  /**
+   * One round (or pellet) from a bot. Friendly fire is off, so a round only
+   * ever connects with the shooter's enemies (and civilians caught in it):
+   *   1. the world, traced without actor layers (walls stop the round),
+   *   2. enemy bots' hit capsules nearer than that wall (_traceActors),
+   *   3. the player's capsule, for hostile shooters (_playerHitT),
+   * and the nearest of the three takes it. Bot-on-bot hits are applied
+   * directly (never as `damage:dealt`, which the HUD reads as Doug's hit).
+   */
+  _fireOne(agent, origin, dir, primary) {
+    const phys = this.phys;
+    const W = agent.weapon;
+    const range = Math.min(W?.maxRange ?? 400, 400);
+    let wallT = range;
+    if (phys) {
+      const h = phys.raycast(origin, dir, range, this._worldBulletMask());
+      if (h.hit) wallT = h.distance;
     }
-    const amount = agent.weaponDamage * (miss < 0.16 ? 1.25 : 1);
-    this._v2.copy(origin);
-    // Damage is applied *only* through the event below. `player` listens for
-    // `damage:dealt` with itself as the target, so calling applyDamage() here as
-    // well wounded the player twice for every round that connected.
+    const hit = this._traceActors(agent, origin, dir, wallT);
+    const playerT =
+      agent.team === 'hostile' && !agent.staged?.noDamage ? this._playerHitT(origin, dir, wallT) : Infinity;
+    let endT = wallT;
+    if (hit.actor && hit.t < playerT) {
+      endT = hit.t;
+      const falloff = 1 - (1 - (W?.dropoff ?? 0.6)) * Math.min(1, hit.t / range) ** 2;
+      const amount = (W?.damage ?? 33) * BOT_DAMAGE_SCALE * hit.scale * falloff;
+      const pt = this._v3.copy(origin).addScaledVector(dir, hit.t);
+      const victim = hit.actor;
+      const part = hit.part;
+      this._emitFlesh(pt, dir, amount, victim, part);
+      victim.applyDamage(amount, part, pt, dir, null, agent);
+    } else if (playerT < Infinity) {
+      endT = playerT;
+      this._hitPlayer(agent, origin, dir, playerT);
+    } else if (phys) {
+      phys.fireBullet({
+        origin,
+        dir,
+        damage: W?.damage ?? 17,
+        penetration: W?.penetration ?? 0.9,
+        maxDist: range,
+        mask: this._worldBulletMask(),
+      });
+      // near miss on the player: the whip-crack past the ear
+      if (agent.team === 'hostile') this._nearMiss(origin, dir, wallT);
+    }
+    if (!primary) return;
+    this._tracerFrom.copy(origin);
+    this._tracerTo.copy(origin).addScaledVector(dir, Math.min(endT, 120));
+    const every = W?.tracerEvery ?? 3;
+    if ((agent.id + agent.ammo) % every === 0) this.ctx.events.emit('bullet:tracer', this._tracerEvent);
+  }
+
+  _worldBulletMask() {
+    const M = this.phys.MASK, L = this.phys.LAYER;
+    return M.BULLET & ~L.ACTOR;
+  }
+
+  /** Nearest enemy (or civilian) hit capsule along a ray, closer than maxT. */
+  _traceActors(shooter, o, d, maxT) {
+    const out = this._actorHit;
+    out.actor = null;
+    out.t = maxT;
+    const lists = this._civLists;
+    lists[0] = this.agents;
+    lists[1] = this.civilians ?? EMPTY;
+    for (let l = 0; l < 2; l++) {
+      const list = lists[l];
+      for (let i = 0; i < list.length; i++) {
+        const a = list[i];
+        if (!a.alive || a === shooter) continue;
+        if (a.team === shooter.team) continue; // friendly fire off: passes through
+        // bounding sphere around the body before the seven capsules
+        const cx = a.position.x - o.x, cy = a.position.y + 0.9 - o.y, cz = a.position.z - o.z;
+        const tc = cx * d.x + cy * d.y + cz * d.z;
+        if (tc < -1.2 || tc - 1.2 > out.t) continue;
+        const mx = cx - d.x * tc, my = cy - d.y * tc, mz = cz - d.z * tc;
+        if (mx * mx + my * my + mz * mz > 1.44) continue;
+        for (let k = 0; k < a.colliders.length; k++) {
+          const c = a.colliders[k];
+          const t = rayCapsule(o, d, c.ax, c.ay, c.az, c.bx, c.by, c.bz, c.radius, out.t);
+          if (t < 0 || t >= out.t) continue;
+          out.t = t;
+          out.actor = a;
+          out.part = c.part;
+          out.scale = c.damageScale ?? 1;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Distance along the ray at which it passes through the player, or Infinity. */
+  _playerHitT(o, d, maxT) {
+    const pr = this.player;
+    if (!pr.alive) return Infinity;
+    const p = pr.samplePoint(0, this._v);
+    const px = p.x - o.x, py = p.y - o.y, pz = p.z - o.z;
+    const t = px * d.x + py * d.y + pz * d.z;
+    if (t < 0.5 || t > maxT) return Infinity;
+    const lx = px - d.x * t, ly = py - d.y * t, lz = pz - d.z * t;
+    const miss = Math.hypot(lx, ly * 0.45, lz);
+    if (miss > 0.42) return Infinity;
+    this._lastPlayerMiss = miss;
+    return t;
+  }
+
+  _nearMiss(o, d, maxT) {
+    const pr = this.player;
+    if (!pr.alive) return;
+    const p = pr.samplePoint(0, this._v);
+    const px = p.x - o.x, py = p.y - o.y, pz = p.z - o.z;
+    const t = px * d.x + py * d.y + pz * d.z;
+    if (t < 0.5 || t > maxT) return;
+    const miss = Math.hypot(px - d.x * t, py - d.y * t, pz - d.z * t);
+    if (miss < 1.6) this.ctx.peek('player')?.onNearMiss?.(miss);
+  }
+
+  _hitPlayer(agent, origin, dir, t) {
+    const player = this.ctx.peek('player');
+    const W = agent.weapon;
+    const p = this._v2.copy(origin).addScaledVector(dir, t);
+    const amount =
+      agent.weaponDamage * (this._lastPlayerMiss < 0.16 ? 1.25 : 1) * (W?.pellets > 1 ? 1 / Math.sqrt(W.pellets) : 1);
+    this._hitFrom.copy(origin);
+    // Damage is applied *only* through this event: `player` listens for
+    // `damage:dealt` with itself as the target, so applying it here as well
+    // would wound him twice for every round.
     this.ctx.events.emit('damage:dealt', {
       target: player ?? 'player',
       amount,
       headshot: false,
       killed: false,
       point: p,
-      from: this._v2,
+      from: this._hitFrom,
       source: agent,
     });
+  }
+
+  /** Blood and audio for a bot-on-bot hit, through the canonical impact event. */
+  _emitFlesh(point, dir, damage, actor, part) {
+    const e = this._fleshEvent;
+    e.point.copy(point);
+    e.normal.copy(dir).multiplyScalar(-1);
+    e.incident.copy(dir);
+    e.damage = damage;
+    e.actor = actor;
+    e.part = part;
+    this.ctx.events.emit('bullet:impact', e);
   }
 
   emitReload(agent) {
@@ -1441,6 +1656,7 @@ export class AiSystem {
     this._grenadeGeo?.dispose();
     this._grenadeMat?.dispose();
     this.ground?.dispose();
+    this.iff?.dispose();
     for (const v of this._variants.values()) v.geometry.dispose();
     this._variants.clear();
     this.materials?.dispose();
