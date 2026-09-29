@@ -541,6 +541,31 @@ export const WEAPON_MATERIALS = {
     },
   ],
 
+  /**
+   * Olive-drab enamel over pressed steel: the frag grenade's shell and the
+   * rocket launcher's tube. A painted METAL part, so it wears through to bright
+   * steel on the chamfers (wearMaterial metalness 1) rather than to lighter
+   * plastic. Same 'rubber' base as the other painted/moulded classes, tinted to
+   * a muted US olive drab (~0.02 linear after the viewmodel calibration).
+   */
+  paint_od: [
+    'rubber',
+    {
+      ...BASE,
+      bake: { seed: 173 },
+      scale: 0.07,
+      tint: c(0.3, 0.33, 0.2),
+      roughness: [0.56, 0.14, 0.3],
+      normalStrength: 1.0,
+      detail: [20, 0.9, 0.5, 5],
+      wear: [0.34, 0.7, 0.5, 0],
+      wearColor: 0x77766c,
+      wearMaterial: [0.38, 1.0, 0, 0.6],
+      grimeColor: 0x0c0b08,
+      three: { physical: true, specularIntensity: 0.22 },
+    },
+  ],
+
   /** Soft rubber: grip overmould, butt pad, eyecup. */
   rubber: [
     'rubber',
