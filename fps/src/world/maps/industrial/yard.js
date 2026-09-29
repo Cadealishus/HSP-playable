@@ -223,7 +223,7 @@ function half(A, rng, s) {
   // ------------------------------------------------------ yard clutter/cover --
   for (const [x, z, ry] of [
     [-30.5, -22.4, 0.5],
-    [-44.0, 18.5, -1.2],
+    [-44.0, 20.6, -1.3],
   ]) forklift(A, X(x), Z(z), R(ry));
   for (const [x, z, n] of [
     [-42.0, -23.0, 3],
@@ -232,7 +232,7 @@ function half(A, rng, s) {
     [-33.5, 20.5, 3],
     [-6.5, 3.8, 2],
     [-48, -35, 2],
-    [-40, -40, 3],
+    [-38, -42.5, 3],
   ]) palletStack(A, rng, X(x), 0, Z(z), n);
   // drum clusters
   for (const [x, z] of [

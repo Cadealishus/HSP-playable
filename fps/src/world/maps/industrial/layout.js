@@ -81,7 +81,19 @@ export const CONTAINERS = [
   [-11, -4, 20, Q, 0, 'tan'],
   [-11, -4, 20, Q, 1, 'orange'],
   [-4.5, -9.5, 20, 0, 0, 'blue'],
+  // outer spawn walls (single height: cover, not a fortress)
+  [-54, -33, 40, Q, 0, 'tan'],
+  [-55, 27, 40, Q, 0, 'blue'],
+  // across the haul road, so the road is never a 130 m lane
+  [-19, 0.6, 20, Q, 0, 'red'],
+  // south-west field and the north-east approach (by symmetry)
+  [-40, 16.5, 40, 0, 0, 'white'],
+  [-40, 16.5, 40, 0, 1, 'orange'],
+  [-12, 20, 40, 0, 0, 'green'],
+  [-12, 20, 40, 0, 1, 'grey'],
+  [-44, 26, 20, 0, 0, 'red'],
   // the north-west yard
+  [-46, -38, 40, 0, 0, 'blue'],
   [-50, -46, 20, 0, 0, 'grey'],
   [-50, -46, 20, 0, 1, 'green'],
   [-44, -49.5, 20, Q, 0, 'red'],
