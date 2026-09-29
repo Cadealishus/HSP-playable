@@ -42,13 +42,13 @@ export const TOWN_MODES = {
   },
   hp: [
     [-0.5, 7.5, 5.5, 'THE SQUARE'],
-    [-15.5, 22.2, 3.5, 'WEST ALLEY'],
+    [-23.5, 22.4, 3.5, 'WEST ALLEY'],
     [0.0, -27.5, 5.0, 'SOUTH STREET'],
     [11.5, 4.6, 3.5, 'EAST ALLEY'],
     [-15.5, -10.2, 3.5, 'MID ALLEY'],
   ],
   sd: {
-    A: [-15.5, 22.2, 2.5, 'WEST ALLEY'],
+    A: [-23.5, 22.4, 2.5, 'WEST ALLEY'],
     B: [11.5, 4.6, 2.5, 'EAST ALLEY'],
     attackers: 'hostile',
   },

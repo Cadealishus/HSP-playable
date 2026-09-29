@@ -15,6 +15,7 @@ import {
   isOpen,
 } from './dressing.js';
 import { dressFlopOps, OBJECTIVE } from './flopops.js';
+import { dressPlaza } from './plaza.js';
 import { getMap } from './maps/index.js';
 import { publishModeData } from './maps/modes.js';
 import { TOWN_MODES } from './maps/town/modes.js';
@@ -175,6 +176,8 @@ export class WorldSystem {
     dressFlopOps(A, this.root, this._dress, {
       anisotropy: ctx.config?.q?.anisotropy ?? 8,
     });
+    // URBAN PLAZA (MP): burnt-out buses in the flank lots and the W1 roof stair.
+    dressPlaza(A);
 
     this._addLights(A);
 
