@@ -27,7 +27,10 @@ export const ESF_NAMES = ['FINCH', 'OKAFOR', 'HALVORSEN', 'DOYLE', 'MARSH', 'PRZ
 const HOSTILE_VARIANTS = ['vanguard', 'irregular', 'breacher'];
 const ESF_VARIANTS = ['vanguard', 'breacher', 'vanguard'];
 /** Per-slot role rotation; only passed when the AI publishes a matching role. */
-const ROLE_ROTATION = ['rifleman', 'rifleman', 'assault', 'rifleman', 'marksman', 'support'];
+const ROLE_ROTATION = ['rifleman', 'rifleman', 'smg', 'rifleman', 'sniper', 'lmg'];
+
+/** Role ids the team-capable AI resolves (src/ai roles: unknown ids fall back to rifleman). */
+const KNOWN_ROLES = ['rifleman', 'smg', 'shotgun', 'lmg', 'sniper', 'rocket', 'commander', 'heavy'];
 
 /** Player eye height above the feet when standing (src/core/config UNITS). */
 const EYE = 1.66;
@@ -40,6 +43,8 @@ export function aiCaps(ctx) {
   const r = ai?.roles ?? ai?.ROLES ?? null;
   if (Array.isArray(r)) roles = new Set(r);
   else if (r && typeof r === 'object') roles = new Set(Object.keys(r));
+  // The team-capable AI takes `opts.role` on spawn (EXPANSION §2).
+  else if (orders) roles = new Set(KNOWN_ROLES);
   return {
     spawn: typeof ai?.spawn === 'function',
     orders,
@@ -135,7 +140,8 @@ export class TeamMode {
     const make = (team, i) => ({
       team,
       teamIndex: team === 'esf' ? i + 1 : i,
-      name: team === 'esf' ? ESF_NAMES[i % ESF_NAMES.length] : null,
+      name: null,
+      fallbackName: team === 'esf' ? ESF_NAMES[i % ESF_NAMES.length] : null,
       variant: (team === 'esf' ? ESF_VARIANTS : HOSTILE_VARIANTS)[i % 3],
       role: ROLE_ROTATION[i % ROLE_ROTATION.length],
       agent: null,
@@ -283,7 +289,9 @@ export class TeamMode {
         /* read-only: the AI owns it */
       }
     }
-    if (!slot.name && a.name) slot.name = a.name;
+    // First spawn: the AI names the man (its callsign pools); he keeps it.
+    if (!slot.name) slot.name = a.name ?? slot.fallbackName;
+    if (!a.name && slot.name) a.name = slot.name;
     slot.agent = a;
     slot.alive = true;
     slot.respawnAt = 0;

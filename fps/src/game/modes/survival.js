@@ -43,7 +43,7 @@ const FLARE = { r: 1.0, g: 0.46, b: 0.16 };
 const VARIANTS = ['vanguard', 'irregular', 'breacher'];
 
 /** Weapon classes the specialist roles ask the AI for, when defs publish them. */
-const ROLE_CLASS = { marksman: /sniper|marksman|dmr/, shotgunner: /shotgun/, gunner: /lmg|machine/, heavy: /lmg|machine|shotgun/ };
+const ROLE_CLASS = { sniper: /sniper|marksman|dmr/, shotgun: /shotgun/, lmg: /lmg|machine/, heavy: /lmg|machine/ };
 
 export class SurvivalMode {
   static id = 'survival';

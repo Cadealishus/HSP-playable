@@ -335,7 +335,7 @@ export class SdMode extends TeamMode {
     } else {
       // The AI calls interact() while it plants; an AI that never does is
       // treated as planting whenever its carrier stands on the site.
-      working = this._aiInteracts ? this.t - b.holder.interactAt < 0.75 : true;
+      working = this._aiInteracts ? this.t - b.holder.interactAt < 1.2 : true;
     }
     if (!working) {
       b.plant = 0;
@@ -391,7 +391,7 @@ export class SdMode extends TeamMode {
         if (s.team !== def || !s.alive || !s.agent?.position) continue;
         const p = s.agent.position;
         if (Math.hypot(p.x - b.pos.x, p.z - b.pos.z) >= SD.defuseR) continue;
-        if (this._aiInteracts ? this.t - s.interactAt < 0.75 : s === nearest) {
+        if (this._aiInteracts ? this.t - s.interactAt < 1.2 : s === nearest) {
           working = true;
           break;
         }

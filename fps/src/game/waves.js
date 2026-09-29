@@ -53,9 +53,9 @@ export function waveBonus(n) {
  */
 export function waveRoles(n) {
   const out = [];
-  if (n >= 3) out.push(['marksman', n >= 6 ? 0.15 : 0.1]);
-  if (n >= 4) out.push(['shotgunner', 0.15]);
-  if (n >= 5) out.push(['gunner', n >= 8 ? 0.15 : 0.1]);
+  if (n >= 3) out.push(['sniper', n >= 6 ? 0.15 : 0.1]);
+  if (n >= 4) out.push(['shotgun', 0.15]);
+  if (n >= 5) out.push(['lmg', n >= 8 ? 0.15 : 0.1]);
   if (n >= 7) out.push(['heavy', Math.min(0.25, 0.08 + (n - 7) * 0.03)]);
   return out;
 }
