@@ -88,7 +88,6 @@ const TUBES = [
   [56, 6.6, 36, 'work', 1, { range: 16 }],
   [70, 6.6, 42, 'work', 1, { range: 16 }],
   [56, 6.6, 51, 'work', 1, { range: 14 }],
-  [41, 2.9, 35, 'tube', 0],
   // exit shaft
   [92, 5.0, 41.5, 'work', 1, { range: 12 }],
   // the street

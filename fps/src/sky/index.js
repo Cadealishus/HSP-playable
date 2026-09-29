@@ -110,6 +110,14 @@ export const LIGHTING_PRESETS = {
     exposureBias: 0.35,
     indirectScale: 1.0,
   },
+  // the same space on battery power: the meter is held a stop further down so
+  // losing the mains reads as losing light, not as a red colour grade
+  underground_emergency: {
+    hour: 1.5,
+    ambient: [0.0075, 0.0068, 0.0072],
+    exposureBias: 1.35,
+    indirectScale: 1.0,
+  },
 };
 
 /**
@@ -140,6 +148,7 @@ export const LIGHTING_PRESETS = {
  *   sky.timeOfDay                current hour
  *   sky.setTimeRate(hoursPerSec) animate the sun (0 = frozen; default 0)
  *   sky.setLightingPreset(name)  'day' | 'dusk' | 'night' | 'underground'
+ *                                ('underground_emergency': UNDERGROUND on battery)
  *                                (LIGHTING_PRESETS); the world calls it with
  *                                the active map's `lighting`
  *   sky.lightingPreset           the active preset name

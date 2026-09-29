@@ -192,6 +192,7 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
     },
     setPower: (mode) => {
       lights.setPower(mode);
+      ctx.peek('sky')?.setLightingPreset?.(lights.mode === 'emergency' ? 'underground_emergency' : 'underground');
       ctx.events?.emit?.('world:power', { mode: lights.mode });
       return lights.mode;
     },
