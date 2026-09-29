@@ -7,6 +7,7 @@ import { buildApron, TARMAC, KERB } from './apron.js';
 import { dressTerminal } from './dress.js';
 import { buildSigns } from './signs.js';
 import { runSelfTest } from './selftest.js';
+import { AIRPORT_MODES } from './modes.js';
 
 /**
  * MAP 02 — HOLDING PATTERN. Port Ellery International, Gate 12.
@@ -110,6 +111,10 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
   return {
     A,
     audioAnchors,
+    /** MP spawns and objective zones (level space; see ../modes.js). */
+    modeData: AIRPORT_MODES,
+    levelYaw: LEVEL_YAW,
+    lighting: 'day',
     spawnPoints,
     playerSpawnIndex: 0,
     objective,

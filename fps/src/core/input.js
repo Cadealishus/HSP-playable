@@ -20,10 +20,17 @@ export const ACTIONS = {
   reload: ['KeyR'],
   use: ['KeyF'],
   melee: ['KeyV'],
-  leanLeft: ['KeyQ'],
-  leanRight: ['KeyE'],
-  swapWeapon: ['Digit1', 'Digit2', 'Tab'],
+  // Lean is a chord (Alt + Q / Alt + E) so plain Q is free for the tactical
+  // (flashbang). See `_match` below: a binding written 'Alt+KeyQ' needs Alt
+  // held, and a PLAIN binding whose key also appears in a chord is suppressed
+  // while Alt is down, so Alt+Q leans without also throwing a flashbang.
+  leanLeft: ['Alt+KeyQ'],
+  leanRight: ['Alt+KeyE'],
+  swapWeapon: ['Digit1', 'Digit2', 'Digit3', 'Tab'],
+  /** Lethal (frag). Tap to throw, hold to cook, release to throw. */
   grenade: ['KeyG'],
+  /** Tactical (flashbang). Same tap / cook / release as the frag. */
+  tactical: ['KeyQ'],
   flashlight: ['KeyT'],
   pause: ['Escape'],
   // Trackpad-friendly camera turn, below WASD. Arrows are already `left`/
@@ -31,6 +38,18 @@ export const ACTIONS = {
   turnLeft: ['KeyZ'],
   turnRight: ['KeyX'],
 };
+
+/** Modifier prefixes a binding may carry, and the key codes that satisfy them. */
+const MODIFIERS = { Alt: ['AltLeft', 'AltRight'] };
+
+/** Plain key codes that also appear under a modifier chord somewhere above. */
+const CHORDED = new Set();
+for (const codes of Object.values(ACTIONS)) {
+  for (const c of codes) {
+    const i = c.indexOf('+');
+    if (i > 0) CHORDED.add(c.slice(i + 1));
+  }
+}
 
 export class Input {
   constructor(canvas, config) {
@@ -201,18 +220,49 @@ export class Input {
     this.stick.lookY = curve(dz(pad.axes[3] ?? 0));
   }
 
+  /** True while any key of modifier `mod` ('Alt') is held. */
+  modifier(mod) {
+    const keys = MODIFIERS[mod];
+    if (!keys) return false;
+    for (const k of keys) if (this.down.has(k)) return true;
+    return false;
+  }
+
+  /**
+   * Does binding `c` match against `set` (held or pressed-this-frame)?
+   * 'Alt+KeyQ' needs Alt held and KeyQ in the set; a plain 'KeyQ' does not match
+   * while Alt is held, because KeyQ is also the key of an Alt chord.
+   */
+  _match(c, set) {
+    const i = c.indexOf('+');
+    if (i > 0) return this.modifier(c.slice(0, i)) && set.has(c.slice(i + 1));
+    if (!set.has(c)) return false;
+    return !(CHORDED.has(c) && this.modifier('Alt'));
+  }
+
   /** True while any key bound to `action` is held. */
   action(name) {
     const codes = ACTIONS[name];
     if (!codes) return false;
-    for (const c of codes) if (this.down.has(c)) return true;
+    for (const c of codes) if (this._match(c, this.down)) return true;
     return false;
   }
 
   actionPressed(name) {
     const codes = ACTIONS[name];
     if (!codes) return false;
-    for (const c of codes) if (this._pressed.has(c)) return true;
+    for (const c of codes) if (this._match(c, this._pressed)) return true;
+    return false;
+  }
+
+  /** True on the frame every key bound to `action` has gone up. */
+  actionReleased(name) {
+    const codes = ACTIONS[name];
+    if (!codes) return false;
+    for (const c of codes) {
+      const i = c.indexOf('+');
+      if (this._released.has(i > 0 ? c.slice(i + 1) : c)) return true;
+    }
     return false;
   }
 

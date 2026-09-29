@@ -637,7 +637,8 @@ export class UiSystem {
     if (!w) return null;
     if (typeof w.equipmentInfo === 'function') return w.equipmentInfo();
     const hs = this._weaponState();
-    if (typeof w.setLoadout !== 'function' || hs?.lethalCount === undefined) return null;
+    // A real equipment system: live counts in the HUD state and a loadout hook.
+    if (!(typeof w.setLoadout === 'function' || typeof w.equipment?.setLoadout === 'function') || hs?.lethalCount == null) return null;
     return {
       lethal: [{ id: 'frag', label: 'FRAG GRENADE', desc: 'Cooks while held. Thrown with feeling.' }],
       tactical: [{ id: 'flash', label: 'FLASHBANG', desc: 'Blinds and deafens. Politely.' }],
@@ -942,8 +943,8 @@ export class UiSystem {
       if (ws.reloadProgress !== undefined) s.reloadProgress = ws.reloadProgress;
       if (ws.ads !== undefined) s.ads = !!ws.ads;
       if (ws.spread !== undefined) s.baseSpread = 4 + ws.spread * 40;
-      if (ws.lethalCount !== undefined) s.lethalCount = ws.lethalCount;
-      if (ws.tacticalCount !== undefined) s.tacticalCount = ws.tacticalCount;
+      s.lethalCount = ws.lethalCount ?? 0;
+      s.tacticalCount = ws.tacticalCount ?? 0;
     }
 
     const ps = s.simulate ? null : this._playerState();

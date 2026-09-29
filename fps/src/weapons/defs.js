@@ -398,6 +398,55 @@ export function buildRecoilPattern(def, Rng) {
   return out;
 }
 
+/**
+ * Throwables. Fuse times are TOTAL, cook included: the fuse starts when the pin
+ * comes out at the end of the prime, so holding the key eats into it and a frag
+ * held for 3.5 s goes off in the hand.
+ *
+ * Damage is handed to the canonical `explosion` event and applied by each
+ * target's own listener (ai: damage x (1-d/r)^2 with a blast-to-eye occlusion
+ * ray; player: damage x (1-d/r)^1.6, occluded blasts only shake). 250 over 7 m
+ * is what makes a frag reliably lethal to a soldier inside ~2.5 m and wounding
+ * out to ~5 m under those two curves; `impulse` 108 keeps the prop/ragdoll
+ * shove on the reference frag the physics blast was calibrated against.
+ */
+export const EQUIPMENT_DEFS = {
+  frag: {
+    id: 'frag',
+    slot: 'lethal',
+    displayName: 'M67 FRAG',
+    fuse: 3.5,
+    radius: 7,
+    damage: 250,
+    impulse: 108,
+    count: 2,
+    max: 2,
+    throwSpeed: 17,
+    loft: 8, // degrees above the view axis
+    gravityScale: 0.62,
+    shape: 'sphere',
+    mass: 0.4,
+    restitution: 0.34,
+    friction: 0.7,
+  },
+  flash: {
+    id: 'flash',
+    slot: 'tactical',
+    displayName: 'M84 FLASH',
+    fuse: 1.5,
+    radius: 16,
+    count: 2,
+    max: 2,
+    throwSpeed: 16,
+    loft: 7,
+    gravityScale: 0.62,
+    shape: 'capsule',
+    mass: 0.34,
+    restitution: 0.28,
+    friction: 0.72,
+  },
+};
+
 export const SPREAD_MODS = {
   crouch: 0.78,
   prone: 0.6,

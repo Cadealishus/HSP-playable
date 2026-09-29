@@ -541,6 +541,8 @@ export class GameSystem {
       } else if (typeof wp.selectLoadout === 'function') {
         if (!wp.selectLoadout(L.primary, { refill: true })) wp.selectLoadout(wp.primaryId ?? 'carbine', { refill: true });
       }
+      // Equipment (src/weapons/equipment.js) takes the lethal / tactical ids.
+      if (typeof wp.setLoadout !== 'function') wp.equipment?.setLoadout?.(L.lethal, L.tactical);
     }
     this.refill();
     const p = this.ctx.peek('player');
