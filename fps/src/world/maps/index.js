@@ -105,6 +105,48 @@ export const MAPS = [
     },
     load: () => import('./airport/index.js'),
   },
+  {
+    id: 'underground',
+    idx: '03',
+    name: 'UNDERGROUND',
+    subtitle: 'Grand Arcade station · Line 4 (closed)',
+    operation: 'OPERATION LAST TRAIN',
+    objectiveLabel: 'Hold Platform A. The train is not coming.',
+    heldNoun: 'Platform A',
+    lighting: 'underground',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
+    mission: [
+      ['LOCATION', 'Grand Arcade. Closed in 1998 for "a few weeks".'],
+      ['OBJECTIVE', 'Hold Platform A.'],
+      ['DURATION', 'Until the next train. (See: LOCATION.)'],
+      ['PLAN', 'Phase one: go downstairs. Phase two: Doug.'],
+      ['ASSETS', 'Doug. The stairs.'],
+    ],
+    // Street and hall in the north-west, the station box across the middle,
+    // the east tunnel, and the command facility in the south-east.
+    preview: {
+      box: [-66, -58, 162, 114],
+      rects: [
+        [-66, -58, 162, 114, 'apron'],
+        [-66, -58, 28, 14, 'floor'],
+        [-62, -32, 32, 20, 'floor'],
+        [-20, -14, 60, 22, 'floor'],
+        [-44, -8, 128, 10, 'floor'],
+        [-16, 8.4, 52, 3, 'floor'],
+        [-10, -17.4, 46, 3, 'floor'],
+        [24, 21, 52, 4, 'floor'],
+        [72, 2, 4, 19, 'floor'],
+        [34, 29, 44, 27, 'floor'],
+        [78, 36, 18, 11, 'floor'],
+        [1, -7.6, 32.8, 3, 'plane'],
+        [46, -7.6, 32.8, 3, 'plane'],
+        [2, -25, 31, 7.2, 'block'],
+        [-14, 11.8, 39, 7.2, 'block'],
+        [8.5, -12.5, 3, 3, 'objective'],
+      ],
+    },
+    load: () => import('./underground/index.js'),
+  },
 ];
 
 /** Registry entry for an id, or null. */
