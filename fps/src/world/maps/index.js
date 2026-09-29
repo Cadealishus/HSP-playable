@@ -26,6 +26,10 @@
  *                   [x, z, w, d, kind] rects in the map's own level metres
  *                   (x east, z south). kind: 'floor' | 'block' | 'apron' |
  *                   'plane' | 'objective'
+ *   modes           the modes the map supports (docs/EXPANSION.md §5):
+ *                   'tdm' | 'dom' | 'hp' | 'sd' | 'survival'. Every MP map's
+ *                   build publishes the spawns and zones those modes read.
+ *   missionOnly     true for a map that only hosts a mission (optional)
  *   load()          -> Promise<module> with the map's `build*` entry point
  *                   (absent for `town`, which is the world system's own path)
  */
@@ -36,7 +40,8 @@ export const MAPS = [
   {
     id: 'town',
     idx: '01',
-    name: 'BORDER TOWN',
+    name: 'URBAN PLAZA',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
     subtitle: 'Border town · the square',
     operation: 'OPERATION TOTAL CONFIDENCE',
     objectiveLabel: 'Hold the town square for as long as it takes.',
@@ -71,6 +76,7 @@ export const MAPS = [
     id: 'airport',
     idx: '02',
     name: 'HOLDING PATTERN',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
     subtitle: 'Port Ellery International · Gate 12',
     operation: 'OPERATION CARRY-ON',
     objectiveLabel: 'Hold Gate 12. Boarding will not complete.',

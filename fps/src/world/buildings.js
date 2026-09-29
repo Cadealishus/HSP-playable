@@ -275,6 +275,7 @@ export function buildBuilding(A, rng, spec) {
     parapet(A, spec.parapetKey ?? wallKey, ts.x, ts.z, ts.w + 0.1, ts.d + 0.1, y, rng, {
       h: spec.parapetH ?? 0.78,
       t: 0.22,
+      gaps: spec.parapetGaps,
     });
   }
   info.roofSpec = ts;

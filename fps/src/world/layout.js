@@ -80,6 +80,9 @@ export const BUILDINGS = [
     arches: true,
     doorBays: { 1: 1 },
     roofProps: 4,
+    // URBAN PLAZA roof route: the exterior stair in the west alley (plaza.js)
+    // lands on the north-west corner of the roof through this opening.
+    parapetGaps: [{ side: 1, a: -20.35, b: -18.25 }],
   },
   {
     id: 'W2',

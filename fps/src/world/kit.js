@@ -753,22 +753,39 @@ export function parapet(A, key, cx, cz, w, d, y, rng, opts = {}) {
   const pmI = IDENT;
   for (let i = 0; i < sides.length; i++) {
     const [sx, sz, sw, sd] = sides[i];
+    // One draw per side whatever the gaps, so a gap never shifts the RNG
+    // stream the rest of the street is placed from.
     const jitter = rng.range(-0.05, 0.05);
-    pmI.identity();
-    A.add(
-      key,
-      box,
-      LL(pmI, sx, y + (h + jitter) / 2, sz, 0, sw, h + jitter, sd),
-      { masks: [0.5, 0.4, 0.15] }
-    );
-    // coping: a slightly wider, weathered cap
-    A.add(
-      opts.copingKey ?? 'concrete',
-      BOX_SOFT(A),
-      LL(pmI, sx, y + h + jitter + 0.045, sz, 0, sw + 0.09, 0.09, sd + 0.09),
-      { masks: [0.75, 0.3, 0.1] }
-    );
-    A.box('concrete', sx, y + (h + 0.1) / 2, sz, sw, h + 0.1, sd);
+    // `opts.gaps`: [{ side, a, b }] openings (level coords along the side's
+    // axis: x for sides 0/1, z for 2/3), e.g. where an exterior stair lands.
+    const alongX = i < 2;
+    const lo = alongX ? sx - sw / 2 : sz - sd / 2;
+    const hi = alongX ? sx + sw / 2 : sz + sd / 2;
+    const runs = [];
+    let u = lo;
+    for (const g of (opts.gaps ?? []).filter((q) => q.side === i).sort((p, q) => p.a - q.a)) {
+      if (g.a > u) runs.push([u, Math.min(g.a, hi)]);
+      u = Math.max(u, g.b);
+    }
+    if (u < hi) runs.push([u, hi]);
+    for (const [ra, rb] of runs) {
+      const len = rb - ra;
+      if (len < 0.02) continue;
+      const mx = alongX ? (ra + rb) / 2 : sx;
+      const mz = alongX ? sz : (ra + rb) / 2;
+      const w2 = alongX ? len : sw;
+      const d2 = alongX ? sd : len;
+      pmI.identity();
+      A.add(key, box, LL(pmI, mx, y + (h + jitter) / 2, mz, 0, w2, h + jitter, d2), { masks: [0.5, 0.4, 0.15] });
+      // coping: a slightly wider, weathered cap
+      A.add(
+        opts.copingKey ?? 'concrete',
+        BOX_SOFT(A),
+        LL(pmI, mx, y + h + jitter + 0.045, mz, 0, w2 + 0.09, 0.09, d2 + 0.09),
+        { masks: [0.75, 0.3, 0.1] }
+      );
+      A.box('concrete', mx, y + (h + 0.1) / 2, mz, w2, h + 0.1, d2);
+    }
   }
   return y + h;
 }

@@ -15,7 +15,10 @@ import {
   isOpen,
 } from './dressing.js';
 import { dressFlopOps, OBJECTIVE } from './flopops.js';
+import { dressPlaza } from './plaza.js';
 import { getMap } from './maps/index.js';
+import { publishModeData } from './maps/modes.js';
+import { TOWN_MODES } from './maps/town/modes.js';
 
 /**
  * WORLD — level geometry, the modular building kit, props, set dressing and
@@ -52,6 +55,13 @@ import { getMap } from './maps/index.js';
  *                             supply crate in the square (world space, on the
  *                             ground). The thing the player is holding.
  *   world.spawn(i)            one of the above
+ *   world.spawns              { esf: [{pos, yaw, tag}], hostile: [...] } — MP
+ *                             team spawns (docs/EXPANSION.md §5)
+ *   world.objectives          { dom:{A,B,C}, hp:[zone], sd:{A,B,attackers},
+ *                             survival } — zone = { pos, radius, name }
+ *   world.anchors             named mission points / volumes ({} for MP maps)
+ *   world.lighting            'day' | 'dusk' | 'night' | 'underground'
+ *   world.modes               the modes this map supports (registry `modes`)
  *   world.groundHeight(x, z)  cheap analytic floor height (physics is exact)
  *   world.isOpen(x, z)        true where a character can stand outdoors
  *   world.stats               { staticTris, instTris, instances, drawCalls }
@@ -166,6 +176,8 @@ export class WorldSystem {
     dressFlopOps(A, this.root, this._dress, {
       anisotropy: ctx.config?.q?.anisotropy ?? 8,
     });
+    // URBAN PLAZA (MP): burnt-out buses in the flank lots and the W1 roof stair.
+    dressPlaza(A);
 
     this._addLights(A);
 
@@ -191,6 +203,7 @@ export class WorldSystem {
       new THREE.Vector3(62, 26, 62)
     ).applyMatrix4(A.xform);
     this.stats = A.stats;
+    this._publishModes(publishModeData(A, LEVEL_YAW, TOWN_MODES, groundY), 'day');
 
     const ms = performance.now() - t0;
     console.info(
@@ -268,6 +281,16 @@ export class WorldSystem {
     /** { escalator, jet } world-space Vector3s for src/audio (airport only). */
     this.audioAnchors = map.audioAnchors ?? null;
     this.stats = A.stats;
+    // MP spawns / objectives: a map either publishes world-space data itself or
+    // hands over level-space authoring data (src/world/maps/modes.js).
+    this._publishModes(
+      map.modeData ? publishModeData(A, map.levelYaw ?? 0, map.modeData, map.groundY ?? (() => 0)) : map,
+      map.lighting ?? 'day'
+    );
+    // The map's time of day, if it names one: applied once, before the first
+    // frame, through the sky's public API (sky inits before the world).
+    if (Number.isFinite(map.timeOfDay)) ctx.peek('sky')?.setTimeOfDay?.(map.timeOfDay);
+    if (map.weather) ctx.peek('sky')?.setWeather?.(map.weather);
     /** Map self-test hook (dev / capture eval only). */
     this.selfTest = () => map.selfTest?.(ctx, this) ?? null;
 
@@ -276,6 +299,15 @@ export class WorldSystem {
         `${(A.stats.staticTris / 1000).toFixed(0)}k static tris, ${A.stats.instances} instances, ` +
         `${A.stats.drawCalls} draw calls, ${(A.stats.collideTris / 1000).toFixed(1)}k collision tris`
     );
+  }
+
+  /** Publish MP mode data (docs/EXPANSION.md §5) on the world's public API. */
+  _publishModes(m, lighting) {
+    this.spawns = m?.spawns ?? { esf: [], hostile: [] };
+    this.objectives = m?.objectives ?? {};
+    this.anchors = m?.anchors ?? {};
+    this.lighting = lighting;
+    this.modes = getMap(this.mapId)?.modes ?? ['survival'];
   }
 
   // ----------------------------------------------------------------- lights --
