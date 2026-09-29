@@ -147,6 +147,41 @@ export const MAPS = [
     },
     load: () => import('./underground/index.js'),
   },
+  {
+    id: 'estate',
+    idx: '04',
+    name: 'THE RESIDENCE',
+    subtitle: 'A walled residence on the hill · night',
+    operation: 'OPERATION HOUSE CALL',
+    objectiveLabel: 'Hold the fountain court. Nobody is coming to the door.',
+    heldNoun: 'The fountain court',
+    lighting: 'night',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
+    mission: [
+      ['LOCATION', 'The Residence. Visitors by appointment. There are no appointments.'],
+      ['OBJECTIVE', 'Hold the fountain court.'],
+      ['DURATION', 'Until morning. (It is 01:30.)'],
+      ['PLAN', 'Phase one: ring the bell. Phase two: Doug.'],
+      ['ASSETS', 'Doug. The element of surprise, briefly.'],
+    ],
+    // The walled compound: the court and gate to the south, the house
+    // stepping up the hill to the north, yards either side.
+    preview: {
+      box: [-52, -42, 104, 100],
+      rects: [
+        [-52, -42, 104, 100, 'apron'],
+        [-44, -36, 88, 84, 'floor'],
+        [-26.2, 0, 58.2, 10.2, 'floor'],
+        [-26, 0, 56, 10, 'block'],
+        [-25.8, -16.2, 47.6, 16.2, 'block'],
+        [-24.2, -32.2, 44.4, 16, 'block'],
+        [8, 40, 5, 4.6, 'block'],
+        [-44, -16, 18.2, 26.2, 'apron'],
+        [-2.2, 19.8, 3, 3, 'objective'],
+      ],
+    },
+    load: () => import('./estate/index.js'),
+  },
 ];
 
 /** Registry entry for an id, or null. */
