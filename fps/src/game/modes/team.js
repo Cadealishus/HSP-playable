@@ -254,6 +254,9 @@ export class TeamMode {
     if (slot.team === 'esf' && !this.caps.teams) return null;
     const sp = this.pickSpawn(this.spawnSide(slot.team), slot.team);
     if (!sp) return null;
+    // Long matches: retire settled ragdolls so the agent list stays bounded.
+    if (typeof ai.reapCorpses === 'function') ai.reapCorpses(10);
+    else ai._reapCorpses?.(10);
     const pos = this.jitter(sp.pos, new THREE.Vector3());
     slot.spawnPos.copy(pos);
     // World spawn yaws are in the player's convention (forward = -sin, -cos);
