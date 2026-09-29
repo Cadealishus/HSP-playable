@@ -23,6 +23,8 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
+import { isEnemyTeam, normTeam, LAYER_ESF } from './teams.js';
+import { roleFor, resolveWeapon, weaponFor, PLAYER_DAMAGE_SCALE } from './roles.js';
 
 /**
  * FLOP OPS death tuning. Deaths are the comedy; the physics stays honest.
@@ -117,13 +119,24 @@ export class Agent {
     this.ctx = ai.ctx;
     this.id = _nextId++;
     this.rng = ai.rng.fork();
+    /** 'esf' | 'hostile' | 'civ' (EXPANSION.md §2) */
+    this.team = normTeam(opts.team ?? 'hostile');
+    /** ESF bots are friendly to the player: the UI minimap reads this */
+    this.friendly = this.team === 'esf';
+    this.roleDef = roleFor(opts.role);
+    this.role = this.roleDef.id;
     this.variantName = opts.variant ?? 'vanguard';
-    const def = ai.variant(this.variantName);
+    this.weaponId = opts.weapon ?? weaponFor(this.roleDef, this.team);
+    /** AI weapon profile resolved from src/weapons/defs.js (see roles.js) */
+    this.weapon = resolveWeapon(this.weaponId, ai.ctx.peek('weapons'));
+    this.modelStyle = opts.model ?? null;
+    const def = ai.variant(this.variantName, { team: this.team, weapon: this.modelStyle });
     this.def = def;
     this.scale = def.variant.scale ?? 1;
     /** Rank shown by the UI killfeed, e.g. "RIFLEMAN". See
      *  VARIANTS[name].display in soldier.js — runtime id stays `variantName`. */
-    this.variantDisplay = def.variant.display ?? this.variantName.toUpperCase();
+    this.variantDisplay =
+      opts.display ?? (opts.role ? this.roleDef.display : def.variant.display ?? this.variantName.toUpperCase());
 
     /* ---------------- body ---------------- */
     const { bones, skeleton, root } = RIG.createSkeleton();
@@ -194,10 +207,13 @@ export class Agent {
 
     this.colliders = [];
     if (phys) {
+      // ESF hitboxes live on a layer no physics mask includes, so the player's
+      // rounds (MASK.BULLET) pass through friendlies: see teams.js LAYER_ESF.
+      const layer = this.team === 'esf' ? LAYER_ESF : phys.LAYER.ACTOR;
       for (const [part, a, b, r, dmg] of HITBOXES) {
         const c = phys.addCollider({
           shape: 'capsule',
-          layer: phys.LAYER.ACTOR,
+          layer,
           surface: 'flesh',
           owner: this,
           part,
@@ -216,7 +232,11 @@ export class Agent {
     this.state = STATE.IDLE;
     this.stateTime = 0;
     this.squad = opts.squad ?? null;
-    this.team = opts.team ?? 1;
+    /** 0..1: decisions and reaction time, never health (see setDifficulty) */
+    this.skill = opts.skill ?? 0.5;
+    /** who last hurt us: an Agent or the PlayerProxy (kill accounting) */
+    this.lastAttacker = null;
+    this.lastHurtT = -Infinity;
 
     /* ---------------- perception ---------------- */
     this.eyeHeight = RIG.eyeHeight * this.scale;
@@ -237,8 +257,11 @@ export class Agent {
     this.reactionMult = 1;
 
     /* ---------------- combat ---------------- */
-    this.weaponRange = 60;
-    this.fireRate = this.variantName === 'irregular' ? 8.2 : 10.5;
+    const W = this.weapon;
+    this.weaponRange = Math.min(W.maxRange, this.roleDef.range[2]);
+    // bots fire a touch under the gun's cyclic rate: trigger discipline
+    this.fireRate = Math.min(W.rpm / 60, this.variantName === 'irregular' ? 8.2 : 10.5) || 1;
+    if (W.rpm < 300) this.fireRate = W.rpm / 60;
     /** 0..1 push/flank/grenade/hold-ground appetite. 0.5 is behaviour-neutral
      *  (the hand-tuned default); setDifficulty() maps wave intensity onto it. */
     this.aggression = 0.5;
@@ -247,10 +270,11 @@ export class Agent {
     this.burstLeft = 0;
     this.fireCooldown = 0;
     this.burstCooldown = this.rng.range(0.4, 1.4);
-    this.magSize = 30;
+    this.magSize = W.magSize;
     this.ammo = this.magSize;
     this.spread = 0.032;
-    this.weaponDamage = 17;
+    /** per round, against the player (see roles.js PLAYER_DAMAGE_SCALE) */
+    this.weaponDamage = W.damage * PLAYER_DAMAGE_SCALE;
     this.aimTarget = new THREE.Vector3();
     this.aimActual = new THREE.Vector3();
     this.aimWeight = 0;
@@ -325,10 +349,14 @@ export class Agent {
     const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
     this.intensity = t;
     this.spread = 0.055 - 0.037 * t;
+    this.skill = t;
     this.reactionMult = 0.6 + 1.05 * t;
-    const base = this.variantName === 'irregular' ? 8.2 : 10.5;
+    const W = this.weapon;
+    const base = W.rpm < 300 ? W.rpm / 60 : Math.min(W.rpm / 60, this.variantName === 'irregular' ? 8.2 : 10.5);
     this.fireRate = base * (0.82 + 0.4 * t);
-    this.weaponDamage = 12 + 9 * t;
+    // the rifle's 33 x 0.52 = 17.2 at t=0.55; 12.4 .. 21 across the range,
+    // exactly the band the wave game was balanced on
+    this.weaponDamage = W.damage * PLAYER_DAMAGE_SCALE * (0.72 + 0.5 * t);
     this.aggression = 0.28 + 0.72 * t;
     this.grenadeCooldown = this.rng.range(8, 20) * (1.5 - 0.8 * t);
     this.viewRange = 50 + 14 * t;
@@ -341,6 +369,18 @@ export class Agent {
 
   get eye() {
     return this._eye.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
+  }
+
+  /**
+   * Perception sample point `i` (0 chest, 1 head, 2 pelvis). Crouching lowers
+   * all three, so a man crouched behind a wall presents less of himself.
+   */
+  samplePoint(i, out) {
+    const h = (this.crouch ? 1.2 : 1.78) * this.scale;
+    const p = this.position;
+    if (i === 1) return out.set(p.x, p.y + h * 0.92, p.z);
+    if (i === 2) return out.set(p.x, p.y + h * 0.52, p.z);
+    return out.set(p.x, p.y + h * 0.74, p.z);
   }
 
   update(dt, ctx) {
@@ -370,22 +410,34 @@ export class Agent {
   /* ================================================================== */
 
   _sense(dt) {
-    const player = this.ai.playerPosition(this._v3);
-    if (!player) return;
+    // Every live enemy actor (other team's bots and, for hostiles, the player)
+    // is a candidate; the nearest one actually in view wins.
     const eye = this.eye;
-    const to = this._dir.copy(player).sub(eye);
-    const dist = to.length();
+    const fwd = this._v2.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const cone = this.hasTarget ? -0.2 : this.viewCos - this.alertness * 0.25;
+    const actors = this.ai.actors;
     let visible = false;
-    if (dist < this.viewRange) {
-      to.multiplyScalar(1 / dist);
-      const fwd = this._v2.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-      const dot = fwd.x * to.x + fwd.z * to.z;
-      // peripheral vision widens once alerted
-      const cone = this.hasTarget ? -0.2 : this.viewCos - this.alertness * 0.25;
-      if (dot > cone || dist < 4.5) {
-        visible = this.phys ? this.phys.lineOfSight(eye, player, this.phys.MASK.SIGHT) : true;
-      }
+    let bestD = Infinity;
+    let bestActor = null;
+    const player = this._v3;
+    for (let i = 0; i < actors.length; i++) {
+      const t = actors[i];
+      if (!t.alive || !isEnemyTeam(this.team, t.team)) continue;
+      const p = t.samplePoint(0, this._boneA);
+      const dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > this.viewRange * this.viewRange || d2 >= bestD) continue;
+      const dist = Math.sqrt(d2) || 1e-3;
+      const dot = (fwd.x * dx + fwd.z * dz) / dist;
+      // the current target is tracked through the wider alerted cone
+      if (dot <= (t === this.target ? -0.2 : cone) && dist >= 4.5) continue;
+      if (this.phys && !this.phys.lineOfSight(eye, p, this.phys.MASK.SIGHT)) continue;
+      bestD = d2;
+      bestActor = t;
+      player.copy(p);
+      visible = true;
     }
+    const dist = Math.sqrt(bestD);
     this.targetVisible = visible;
 
     if (visible) {
@@ -397,7 +449,7 @@ export class Agent {
       this.alertness = 1;
       if (this.awareness >= 1) {
         this.hasTarget = true;
-        this.target = player;
+        this.target = bestActor;
       }
     } else {
       this.awareness = Math.max(0, this.awareness - dt * 0.35);
@@ -915,8 +967,10 @@ export class Agent {
    * @param point   world impact point
    * @param dir     incident direction (unit)
    */
-  applyDamage(amount, part, point, dir, blast = null) {
+  applyDamage(amount, part, point, dir, blast = null, source = null) {
     if (!this.alive) return;
+    if (source) this.lastAttacker = source;
+    this.lastHurtT = this.ctx.time.elapsed;
     this.health -= amount;
     this.alertness = 1;
     this.suppression = Math.min(1.6, this.suppression + 0.35);
@@ -931,7 +985,7 @@ export class Agent {
     if (this.state === STATE.IDLE || this.state === STATE.PATROL) this._setState(STATE.ALERT);
 
     if (this.health <= 0) {
-      this.die(point, dir, amount, part, blast);
+      this.die(point, dir, amount, part, blast, source);
       return;
     }
     this.bark('hurt');
@@ -961,8 +1015,9 @@ export class Agent {
    * @param blast   `{ position, radius, strength }` when an explosion did it:
    *                the doll is launched from the blast centre (see _launch)
    */
-  die(point, dir, amount = 30, part = 'torso', blast = null) {
+  die(point, dir, amount = 30, part = 'torso', blast = null, source = null) {
     if (!this.alive) return;
+    if (source) this.lastAttacker = source;
     this.alive = false;
     this.state = STATE.DEAD;
     this.wantFire = false;
@@ -997,8 +1052,19 @@ export class Agent {
       if (blast) this._launch(rd, blast);
       else this._maybeDramatic(rd, impulse);
     }
+    // Kill accounting for modes (EXPANSION.md §2): who, which side, by whom.
+    // `killer` is the Agent, or the player system when Doug did it (the same
+    // object `damage:dealt` names as its target when he is hit).
+    const k = this.lastAttacker;
+    const killerIsPlayer = !!k?.isPlayer;
     this.ctx.events.emit('actor:death', {
       actor: this,
+      team: this.team,
+      role: this.role,
+      killer: killerIsPlayer ? k.system ?? this.ctx.peek('player') ?? 'player' : k ?? null,
+      killerTeam: k?.team ?? null,
+      killerName: k?.name ?? null,
+      killerIsPlayer,
       point: hitPoint,
       impulse,
       headshot,
@@ -1006,6 +1072,7 @@ export class Agent {
       dramatic: !!this.dramaticDeath,
     });
     this.deadTime = 0;
+    this.ai.onAgentDeath?.(this);
     this._squadReport();
   }
 

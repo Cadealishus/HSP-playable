@@ -44,7 +44,8 @@
 
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
-import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS } from './soldier.js';
+import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
+import { PlayerProxy } from './teams.js';
 import { RIG } from './rig.js';
 import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE } from './agent.js';
@@ -85,9 +86,13 @@ export class AiSystem {
     });
     // Contact occlusion under every actor. Without it the cast shadow alone
     // leaves them hovering: see grounding.js.
-    this.ground = new GroundShadows(this.root, 16);
+    this.ground = new GroundShadows(this.root, 32);
     this._variants = new Map();
     this.agents = [];
+    /** every live combatant, bots plus the player proxy (EXPANSION.md §2) */
+    this.actors = [];
+    /** the player seen as an actor (teams.js) */
+    this.player = new PlayerProxy();
     this.squads = [];
     this.grid = null;
     this.cover = null;
@@ -406,12 +411,15 @@ export class AiSystem {
   /* assets                                                             */
   /* ================================================================== */
 
-  variant(name) {
-    let v = this._variants.get(name);
+  variant(name, opts = {}) {
+    name = variantForTeam(name, opts.team);
+    const style = opts.weapon ?? null;
+    const key = style && style !== VARIANTS[name]?.weapon ? `${name}|${style}` : name;
+    let v = this._variants.get(key);
     if (!v) {
       const t0 = performance.now();
-      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials });
-      this._variants.set(name, v);
+      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials, weapon: style });
+      this._variants.set(key, v);
       // Hand the new materials to render immediately rather than waiting for its
       // scene walk: they are all MeshStandardMaterial, so the patcher injects the
       // CSM sun shadow, the screen-space contact shadow, GTAO and the bounce fill
@@ -914,6 +922,8 @@ export class AiSystem {
       if (!this._navPending && (!ctx.config.deterministic || this.forcePopulate)) this.populate();
     }
 
+    this._syncActors(ctx);
+
     // Per-frame A* budget: see requestPath().
     this._pathBudget = this.pathsPerFrame;
     this._updateRelevance(ctx);
@@ -944,6 +954,15 @@ export class AiSystem {
     if (this._flop) this._updateFlop();
     this.stats.agents = this.agents.length;
     this.stats.alive = alive;
+  }
+
+  /** Rebuild `actors` (no allocation): live bots plus the player proxy. */
+  _syncActors(ctx) {
+    this.player.sync(ctx.peek('player'), ctx.camera);
+    const list = this.actors;
+    list.length = 0;
+    if (this.player.alive) list.push(this.player);
+    for (let i = 0; i < this.agents.length; i++) if (this.agents[i].alive) list.push(this.agents[i]);
   }
 
   lateUpdate() {

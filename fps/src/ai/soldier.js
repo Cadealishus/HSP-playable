@@ -187,6 +187,42 @@ export const VARIANTS = {
   },
 };
 
+/**
+ * ESF — Doug's unit. Same three silhouettes, but a cool slate-blue uniform over
+ * near-black webbing and dark grey plates: at 30 m the whole figure reads as a
+ * different colour family from the Committee's warm tans and olives, before the
+ * IFF chevron is even in view. Same value hierarchy (cloth over pouches over
+ * carrier over boots), so the albedo budget above still holds.
+ */
+const ESF_KIT = {
+  camo: 'urban',
+  clothTint: kit([0.84, 0.95, 1.16], -0.25),
+  gearTint: kit([0.86, 0.9, 0.98], 0, 0.5),
+  plateTint: kit([0.8, 0.88, 1.0], 0, 0.44),
+  helmetTint: [0.36, 0.39, 0.45],
+};
+for (const base of ['vanguard', 'irregular', 'breacher']) {
+  VARIANTS[`esf_${base}`] = {
+    ...VARIANTS[base],
+    ...ESF_KIT,
+    display: VARIANTS[base].display,
+    team: 'esf',
+    // the irregular's head wrap reads as a militia look; ESF wear helmets
+    helmet: true,
+    helmetCover: base !== 'breacher',
+    headWrap: false,
+    shades: base === 'irregular',
+    beard: base !== 'vanguard',
+  };
+}
+
+/** The ESF body for a hostile variant name (and vice versa it is a no-op). */
+export function variantForTeam(name, team) {
+  const base = String(name ?? 'vanguard').replace(/^esf_/, '');
+  const v = VARIANTS[base] ? base : 'vanguard';
+  return team === 'esf' ? `esf_${v}` : v;
+}
+
 const bp = (name) => {
   const v = RIG.bindPos[RIG.index(name)];
   return [v.x, v.y, v.z];
@@ -196,8 +232,9 @@ const bp = (name) => {
  * Build one variant.
  * @returns { geometry, materials: THREE.Material[], weapon, stats }
  */
-export function buildSoldier(name, { rng, materials }) {
+export function buildSoldier(name, { rng, materials, weapon = null }) {
   const V = VARIANTS[name] ?? VARIANTS.vanguard;
+  const weaponStyle = weapon ?? V.weapon;
   const nz = new Noise(rng.fork());
   const B = new CharacterBuilder(RIG, { noise: nz, materials: MATERIALS });
 
@@ -730,7 +767,7 @@ export function buildSoldier(name, { rng, materials }) {
     name: 'knuckleL',
   });
 
-  const W = buildWeapon(nz, V.weapon, rng);
+  const W = buildWeapon(nz, weaponStyle, rng);
   B.add(W.steel, { material: 'steel', bone: 'HandR', grime: 0.55, wear: 0.25, name: 'wpnSteel' });
   B.add(W.polymer, { material: 'polymer', bone: 'HandR', grime: 0.5, wear: 0.3, name: 'wpnPoly' });
   B.add(W.rubber, { material: 'rubber', bone: 'HandR', grime: 0.6, name: 'wpnRubber' });
