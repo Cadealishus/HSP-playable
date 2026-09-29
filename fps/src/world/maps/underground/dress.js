@@ -143,7 +143,7 @@ function serviceRooms(A, rng) {
   // --- north electrical room: two runs of cabinets and a transformer
   const en = V.elecNorth;
   cabinets(A, en.x0 + 0.2, en.x1 - 0.2, en.z0, P, 1);
-  cabinets(A, en.x0 + 3.5, en.x1 - 0.2, en.z1, P, -1);
+  cabinets(A, 9.2, en.x1 - 0.2, en.z1, P, -1); // clear of the door at x 6-8.2
   slab(A, 'cabinet_olive', en.x0 + 0.3, P, en.z0 + 2.4, en.x0 + 1.8, P + 1.6, en.z0 + 4.4, { collide: 'metal', masks: [0.5, 0.6, 0.4] });
   for (let k = 0; k < 5; k++) slab(A, 'metal_dark', en.x0 + 1.8, P + 0.2 + k * 0.28, en.z0 + 2.5, en.x0 + 1.95, P + 0.3 + k * 0.28, en.z0 + 4.3);
   slab(A, 'gate_steel', en.x0, P + 2.6, en.z0 + 0.2, en.x1, P + 2.65, en.z0 + 0.7);
@@ -162,7 +162,7 @@ function serviceRooms(A, rng) {
   // --- south electrical room: switchboard, a dead panel open on its hinges
   const es = V.elecSouth;
   cabinets(A, es.x0 + 0.2, es.x1 - 0.2, es.z1, P, -1);
-  cabinets(A, es.x0 + 0.2, es.x0 + 4.0, es.z0, P, 1);
+  cabinets(A, es.x0 + 0.2, es.x0 + 3.6, es.z0, P, 1);
   slab(A, 'cabinet_grey', es.x1 - 0.7, P, es.z0 + 1.0, es.x1 - 0.2, P + 2.0, es.z0 + 3.4, { collide: 'metal' });
   boxAt(A, 'cabinet_grey', es.x1 - 1.1, P + 1.0, es.z0 + 3.9, 0.04, 1.8, 0.8, 0.9);
   prop(A, 'mp_cabledrum', es.x0 + 6, P, es.z0 + 3.0, 1.3);
