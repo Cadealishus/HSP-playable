@@ -441,12 +441,18 @@ export class CoverMap {
     const maxTravel = opts.maxTravel ?? 22;
     const yRef = opts.yRef ?? null;
     const yTol = opts.yTol ?? Infinity;
+    const team = opts.team ?? null;
+    const exclude = opts.exclude ?? null;
+    const zone = opts.zone ?? null;
+    const zoneR = opts.zoneR ?? Infinity;
     let best = null;
     let bestScore = -Infinity;
     const tx = threat.x, tz = threat.z;
     for (let i = 0; i < this.points.length; i++) {
       const p = this.points[i];
       if (p.claimed >= 0 && p.claimed !== claimId) continue;
+      if (p === exclude) continue;
+      if (zone && Math.hypot(p.x - zone.x, p.z - zone.z) > zoneR) continue;
       const toThreatX = tx - p.x, toThreatZ = tz - p.z;
       const dT = Math.hypot(toThreatX, toThreatZ);
       if (dT < 2.5 || dT > 40) continue;
@@ -465,6 +471,7 @@ export class CoverMap {
       if (squad) {
         for (const other of squad) {
           if (!other || other.id === claimId || !other.alive) continue;
+          if (team && other.team !== team) continue;
           const d = Math.hypot(other.position.x - p.x, other.position.z - p.z);
           if (d < 3.2) score -= (3.2 - d) * 1.4;
         }

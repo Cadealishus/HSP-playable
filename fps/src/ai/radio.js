@@ -104,12 +104,47 @@ export const RADIO = Object.freeze({
   ],
 });
 
+/** More Committee chatter: the kinds the tactical brain produces. */
+export const RADIO_MORE = Object.freeze({
+  lost: [
+    "Lost him. He was right there.",
+    'Lost visual. Everybody look in a different direction.',
+    "He's gone. Checking behind the obvious thing.",
+    'No contact. He has done this before, apparently.',
+  ],
+  flank: [
+    'Going round the side. Nobody follow me.',
+    "Flanking. If I'm not back, I'm still flanking.",
+    'Moving left. My left.',
+    "Taking the long way. It's quieter.",
+  ],
+  help: [
+    'Need assistance. Mainly emotional.',
+    "I'm hit. Somebody come and be near me.",
+    'Requesting support. Any support.',
+    "Taking fire. That's the complaint.",
+  ],
+  reload: ['Reloading. Nobody look.', 'Changing mags.', 'Reloading. Give me a moment.'],
+});
+
+/** ESF bot chatter: Doug's unit, equally calm, slightly more competent. */
+export const RADIO_ESF = Object.freeze({
+  spot: ['Contact.', 'Tango, front. Engaging.', 'Eyes on one. Going loud.', 'Contact. He looks busy.'],
+  cover: ['In cover.', 'Set.', 'Holding here.', 'Behind the wall. Wall seems fine.'],
+  grenade: ['Frag out.', 'Grenade. Heads down.', 'Frag. Heads down, as a courtesy.'],
+  mandown: ["{name}'s down.", 'Lost {name}. Noted.', "{name}'s out. Carry on."],
+  lost: ['Lost him.', 'Contact lost. Searching.', "He's gone quiet. Checking."],
+  flank: ['Flanking left.', 'Moving round. Keep him busy.', 'Taking the side. Back shortly.'],
+  help: ['Need support.', "I'm hit. Still here.", 'Taking fire. Would appreciate less of it.'],
+  reload: ['Reloading.', 'Changing mags.'],
+});
+
 /**
  * Per-kind cooldowns across the whole net, in seconds. A subtitle has to be
  * readable, and a squad of four all shouting "contact" in the same second is
  * one call, not four.
  */
-const KIND_GAP = { spot: 7, cover: 9, grenade: 2.5, mandown: 2 };
+const KIND_GAP = { spot: 7, cover: 9, grenade: 2.5, mandown: 2, lost: 8, flank: 9, help: 8, reload: 12 };
 /** Minimum gap between any two lines. Urgent kinds cut the queue harder. */
 const NET_GAP = 2.2;
 const URGENT_GAP = 0.9;
@@ -122,9 +157,10 @@ const URGENT_GAP = 0.9;
 export class RadioNet {
   constructor(ctx) {
     this.ctx = ctx;
-    this._last = -Infinity;
-    this._kindLast = { spot: -Infinity, cover: -Infinity, grenade: -Infinity, mandown: -Infinity };
-    this._seq = { spot: 0, cover: 0, grenade: 0, mandown: 0 };
+    // one net per team: the Committee's chatter never throttles the ESF's
+    this._last = { hostile: -Infinity, esf: -Infinity };
+    this._kindLast = { hostile: {}, esf: {} };
+    this._seq = {};
     /** Every line said this session, newest last (bounded). Dev/verification only. */
     this.log = [];
   }
@@ -136,20 +172,25 @@ export class RadioNet {
    * @param about  optional Agent the line is about (the fallen man on mandown)
    */
   say(enemy, kind, about = null) {
-    const lines = RADIO[kind];
-    if (!lines || !enemy) return null;
+    if (!enemy) return null;
+    const team = enemy.team === 'esf' ? 'esf' : 'hostile';
+    const lines = team === 'esf' ? RADIO_ESF[kind] : RADIO[kind] ?? RADIO_MORE[kind];
+    if (!lines) return null;
     const now = this.ctx.time.elapsed;
     const urgent = kind === 'grenade' || kind === 'mandown';
-    if (now - this._last < (urgent ? URGENT_GAP : NET_GAP)) return null;
-    if (now - this._kindLast[kind] < KIND_GAP[kind]) return null;
-    this._last = now;
-    this._kindLast[kind] = now;
-    const i = (this._seq[kind]++ + (enemy.id | 0)) % lines.length;
+    if (now - this._last[team] < (urgent ? URGENT_GAP : NET_GAP)) return null;
+    if (now - (this._kindLast[team][kind] ?? -Infinity) < (KIND_GAP[kind] ?? 6)) return null;
+    this._last[team] = now;
+    this._kindLast[team][kind] = now;
+    const sk = team + kind;
+    this._seq[sk] = (this._seq[sk] ?? 0) + 1;
+    const i = (this._seq[sk] + (enemy.id | 0)) % lines.length;
     let text = lines[i];
     if (text.includes('{name}')) text = text.split('{name}').join(about?.name ?? 'Gary');
     this.log.push({ t: now, name: enemy.name, kind, text });
     if (this.log.length > 32) this.log.shift();
-    this.ctx.events.emit('ai:radio', { enemy, kind, text });
+    // `team` lets the HUD style friendly chatter differently from the enemy's
+    this.ctx.events.emit('ai:radio', { enemy, kind, text, team, friendly: team === 'esf' });
     return text;
   }
 }
