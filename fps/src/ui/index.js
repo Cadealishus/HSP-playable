@@ -184,8 +184,9 @@ export class UiSystem {
       reloadProgress: 0,
       weaponName: 'ASSAULT RIFLE',
       fireMode: 'AUTO',
-      lethalCount: 2,
-      tacticalCount: 1,
+      // Real counts come from weapons.getHudState(); 0 until something reports.
+      lethalCount: 0,
+      tacticalCount: 0,
       move: 0,
       sprint: false,
       crouch: false,
@@ -771,8 +772,8 @@ export class UiSystem {
       if (ws.reloadProgress !== undefined) s.reloadProgress = ws.reloadProgress;
       if (ws.ads !== undefined) s.ads = !!ws.ads;
       if (ws.spread !== undefined) s.baseSpread = 4 + ws.spread * 40;
-      if (ws.lethalCount !== undefined) s.lethalCount = ws.lethalCount;
-      if (ws.tacticalCount !== undefined) s.tacticalCount = ws.tacticalCount;
+      s.lethalCount = ws.lethalCount ?? 0;
+      s.tacticalCount = ws.tacticalCount ?? 0;
     }
 
     const ps = s.simulate ? null : this._playerState();

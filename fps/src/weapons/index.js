@@ -9,6 +9,8 @@ import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
 import { buildPistol } from './models/pistol.js';
 import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
+import { Equipment } from './equipment.js';
+import { WeaponOverlays } from './overlay.js';
 
 /**
  * WEAPONS — weapon meshes, the first-person viewmodel rig, ADS, recoil, sway,
@@ -133,7 +135,11 @@ export class WeaponSystem {
     this._hudState = {
       name: '', mode: 'auto', ammo: 0, reserve: 0, magSize: 0,
       reloading: false, reloadProgress: 0, ads: false, spread: 0, firing: false,
+      lethalCount: 0, tacticalCount: 0, lethal: 'frag', tactical: 'flash',
+      cook: -1, cookKind: null, cookRemaining: 0, throwing: false,
+      scoped: false,
     };
+    this._overlayState = { scope: 0, style: 'sniper', swayX: 0, swayY: 0, flash: 0, blur: 0, cook: -1, cookText: '', danger: false };
   }
 
   /* ====================================================================== */
@@ -178,10 +184,29 @@ export class WeaponSystem {
     this.viewmodel.setActive(this.activeId);
     this.viewmodel.play('draw');
 
+    // ---- equipment (frag / flashbang) + screen overlays ----
+    this.physics = ctx.peek('physics');
+    this.equipment = new Equipment(ctx, this);
+    this.equipment.build(this.mats, this.viewmodel);
+    this.overlays = new WeaponOverlays(ctx);
+
     // Player hooks (all optional: the viewmodel works standalone).
     this.player = ctx.peek('player');
     this.fx = ctx.peek('fx');
     this.physics = ctx.peek('physics');
+    // EXPANSION §6: `player.flash(intensity, duration)` is implemented here (the
+    // white-out is a weapons overlay). Installed only if the player system does
+    // not provide its own.
+    if (this.player && typeof this.player.flash !== 'function') {
+      this.player.flash = (i, d) => this.equipment.flashPlayer(i, d);
+    }
+    // Run start / redeploy: a fresh loadout of ammunition and equipment.
+    this._lastGameState = null;
+    this._off_gs = ctx.events.on('game:state', (e) => {
+      const st = e?.state ?? null;
+      if (st === 'play' && this._lastGameState !== 'play' && this._lastGameState !== null) this.resupply();
+      this._lastGameState = st;
+    });
     this._off = [];
     this._off.push(
       ctx.events.on('player:land', (e) => this.viewmodel.land(Math.abs(e?.velocity ?? 3)))
@@ -301,6 +326,17 @@ export class WeaponSystem {
     // normalised 0..1 rather than raw degrees.
     h.spread = Math.min(1, Math.max(0, this._spread / 6));
     h.firing = this.firing;
+    const eq = this.equipment;
+    if (eq) {
+      h.lethalCount = eq.lethalCount;
+      h.tacticalCount = eq.tacticalCount;
+      h.lethal = eq.lethal;
+      h.tactical = eq.tactical;
+      h.cook = eq.cookFraction;
+      h.cookKind = h.cook >= 0 ? eq.th.kind : null;
+      h.cookRemaining = eq.cookRemaining;
+      h.throwing = eq.throwing;
+    }
     return h;
   }
 
@@ -330,9 +366,30 @@ export class WeaponSystem {
     return s.mode;
   }
 
+  /** Abort a running reload (a grenade throw does this). Ammo is only moved at
+   *  'magin', so an aborted reload leaves the magazine exactly as it was. */
+  cancelReload() {
+    if (!this.reloading) return false;
+    this.viewmodel.stopClip();
+    this.viewmodel.boltHold = this.state && !this.state.chambered ? 1 : 0;
+    return true;
+  }
+
+  /** Refill every carried weapon (mag + reserve) and the equipment slots. */
+  resupply() {
+    for (const s of this.states.values()) {
+      s.mag = s.def.magSize;
+      s.chambered = true;
+      s.reserve = s.def.reserve;
+    }
+    this.equipment?.resupply();
+    return true;
+  }
+
   reload() {
     const s = this.state;
     if (!s || this.reloading || this.switching) return false;
+    if (this.equipment?.throwing) return false;
     if (s.mag >= s.def.magSize || s.reserve <= 0) return false;
     this.viewmodel.stopClip();
     const empty = s.mag === 0 && !s.chambered;
@@ -364,6 +421,7 @@ export class WeaponSystem {
     const s = this.state;
     if (!s) return false;
     if (this.reloading || this.switching || this._fireTimer > 0) return false;
+    if (this.equipment?.throwing || this.viewmodel.throwLower > 0.05) return false;
     if (!s.chambered) {
       // Dry: lock the bolt back and let the player know by feel.
       this.viewmodel.boltHold = 1;
@@ -599,6 +657,7 @@ export class WeaponSystem {
 
   fixedUpdate(h) {
     this.sim.fixedUpdate(h);
+    this.equipment?.fixedUpdate(h);
   }
 
   update(dt, ctx) {
@@ -620,8 +679,10 @@ export class WeaponSystem {
 
     // ---- gather state ----------------------------------------------------
     const live = !input.frozen && input.enabled !== false && this.debugMode === null;
-    st.ads = live ? input.ads || player?.adsRequested === true : this.debugMode === 'ads';
-    st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 : false;
+    const throwing = this.equipment?.throwing === true;
+    st.ads = live ? (input.ads || player?.adsRequested === true) && !throwing : this.debugMode === 'ads';
+    // A throw pending behind a sprint brings the sprint pose down first.
+    st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 && !throwing : false;
     st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
     st.crouch = player?.stance === 'crouch';
     st.airborne = player?.airborne === true;
@@ -629,7 +690,10 @@ export class WeaponSystem {
     st.empty = s.mag === 0 && !s.chambered;
 
     // ---- input -----------------------------------------------------------
-    if (live) {
+    this.equipment?.update(dt, input, live);
+    if (live && throwing) {
+      st.trigger = false;
+    } else if (live) {
       if (input.actionPressed('reload')) this.reload();
       if (input.pressed('KeyB')) this.cycleFireMode();
       if (input.pressed('KeyI')) this.inspect();
@@ -700,6 +764,7 @@ export class WeaponSystem {
     vm.anchor.visible =
       this.debugMode !== null || (!this._uiScreen && !(gs === 'attract' || gs === 'down' || gs === 'over'));
     vm.update(dt, this._state);
+    this._updateOverlays(dt);
 
     // ---- muzzle flash / audio, now that the pose is final ---------------
     if (this._pendingShots > 0) {
@@ -747,6 +812,20 @@ export class WeaponSystem {
         }
       }
     }
+  }
+
+  _updateOverlays() {
+    const o = this._overlayState;
+    const eq = this.equipment;
+    const shown = this.viewmodel.anchor.visible;
+    o.flash = eq ? eq.flashLevel : 0;
+    o.blur = eq ? eq.flashBlur : 0;
+    const cf = eq && shown ? eq.cookFraction : -1;
+    o.cook = cf;
+    o.danger = cf > 0.65 && eq.th.kind === 'frag';
+    o.cookText = cf >= 0 ? eq.cookRemaining.toFixed(1) : '';
+    o.scope = 0;
+    this.overlays?.update(o);
   }
 
   /* ====================================================================== */
@@ -919,6 +998,9 @@ export class WeaponSystem {
 
   dispose() {
     for (const off of this._off ?? []) off();
+    this._off_gs?.();
+    this.equipment?.dispose();
+    this.overlays?.dispose();
     this.sim?.clear();
     for (const p of this._droppedMags) {
       p.group.removeFromParent();

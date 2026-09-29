@@ -493,8 +493,10 @@ export class Equipment {
     const phys = this.weapons.physics ?? this.ctx.peek('physics');
     let lift = 0.22;
     if (phys?.raycast) {
-      const up = phys.raycast(where.x, where.y, where.z, 0, 1, 0, lift + 0.05, phys.MASK?.WORLD);
-      if (up?.hit) lift = Math.max(0, up.distance - 0.05);
+      // Start the probe a few cm up: a ray starting ON the floor reports the
+      // floor itself at distance 0.
+      const up = phys.raycast(where.x, where.y + 0.04, where.z, 0, 1, 0, lift + 0.02, phys.MASK?.WORLD);
+      if (up?.hit) lift = Math.max(0.04, up.distance + 0.04 - 0.06);
     }
     const pos = new THREE.Vector3(where.x, where.y + lift, where.z); // per event, not per frame
     if (kind === 'flash') this._flashbang(pos, owner);
