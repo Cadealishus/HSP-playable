@@ -459,16 +459,20 @@ export class WeaponSystem {
    */
   setLoadout(lo = {}, opts = {}) {
     const ok = (id, slot) => id && this.states.has(id) && this.states.get(id).def.slot === slot;
-    if (ok(lo.primary, 'primary')) this.loadout.primary = lo.primary;
-    if (ok(lo.secondary, 'secondary')) this.loadout.secondary = lo.secondary;
+    // `null` empties a slot (a sidearm-only loadout); undefined keeps it.
+    if (lo.primary === null) this.loadout.primary = null;
+    else if (ok(lo.primary, 'primary')) this.loadout.primary = lo.primary;
+    if (lo.secondary === null) this.loadout.secondary = null;
+    else if (ok(lo.secondary, 'secondary')) this.loadout.secondary = lo.secondary;
+    if (!this.loadout.primary && !this.loadout.secondary) this.loadout.secondary = SECONDARY_ID;
     if (lo.lethal) this.loadout.lethal = lo.lethal;
     if (lo.tactical) this.loadout.tactical = lo.tactical;
-    this.carried = [this.loadout.primary, this.loadout.secondary];
+    this.carried = [this.loadout.primary, this.loadout.secondary].filter(Boolean);
     this.equipment?.setLoadout(this.loadout.lethal, this.loadout.tactical);
     this.loadout.lethal = this.equipment?.lethal ?? this.loadout.lethal;
     this.loadout.tactical = this.equipment?.tactical ?? this.loadout.tactical;
     if (opts.refill !== false) this.resupply();
-    const want = this.carried.includes(this.activeId) ? this.activeId : this.loadout.primary;
+    const want = this.carried.includes(this.activeId) ? this.activeId : this.carried[0];
     if (opts.animated) this.setWeapon(want);
     else this.setWeaponImmediate(want);
     return { ...this.loadout };
@@ -1262,7 +1266,7 @@ export class WeaponSystem {
     if (!this.carried.includes(id)) {
       const slot = this.states.get(id).def.slot;
       this.loadout[slot === 'secondary' ? 'secondary' : 'primary'] = id;
-      this.carried = [this.loadout.primary, this.loadout.secondary];
+      this.carried = [this.loadout.primary, this.loadout.secondary].filter(Boolean);
     }
     this._switchTo = null;
     this._cycling = false;
@@ -1296,6 +1300,23 @@ export class WeaponSystem {
     if (opts.refill) this._fill(this.states.get(id));
     if (opts.animated && this.carried.includes(id)) return id === this.activeId ? true : this.setWeapon(id);
     return this.setWeaponImmediate(id);
+  }
+
+  /**
+   * Debug / pickup: put any weapon in hand (it takes its loadout slot, full
+   * ammunition), or +1 of a throwable ('frag' | 'flash'). `window.FLOP.give`.
+   * @returns {string|null} what was given
+   */
+  give(id) {
+    if (this.equipment?.defs?.[id]) {
+      this.equipment.give(id, 1);
+      return id;
+    }
+    if (!this.states.has(id)) return null;
+    this._fill(this.states.get(id));
+    this.setWeaponImmediate(id);
+    this.viewmodel.play('draw');
+    return id;
   }
 
   /** The default primary (what a run starts with if the loadout names nothing). */

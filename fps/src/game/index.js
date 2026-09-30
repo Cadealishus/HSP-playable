@@ -50,9 +50,9 @@ import { CONCURRENT_CAP, BREATHER_S, waveGoal, waveIntensity, waveBonus } from '
  * CHARLIE "CONTINGENCY" sidearm with double plating.
  */
 const LOADOUTS = {
-  alpha: { weapon: 'rifle', armour: 1 },
-  bravo: { weapon: 'smg', armour: 1 },
-  charlie: { weapon: 'pistol', armour: 2 },
+  alpha: { weapon: 'rifle', primary: 'rifle', secondary: 'pistol', armour: 1 },
+  bravo: { weapon: 'smg', primary: 'smg', secondary: 'mpistol', armour: 1 },
+  charlie: { weapon: 'pistol', primary: null, secondary: 'pistol', armour: 2 },
 };
 const DEFAULT_JOB = 'alpha';
 /** Weapon-class shorthands accepted by FLOP.start() from the console. */
@@ -600,7 +600,18 @@ export class GameSystem {
     const kit = LOADOUTS[job] ?? LOADOUTS[DEFAULT_JOB];
     const wp = this.ctx.peek('weapons');
     if (wp) {
-      if (typeof wp.setWeaponImmediate === 'function') wp.setWeaponImmediate(kit.weapon);
+      // A session loadout (EXPANSION §1, written by a loadout screen) overrides
+      // the job's weapons; the job still decides the armour.
+      const lo = this.ctx.config?.session?.loadout ?? null;
+      if (typeof wp.setLoadout === 'function') {
+        wp.setLoadout({
+          primary: lo?.primary ?? kit.primary,
+          secondary: lo?.secondary ?? kit.secondary,
+          lethal: lo?.lethal ?? 'frag',
+          tactical: lo?.tactical ?? 'flash',
+        }, { refill: true });
+        if (!lo?.primary) wp.setWeaponImmediate?.(kit.weapon);
+      } else if (typeof wp.setWeaponImmediate === 'function') wp.setWeaponImmediate(kit.weapon);
       else if (typeof wp.setWeapon === 'function') wp.setWeapon(kit.weapon);
     }
     const p = this.ctx.peek('player');
@@ -744,6 +755,12 @@ export class GameSystem {
         god: (b) => self.god(b),
         killAll: () => self._killAllLive(),
         attract: () => self.attract(),
+        /** Equip any weapon id (or +1 'frag' / 'flash') for testing. */
+        give: (id) => self.ctx.peek('weapons')?.give?.(id) ?? null,
+        /** Every weapon id the arsenal knows. */
+        get weapons() {
+          return self.ctx.peek('weapons')?.allWeaponIds ?? [];
+        },
         get lastRun() {
           return self.lastRun;
         },
