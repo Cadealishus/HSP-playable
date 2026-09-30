@@ -12,7 +12,7 @@ import { buildRocketRound } from './models/launcher.js';
  * bullet mask, which does not contain the player's capsule: the shooter can
  * never be the thing it hits.
  *
- * ARMING. The fuze arms after `armDistance` metres of flight (3 m). Anything
+ * ARMING. The fuze arms after `armDistance` metres (6 m), measured in a straight line from the launch point. Anything
  * it strikes before that is a DUD: the round breaks up with a clang, a spark
  * and a `rocket:dud` event, and nothing explodes. So a rocket fired into a wall
  * one metre away is safe, and one fired at a wall four metres away is not —
@@ -94,6 +94,7 @@ export class RocketSim {
         alive: false,
         pos: new THREE.Vector3(),
         prev: new THREE.Vector3(),
+        origin: new THREE.Vector3(),
         vel: new THREE.Vector3(),
         age: 0,
         travelled: 0,
@@ -128,8 +129,14 @@ export class RocketSim {
     r.pos.copy(origin);
     r.prev.copy(origin);
     r.vel.copy(dir).multiplyScalar(p.speed);
+    // Inherit the shooter's motion, clamped: a teleport or a physics hiccup must
+    // never throw the round sideways.
     const pv = owner?.velocity;
-    if (pv) r.vel.add(pv);
+    if (pv) {
+      const l = pv.length();
+      r.vel.addScaledVector(pv, l > 8 ? 8 / l : 1);
+    }
+    r.origin.copy(origin);
     r.age = 0;
     r.travelled = 0;
     r.lightT = 0;
@@ -170,15 +177,19 @@ export class RocketSim {
         if (hit?.hit) {
           r.travelled += hit.distance;
           r.pos.copy(hit.point).addScaledVector(hit.normal, 0.08);
-          if (r.travelled >= p.armDistance) this._explode(r);
+          // Armed by STRAIGHT-LINE distance from the launch point, so no path
+          // can bring an armed round back into the shooter's face.
+          if (hit.point.distanceTo(r.origin) >= p.armDistance) this._explode(r);
           else this._dud(r, hit);
           continue;
         }
       }
       r.travelled += len;
       if (r.age > p.life || r.pos.y < -60) {
-        // Self-destruct at the end of the motor's range.
-        this._explode(r);
+        // Self-destruct at the end of the motor's range (a dud if, somehow, it
+        // is still inside the arming distance).
+        if (r.pos.distanceTo(r.origin) >= p.armDistance) this._explode(r);
+        else this._dud(r, { normal: _seg.set(0, 1, 0) });
       }
     }
   }
@@ -233,7 +244,7 @@ export class RocketSim {
 
   _dud(r, hit) {
     this.stats.duds++;
-    this.stats.last = { kind: 'dud', travelled: r.travelled, x: r.pos.x, y: r.pos.y, z: r.pos.z };
+    this.stats.last = { kind: 'dud', travelled: r.travelled, x: r.pos.x, y: r.pos.y, z: r.pos.z, hit: hit.object?.name ?? (hit.body ? 'body' : hit.actor ? 'actor' : null), surface: hit.surface };
     const pos = new THREE.Vector3().copy(r.pos);
     this.ctx.events.emit('rocket:dud', { position: pos, owner: r.owner });
     this.ctx.peek('audio')?.play?.('impact', pos, { surface: 'metal', energy: 1 });

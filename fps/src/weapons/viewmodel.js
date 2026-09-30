@@ -923,7 +923,9 @@ export class Viewmodel {
       this.rig.quaternion.copy(this.rigOverride.quaternion);
     }
     this.rig.updateMatrix();
-    this.rig.updateMatrixWorld(true);
+    // From the anchor down: the muzzle / eject queries must not depend on the
+    // renderer having refreshed the anchor's world matrix this frame.
+    this.anchor.updateMatrixWorld(true);
     // Fully scoped: the scope overlay replaces the viewmodel.
     this.rig.visible = !this.scopeHide;
 
@@ -1370,9 +1372,9 @@ function applyNode(obj, node) {
  */
 const THROW_POSES = {
   hidden: { p: [0.25, -0.47, -0.14], f: [0.05, 0.95, -0.3], b: [0.95, 0.05, 0.3] },
-  ready: { p: [0.165, -0.15, -0.25], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
-  tug: { p: [0.155, -0.165, -0.232], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
-  cock: { p: [0.2, -0.07, -0.11], f: [-0.15, 0.95, 0.25], b: [0.85, 0.15, -0.5] },
+  ready: { p: [0.13, -0.105, -0.28], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
+  tug: { p: [0.125, -0.118, -0.268], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
+  cock: { p: [0.15, -0.075, -0.21], f: [-0.2, 0.9, -0.1], b: [0.85, 0.2, -0.45] },
   release: { p: [0.07, 0.02, -0.44], f: [-0.1, 0.3, -0.95], b: [0.25, 0.95, 0.15] },
   follow: { p: [-0.02, -0.4, -0.36], f: [-0.2, -0.65, -0.73], b: [0.25, 0.7, -0.65] },
 };

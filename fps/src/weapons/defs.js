@@ -730,7 +730,7 @@ Object.assign(WEAPON_DEFS, {
 
   /**
    * Unguided rocket launcher. One in the tube and two spare; a real projectile
-   * (rockets.js) that ignites, accelerates, trails smoke and ARMS at 3 m — an
+   * (rockets.js) that ignites, accelerates, trails smoke and ARMS at 6 m — an
    * impact inside the arming distance is a dud, so it can never go off in the
    * shooter's face.
    */
@@ -738,7 +738,7 @@ Object.assign(WEAPON_DEFS, {
     id: 'rocket',
     displayName: 'PELICAN RL',
     label: 'PELICAN RL',
-    blurb: 'Unguided 84 mm launcher. One in the tube, two on the back. Arms at 3 metres, as the manual stresses.',
+    blurb: 'Unguided 84 mm launcher. One in the tube, two on the back. Arms at 6 metres, as the manual stresses.',
     class: 'launcher',
     slot: 'secondary',
     model: 'rocket',
@@ -763,7 +763,7 @@ Object.assign(WEAPON_DEFS, {
       thrust: 110,
       burn: 0.7,
       gravity: 1.2,
-      armDistance: 3,
+      armDistance: 6,
       radius: 8.5,
       damage: 420,
       impulse: 170,

@@ -77,6 +77,28 @@ export const WEAPON_PROFILES = {
     midF: 610, midDecay: 0.065, tailDecay: 0.5, tailF: 4000, tailEndF: 520,
     mechDelay: 0.03, mechLevel: 0.6, mechPartials: [1330, 2480, 4100], send: 0.58,
   },
+  // FLOP OPS arsenal (src/weapons/defs.js `audio`): additive profiles.
+  /** 7.62 semi-auto marksman rifle: between the rifle and the .338. */
+  marksman: {
+    level: 1.15, bodyF: 112, bodyF2: 42, bodyDecay: 0.12, subF: 46, subDecay: 0.17,
+    crackF: 1650, crackQ: 0.85, crackDecay: 0.08, drive: 8, asym: 0.5,
+    midF: 560, midDecay: 0.07, tailDecay: 0.62, tailF: 3800, tailEndF: 480,
+    mechDelay: 0.03, mechLevel: 0.5, mechPartials: [1400, 2500, 4200], send: 0.62,
+  },
+  /** Machine pistol: a pistol report with a faster, lighter action. */
+  mpistol: {
+    level: 0.78, bodyF: 190, bodyF2: 86, bodyDecay: 0.045, subF: 94, subDecay: 0.06,
+    crackF: 2900, crackQ: 1.1, crackDecay: 0.032, drive: 4.5, asym: 0.26,
+    midF: 980, midDecay: 0.028, tailDecay: 0.15, tailF: 7000, tailEndF: 1050,
+    mechDelay: 0.018, mechLevel: 0.52, mechPartials: [2600, 4400, 7100], send: 0.4,
+  },
+  /** Rocket launch: all body and back-blast, no supersonic crack. */
+  rocket: {
+    level: 1.35, bodyF: 72, bodyF2: 30, bodyDecay: 0.26, subF: 34, subDecay: 0.35,
+    crackF: 900, crackQ: 0.5, crackDecay: 0.16, drive: 9, asym: 0.6,
+    midF: 360, midDecay: 0.18, tailDecay: 1.2, tailF: 2600, tailEndF: 320,
+    mechDelay: 0.05, mechLevel: 0.3, mechPartials: [700, 1300, 2400], send: 0.75,
+  },
   suppressed: {
     level: 0.5, bodyF: 132, bodyF2: 64, bodyDecay: 0.055, subF: 70, subDecay: 0.07,
     crackF: 900, crackQ: 0.6, crackDecay: 0.03, drive: 2.5, asym: 0.2,
