@@ -130,11 +130,11 @@ export function addSuppressor(asm, zMuzzle, y, o = {}) {
 export function addBipod(asm, y, z, o = {}) {
   const len = o.len ?? 0.2;
   const clamp = blob(0.03, 0.02, 0.024, 0.003, 2);
-  asm.add(clamp, 'steel_black', { y, z });
+  asm.add(clamp, 'alu', { y, z });
   clamp.dispose();
   for (const sx of [-1, 1]) {
     const leg = rodZ(0.0045, 0.0038, len, 12, 0.0008);
-    asm.add(leg, 'steel_black', { x: sx * 0.011, y: y - 0.006, z: z - len / 2, ry: sx * 0.03 });
+    asm.add(leg, 'alu', { x: sx * 0.011, y: y - 0.006, z: z - len / 2, ry: sx * 0.03 });
     leg.dispose();
     const foot = blob(0.012, 0.01, 0.018, 0.003, 2);
     asm.add(foot, 'rubber', { x: sx * 0.014, y: y - 0.006, z: z - len });

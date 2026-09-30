@@ -38,12 +38,12 @@ export function buildLmg() {
 
   /* ---- receiver box ------------------------------------------------------ */
   const rec = box(recW, recH, zRecRear - zRecFront, 0.003, 2);
-  body.add(rec, 'steel_black', { y: bore - 0.006, z: (zRecRear + zRecFront) / 2 });
+  body.add(rec, 'alu', { y: bore - 0.006, z: (zRecRear + zRecFront) / 2 });
   rec.dispose();
   // Stamped ribs and rivets down the flanks.
   for (const sx of [-1, 1]) {
     const rib = box(0.0018, 0.012, zRecRear - zRecFront - 0.03, 0.0006, 1);
-    body.add(rib, 'steel_black', { x: sx * (recW / 2 + 0.0006), y: bore - 0.02, z: (zRecRear + zRecFront) / 2 });
+    body.add(rib, 'alu', { x: sx * (recW / 2 + 0.0006), y: bore - 0.02, z: (zRecRear + zRecFront) / 2 });
     rib.dispose();
     for (let i = 0; i < 6; i++) {
       const rv = latheZ([[0, 0], [0, 0.0022], [0.0008, 0.002], [0.0012, 0]], 10);
@@ -53,7 +53,7 @@ export function buildLmg() {
   }
   // Feed-tray cover with the rail on top and a latch at the rear.
   const cover = box(recW - 0.004, 0.018, 0.16, 0.003, 2);
-  body.add(cover, 'steel_black', { y: bore + recH / 2 - 0.001, z: -0.05 });
+  body.add(cover, 'alu', { y: bore + recH / 2 - 0.001, z: -0.05 });
   cover.dispose();
   addRail(body, 'alu', -0.13, 0.03, railTop - 0.009);
   const latch = box(0.02, 0.008, 0.014, 0.0015, 1);
@@ -85,7 +85,7 @@ export function buildLmg() {
   addCarbineStock(body, 'alu', 'polymer', 'rubber', { bore, zFront: zRecRear + 0.003, zRear: 0.26, y: bore - 0.012 });
 
   /* ---- barrel, gas cylinder, heat shield, carry handle -------------------- */
-  addBarrel(body, 'steel_black', 'cavity', {
+  addBarrel(body, 'alu', 'cavity', {
     y: bore, zBreech: zRecFront + 0.01, zMuzzle: zBarrelEnd,
     rChamber: 0.014, rBarrel: 0.0108, rGas: 0.013, gasAt: -0.46,
   });
@@ -148,7 +148,7 @@ export function buildLmg() {
     r.brass.dispose();
     r.bullet.dispose();
     const link = box(0.004, 0.012, 0.009, 0.0008, 1);
-    magazine.add(link, 'steel_black', { x: pos.x - 0.002, y: pos.y, z: pos.z });
+    magazine.add(link, 'alu', { x: pos.x - 0.002, y: pos.y, z: pos.z });
     link.dispose();
   }
 

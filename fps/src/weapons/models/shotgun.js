@@ -29,7 +29,7 @@ export function buildShotgun() {
   const recH = 0.066;
   const recW = 0.036;
   const rec = box(recW, recH, zRecRear - zRecFront, 0.0022, 2);
-  body.add(rec, 'steel_black', { y: bore - 0.013, z: (zRecRear + zRecFront) / 2 });
+  body.add(rec, 'alu', { y: bore - 0.013, z: (zRecRear + zRecFront) / 2 });
   rec.dispose();
   // Ejection port (right) and loading port (bottom), real cavities.
   const port = box(0.006, 0.02, 0.062, 0.001, 1);
@@ -51,11 +51,11 @@ export function buildShotgun() {
   // Top rail + ghost-ring rear sight at the back of it.
   addRail(body, 'alu', zRecFront + 0.01, zRecRear - 0.006, railTop - 0.009);
   const ringBase = box(0.03, 0.012, 0.02, 0.0012, 1);
-  body.add(ringBase, 'steel_black', { y: railTop + 0.006, z: 0.03 });
+  body.add(ringBase, 'alu', { y: railTop + 0.006, z: 0.03 });
   ringBase.dispose();
   for (const sx of [-1, 1]) {
     const ear = box(0.004, 0.02, 0.018, 0.0008, 1);
-    body.add(ear, 'steel_black', { x: sx * 0.012, y: railTop + 0.019, z: 0.03 });
+    body.add(ear, 'alu', { x: sx * 0.012, y: railTop + 0.019, z: 0.03 });
     ear.dispose();
   }
   const ghost = latheZ([[0, 0.0045], [0, 0.0072], [0.004, 0.0072], [0.004, 0.0045]], 24);
@@ -74,7 +74,7 @@ export function buildShotgun() {
   addCarbineStock(body, 'alu', 'polymer', 'rubber', { bore, zFront: zRecRear + 0.003, zRear: 0.245, y: bore - 0.012 });
 
   /* ---- barrel, magazine tube, bead ----------------------------------- */
-  addBarrel(body, 'steel_black', 'cavity', {
+  addBarrel(body, 'alu', 'cavity', {
     y: bore,
     zBreech: zRecFront + 0.01,
     zMuzzle: zBarrelEnd,
@@ -91,14 +91,14 @@ export function buildShotgun() {
   body.add(bead, 'brass', { y: bore + 0.0112, z: zBarrelEnd + 0.012, rx: -Math.PI / 2 });
   bead.dispose();
   const mtube = rodZ(0.0112, 0.0112, zRecFront - (zBarrelEnd + 0.045), 20, 0.001);
-  body.add(mtube, 'steel_black', { y: tubeY, z: (zRecFront + zBarrelEnd + 0.045) / 2 });
+  body.add(mtube, 'alu', { y: tubeY, z: (zRecFront + zBarrelEnd + 0.045) / 2 });
   mtube.dispose();
   const cap = latheZ([[0, 0], [0, 0.0122], [0.004, 0.0126], [0.03, 0.0122], [0.036, 0.009], [0.036, 0]], 20);
-  body.add(cap, 'steel_black', { y: tubeY, z: zBarrelEnd + 0.045, ry: Math.PI });
+  body.add(cap, 'alu', { y: tubeY, z: zBarrelEnd + 0.045, ry: Math.PI });
   cap.dispose();
   // Barrel clamp tying tube to barrel, with a sling point.
   const clamp = blob(0.03, 0.05, 0.02, 0.004, 2);
-  body.add(clamp, 'steel_black', { y: (bore + tubeY) / 2, z: zBarrelEnd + 0.06 });
+  body.add(clamp, 'alu', { y: (bore + tubeY) / 2, z: zBarrelEnd + 0.06 });
   clamp.dispose();
   addScrew(body, 'steel', 0.0152, (bore + tubeY) / 2, zBarrelEnd + 0.06, 0.0024, 'x', 0.005);
   addSlingLoop(body, 'steel', -0.017, tubeY, zBarrelEnd + 0.06, 0.007, { ry: Math.PI / 2 });

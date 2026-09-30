@@ -44,7 +44,7 @@ export function buildSniper(opts = {}) {
     [[0, rAct * 0.6], [0, rAct * 0.96], [0.003, rAct], [zActRear - zActFront - 0.003, rAct], [zActRear - zActFront, rAct * 0.9], [zActRear - zActFront, rAct * 0.6]],
     32
   );
-  body.add(act, marksman ? 'alu' : 'steel_black', { y: bore, z: zActRear, ry: Math.PI });
+  body.add(act, marksman ? 'alu' : 'alu', { y: bore, z: zActRear, ry: Math.PI });
   act.dispose();
   const port = box(0.008, 0.016, 0.07, 0.001, 1);
   body.add(port, 'cavity', { x: rAct - 0.003, y: bore + 0.004, z: -0.02 });
@@ -79,7 +79,7 @@ export function buildSniper(opts = {}) {
   cheek.dispose();
 
   /* ---- barrel + handguard + brake -------------------------------------- */
-  addBarrel(body, 'steel_black', 'cavity', {
+  addBarrel(body, 'alu', 'cavity', {
     y: bore, zBreech: zActFront + 0.005, zMuzzle: zBarrelEnd,
     rChamber: 0.0142, rBarrel: marksman ? 0.0088 : 0.0112, rGas: marksman ? 0.0105 : 0.0112, gasAt: -0.4, knurl: false,
   });
@@ -111,7 +111,7 @@ export function buildSniper(opts = {}) {
   const magazine = new Assembly('sniper-mag');
   const mag = buildMagazine(magazine, null, marksman
     ? { w: 0.027, d: 0.072, len: 0.14, curve: 0.006, segs: 6, witness: 3, poly: 'polymer', caseLen: 0.051, rimR: 0.006, bulletLen: 0.022 }
-    : { w: 0.03, d: 0.098, len: 0.09, curve: 0.0, segs: 4, witness: 2, poly: 'steel_black', caseLen: 0.0693, rimR: 0.0075, bulletLen: 0.03 });
+    : { w: 0.03, d: 0.098, len: 0.09, curve: 0.0, segs: 4, witness: 2, poly: 'alu', caseLen: 0.0693, rimR: 0.0075, bulletLen: 0.03 });
 
   // Bolt: body inside the action, handle out of the right side with a tactical
   // knob. Its rest node is the rear of the bolt body; the handle root is on
@@ -122,10 +122,10 @@ export function buildSniper(opts = {}) {
     bolt.add(bb, 'steel_bright', { z: -0.065 });
     bb.dispose();
     const shroud = latheZ([[0, 0], [0, rAct * 0.9], [0.028, rAct * 0.86], [0.034, rAct * 0.5], [0.034, 0]], 24);
-    bolt.add(shroud, 'steel_black', { z: 0 });
+    bolt.add(shroud, 'alu', { z: 0 });
     shroud.dispose();
     const arm = rodZ(0.004, 0.0035, 0.052, 12, 0.0006);
-    bolt.add(arm, 'steel_black', { x: 0.03, y: -0.008, z: -0.01, ry: Math.PI / 2, rx: 0.3 });
+    bolt.add(arm, 'alu', { x: 0.03, y: -0.008, z: -0.01, ry: Math.PI / 2, rx: 0.3 });
     arm.dispose();
     const knob = dome(0.0095, 16, 1.0);
     bolt.add(knob, 'polymer', { x: 0.056, y: -0.016, z: -0.01 });
