@@ -54,6 +54,66 @@ export const LOADOUTS = [
     desc: 'One pistol, twice the armour. Command calls it a contingency. Doug calls it a pistol.',
     stats: { RANGE: 0.46, 'RATE OF FIRE': 0.34, PROTECTION: 1 },
   },
+  {
+    id: 'delta',
+    weapon: 'sniper',
+    idx: '04',
+    code: 'DELTA',
+    name: 'LONG WEEKEND',
+    kit: 'BOLT SNIPER · SIDEARM',
+    desc: 'One shot, one kill, one very long reload. Shift holds your breath. Doug holds his anyway.',
+    stats: { RANGE: 1, 'RATE OF FIRE': 0.1, PROTECTION: 0.5 },
+  },
+  {
+    id: 'echo',
+    weapon: 'shotgun',
+    idx: '05',
+    code: 'ECHO',
+    name: 'DOOR POLICY',
+    kit: 'PUMP SHOTGUN · SIDEARM',
+    desc: 'Nine pellets of conflict resolution. Loads a shell at a time; firing cancels the reload.',
+    stats: { RANGE: 0.2, 'RATE OF FIRE': 0.25, PROTECTION: 0.6 },
+  },
+  {
+    id: 'foxtrot',
+    weapon: 'lmg',
+    idx: '06',
+    code: 'FOXTROT',
+    name: 'ENTHUSIASM',
+    kit: 'LIGHT MACHINE GUN · SIDEARM',
+    desc: 'A hundred rounds and no plan. Slow to aim, slow to move, slow to reload. Fast everywhere else.',
+    stats: { RANGE: 0.7, 'RATE OF FIRE': 0.78, PROTECTION: 0.6 },
+  },
+  {
+    id: 'golf',
+    weapon: 'carbine_sd',
+    idx: '07',
+    code: 'GOLF',
+    name: 'QUIET PART',
+    kit: 'SUPPRESSED CARBINE · MACHINE PISTOL',
+    desc: 'Suppressed. Bots hear it at a quarter of the range. Doug still narrates everything out loud.',
+    stats: { RANGE: 0.66, 'RATE OF FIRE': 0.7, PROTECTION: 0.5 },
+  },
+  {
+    id: 'hotel',
+    weapon: 'marksman',
+    idx: '08',
+    code: 'HOTEL',
+    name: 'SECOND OPINION',
+    kit: 'MARKSMAN RIFLE · SIDEARM',
+    desc: 'Semi-auto, 4x scope. For when the first opinion needed to be louder and further away.',
+    stats: { RANGE: 0.9, 'RATE OF FIRE': 0.4, PROTECTION: 0.5 },
+  },
+  {
+    id: 'india',
+    weapon: 'carbine',
+    idx: '09',
+    code: 'INDIA',
+    name: 'PROPORTIONAL RESPONSE',
+    kit: 'CARBINE · ROCKET LAUNCHER',
+    desc: 'Carbine for problems. Rocket for bigger problems. Arms at 6 m, so do not rocket your own shoes.',
+    stats: { RANGE: 0.74, 'RATE OF FIRE': 0.68, PROTECTION: 0.5 },
+  },
 ];
 
 /** The town's mission card: the fallback when no map registry is published. */
@@ -215,7 +275,11 @@ export class AttractScreen {
     const lo = el('div', 'ow-att-loadouts', this.root);
     const lh = el('div', 'ow-lo-head', lo);
     el('span', null, lh, 'SELECT LOADOUT');
-    el('span', 'ow-lo-hint', lh, 'CLICK OR PRESS 1 – 3 TO DEPLOY');
+    el('span', 'ow-lo-hint', lh, `CLICK OR PRESS 1 – ${Math.min(9, LOADOUTS.length)} TO DEPLOY`);
+    // More than three kits: compact cards, with the focused kit's brief and
+    // stats in one detail strip under the grid.
+    const compact = LOADOUTS.length > 3;
+    setClass(lo, 'compact', compact);
     const cards = el('div', 'ow-lo-cards', lo);
     this.cards = [];
     this.kitEls = [];
@@ -245,6 +309,17 @@ export class AttractScreen {
       card.addEventListener('click', () => this._deploy(i));
       this.cards.push(card);
     });
+    if (compact) {
+      const d = el('div', 'ow-lo-detail', lo);
+      this.detailDesc = el('div', 'ow-lo-desc', d, '');
+      const st = el('div', 'ow-lo-stats', d);
+      this.detailStats = Object.keys(LOADOUTS[0].stats).map((key) => {
+        const r = el('div', 'ow-lo-stat', st);
+        el('span', null, r, key);
+        const bar = el('i', null, r);
+        return { key, fill: el('b', null, bar), num: el('em', null, r, '') };
+      });
+    }
 
     // ---- footer ------------------------------------------------------------
     const foot = el('div', 'ow-att-foot', this.root);
@@ -256,7 +331,7 @@ export class AttractScreen {
 
     this._onKey = (e) => {
       if (!this.open || e.repeat) return;
-      if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+      if (/^Digit[1-9]$/.test(e.code)) {
         this._deploy(e.code.charCodeAt(5) - 49);
       } else if (e.code === 'ArrowRight') {
         this._focus((this.focus + 1) % this.cards.length);
@@ -278,6 +353,15 @@ export class AttractScreen {
   _focus(i) {
     this.focus = i;
     for (let j = 0; j < this.cards.length; j++) setClass(this.cards[j], 'on', j === i);
+    const L = LOADOUTS[i];
+    if (this.detailDesc && L) {
+      setText(this.detailDesc, L.desc);
+      for (const s of this.detailStats) {
+        const v = L.stats[s.key] ?? 0;
+        s.fill.style.transform = `scaleX(${v.toFixed(3)})`;
+        setText(s.num, String(Math.round(v * 100)));
+      }
+    }
   }
 
   _stepMap(dir) {

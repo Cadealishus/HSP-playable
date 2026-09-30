@@ -53,10 +53,16 @@ const LOADOUTS = {
   alpha: { weapon: 'rifle', primary: 'rifle', secondary: 'pistol', armour: 1 },
   bravo: { weapon: 'smg', primary: 'smg', secondary: 'mpistol', armour: 1 },
   charlie: { weapon: 'pistol', primary: null, secondary: 'pistol', armour: 2 },
+  delta: { weapon: 'sniper', primary: 'sniper', secondary: 'pistol', armour: 1 },
+  echo: { weapon: 'shotgun', primary: 'shotgun', secondary: 'pistol', armour: 1.2 },
+  foxtrot: { weapon: 'lmg', primary: 'lmg', secondary: 'pistol', armour: 1.2 },
+  golf: { weapon: 'carbine_sd', primary: 'carbine_sd', secondary: 'mpistol', armour: 1 },
+  hotel: { weapon: 'marksman', primary: 'marksman', secondary: 'pistol', armour: 1 },
+  india: { weapon: 'carbine', primary: 'carbine', secondary: 'rocket', armour: 1 },
 };
 const DEFAULT_JOB = 'alpha';
 /** Weapon-class shorthands accepted by FLOP.start() from the console. */
-const LOADOUT_ALIASES = { rifle: 'alpha', smg: 'bravo', pistol: 'charlie' };
+const LOADOUT_ALIASES = { rifle: 'alpha', smg: 'bravo', pistol: 'charlie', sniper: 'delta', shotgun: 'echo', lmg: 'foxtrot', carbine_sd: 'golf', marksman: 'hotel', carbine: 'india', rocket: 'india' };
 
 const BEST_KEY = 'flopops.best';
 const BEST_WAVE_KEY = 'flopops.bestWave';

@@ -838,6 +838,18 @@ const CSS = `
   font-size: calc(15px * var(--k)); line-height:1.4; color: var(--ink-2);
   margin: calc(var(--u) * 3) 0 calc(var(--u) * 3.5); min-height: calc(42px * var(--k)); }
 .ow-lo-stats { display:grid; gap: calc(var(--u) * 1.6); }
+.ow-att-loadouts.compact .ow-lo-cards { grid-template-columns: repeat(5, 1fr); gap: calc(var(--u) * 2); }
+.ow-att-loadouts.compact .ow-lo-card { padding: calc(var(--u) * 3) calc(var(--u) * 3.5); }
+.ow-att-loadouts.compact .ow-lo-card .ow-lo-desc,
+.ow-att-loadouts.compact .ow-lo-card .ow-lo-stats,
+.ow-att-loadouts.compact .ow-lo-card .ow-lo-cta { display:none; }
+.ow-att-loadouts.compact .ow-lo-name { font-size: calc(20px * var(--k)); margin: calc(var(--u) * 1.6) 0 calc(var(--u) * 1); }
+.ow-att-loadouts.compact .ow-lo-kit { font-size: max(9px, calc(11.5px * var(--k))); letter-spacing:.14em; }
+.ow-att-loadouts.compact .ow-lo-tick { top: calc(var(--u) * 3); right: calc(var(--u) * 3); }
+.ow-lo-detail { display:grid; grid-template-columns: 1.4fr 1fr; gap: calc(var(--u) * 6); align-items:center;
+  margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 3) calc(var(--u) * 5);
+  background: rgba(16,16,15,.80); border: 1px solid rgba(255,255,255,.09); }
+.ow-lo-detail .ow-lo-desc { margin:0; min-height:0; }
 .ow-lo-stat { display:grid; grid-template-columns: calc(104px * var(--k)) 1fr calc(30px * var(--k)); align-items:center;
   column-gap: calc(var(--u) * 2);
   font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.16em; color: var(--ink-2); }
