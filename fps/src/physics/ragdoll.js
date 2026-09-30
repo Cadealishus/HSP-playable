@@ -410,6 +410,22 @@ export class Ragdoll {
     this._touching = false;
     let motion = 0;
 
+    // Snapshot the pose this step starts from, so writeToSkeleton() can draw
+    // the doll between physics steps (see `alpha` there). `q` is not usable
+    // for that: impulses and friction rewrite it to change velocity.
+    if (!this._sx || this._sx.length < n) {
+      this._sx = new Float64Array(n);
+      this._sy = new Float64Array(n);
+      this._sz = new Float64Array(n);
+      this._ix = new Float64Array(n);
+      this._iy = new Float64Array(n);
+      this._iz = new Float64Array(n);
+    }
+    this._sx.set(this.px.subarray(0, n));
+    this._sy.set(this.py.subarray(0, n));
+    this._sz.set(this.pz.subarray(0, n));
+    this._stepped = true;
+
     // --- Verlet integration ---
     for (let i = 0; i < n; i++) {
       if (this.invMass[i] === 0) continue;
@@ -825,12 +841,12 @@ export class Ragdoll {
    * World transform of bone i. `upAxis` names which local axis runs down the
    * bone — THREE bones conventionally point along +Y.
    */
-  getBoneTransform(i, outPos, outQuat) {
+  getBoneTransform(i, outPos, outQuat, X = this.px, Y = this.py, Z = this.pz) {
     const a = this.boneHead[i], c = this.boneTail[i];
-    outPos.set(this.px[a], this.py[a], this.pz[a]);
-    let dx = this.px[c] - this.px[a];
-    let dy = this.py[c] - this.py[a];
-    let dz = this.pz[c] - this.pz[a];
+    outPos.set(X[a], Y[a], Z[a]);
+    let dx = X[c] - X[a];
+    let dy = Y[c] - Y[a];
+    let dz = Z[c] - Z[a];
     const l = Math.hypot(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
     const ux = this.boneUp[i * 3], uy = this.boneUp[i * 3 + 1], uz = this.boneUp[i * 3 + 2];
@@ -869,9 +885,28 @@ export class Ragdoll {
     return this;
   }
 
-  /** Push the simulated transforms into the adopted skeleton. */
-  writeToSkeleton() {
+  /**
+   * Push the simulated transforms into the adopted skeleton.
+   *
+   * `alpha` (0..1, the engine's `time.alpha`) draws the pose that far between
+   * the last two physics steps. The default 1 is the raw latest step, which is
+   * what normal play has always drawn. Slow motion needs the blend: at a 0.15
+   * time scale a 120 Hz step lands only every third 60 Hz frame and an
+   * un-interpolated doll visibly stutters.
+   */
+  writeToSkeleton(alpha = 1) {
     if (!this.bones3D) return;
+    let X = this.px, Y = this.py, Z = this.pz;
+    if (alpha < 1 && this._stepped && !this.sleeping && !this.frozen && this._sx) {
+      const n = this.particleCount;
+      const a = alpha < 0 ? 0 : alpha;
+      X = this._ix; Y = this._iy; Z = this._iz;
+      for (let i = 0; i < n; i++) {
+        X[i] = this._sx[i] + (this.px[i] - this._sx[i]) * a;
+        Y[i] = this._sy[i] + (this.py[i] - this._sy[i]) * a;
+        Z[i] = this._sz[i] + (this.pz[i] - this._sz[i]) * a;
+      }
+    }
     // A settled corpse re-derives 25 bone transforms per frame from particle
     // positions that `step()` has already stopped touching (it early-returns on
     // `sleeping`), so every one of those writes is the same value it wrote last
@@ -887,7 +922,7 @@ export class Ragdoll {
     for (let i = 0; i < this.boneCount; i++) {
       const bone = this.bones3D[i];
       if (!bone) continue;
-      this.getBoneTransform(i, pos, quat);
+      this.getBoneTransform(i, pos, quat, X, Y, Z);
       this._m4b.compose(pos, quat, this._scale);
       if (bone.parent) {
         bone.parent.updateWorldMatrix(true, false);

@@ -63,6 +63,14 @@ npm run shot     # deterministic captures (tools/capture.mjs --list for shots)
 
 Debug API in the console: `window.FLOP` (`state`, `start('alpha'|'bravo'|'charlie')`, `skipToWave(n)`, `god(true)`, `killAll()`, `continueRun()`, `restart()`).
 
+### Cinematic replay camera (dev)
+
+`src/cinematic/` is a reusable replay/cutscene camera: a `CinematicSequence` is a list of shots (duration, camera mode, position/target, tracked actor, FOV, cut or blend, time scale, shake) that the `cinematic` subsystem plays while it owns the camera and clock, then hands everything back.
+
+- **`K`** (dev server, or any build with `?dev=1`): play the grenade-ragdoll Short. Press again to replay; **`Shift+K`** stops it early.
+- Console: `FLOP.cinematic('grenade')`, `FLOP.stopCinematic()`.
+- The HUD and viewmodel are hidden while it runs, so the footage is clean. Keep the action centred for a 9:16 crop; the shots are framed for it.
+
 ## Credits
 
 Flop Ops is built on **Nerd of Duty**, which is itself a fork of **[Claude of Duty](https://github.com/mshumer/Claude-of-Duty)** by mshumer. Both are released under the MIT License, which this project keeps; see `LICENSE`.

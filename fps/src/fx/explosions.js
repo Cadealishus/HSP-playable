@@ -24,7 +24,12 @@ export function explode(fx, o) {
   // VISUAL radius. `o.radius` is the damage radius (6.5 m for a frag), and
   // scaling the fireball by it put a 10 m white disc over the frame; a frag's
   // fireball is 2-3 m across. The damage radius still drives the force.
-  const R = Math.min(3.0, Math.max(0.6, o.radius ?? 5));
+  // Optional art-direction knobs (cinematics): `fireScale` grows the visual
+  // radius past the frag cap, `smoke` scales the dark smoke body and column
+  // (0.4 keeps the launch readable). Both default to 1, the stock grenade.
+  const fireScale = o.fireScale ?? 1;
+  const smokeK = Math.max(0, o.smoke ?? 1);
+  const R = Math.min(3.0 * fireScale, Math.max(0.6, (o.radius ?? 5) * (fireScale > 1 ? fireScale : 1)));
   const up = o.up ?? { x: 0, y: 1, z: 0 };
   const px = p.x;
   const py = p.y;
@@ -94,7 +99,7 @@ export function explode(fx, o) {
   // 12-20 sprites of dark brown-grey (#3a3530) that start ~1 m across and
   // grow to ~6 m over 2.5 s, drifting up and out: the body of the blast once
   // the fire is gone. `size` is the sprite diameter.
-  const nSmoke = Math.min(20, Math.round(8 * q) + 12);
+  const nSmoke = Math.round(Math.min(20, Math.round(8 * q) + 12) * Math.min(1, smokeK));
   for (let i = 0; i < nSmoke; i++) {
     cone(V, rng, up.x, up.y, up.z, 1.3, 0.6);
     const sp = rng.range(0.8, 3.2);
@@ -114,7 +119,7 @@ export function explode(fx, o) {
     // #3a3530 in linear
     s.r0 = 0.042; s.g0 = 0.036; s.b0 = 0.030;
     s.r1 = 0.07; s.g1 = 0.064; s.b1 = 0.058;
-    s.alpha = rng.range(0.6, 0.85);
+    s.alpha = rng.range(0.6, 0.85) * (smokeK < 1 ? 0.5 + 0.5 * smokeK : 1);
     s.alphaCurve = 1.6;
     s.soft = 0.8;
     s.turb = 0.25; s.turbFreq = 0.9; s.seed = rng.float();
@@ -213,10 +218,10 @@ export function explode(fx, o) {
   }
 
   // ---- lingering smoke column --------------------------------------------
-  fx.addSmokeColumn(px, py + R * 0.1, pz, {
+  if (smokeK > 0) fx.addSmokeColumn(px, py + R * 0.1, pz, {
     radius: R * 0.35,
-    duration: 1.5,
-    rate: 9,
+    duration: 1.5 * Math.min(1, smokeK),
+    rate: 9 * Math.min(1, smokeK),
     rise: 1.6,
     dark: 0.12,
     life: 3.4,

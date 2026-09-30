@@ -13,6 +13,7 @@ import { AiSystem } from './ai/index.js';
 import { UiSystem } from './ui/index.js';
 import { AudioSystem } from './audio/index.js';
 import { GameSystem } from './game/index.js';
+import { CinematicSystem } from './cinematic/index.js';
 
 import { installShotApi } from './dev/shots.js';
 import { MAPS, resolveMapId, switchMap } from './world/maps/index.js';
@@ -62,7 +63,9 @@ engine
   .add(AiSystem)
   .add(UiSystem)
   .add(AudioSystem)
-  .add(GameSystem);
+  .add(GameSystem)
+  // replay / cutscene camera; dev trigger K (see src/cinematic/index.js)
+  .add(CinematicSystem);
 
 // ---------------------------------------------------------------- loading --
 // The loading screen is plain DOM in index.html, driven by an inline classic

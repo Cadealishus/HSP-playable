@@ -194,7 +194,8 @@ export class GameSystem {
 
   _onActorDeath(e) {
     const actor = e?.actor;
-    if (this._ignoreDeaths) {
+    // Extras staged by `cinematic` are not part of any wave.
+    if (this._ignoreDeaths || actor?.cinematic) {
       if (actor) this._pendingHead.delete(actor);
       return;
     }

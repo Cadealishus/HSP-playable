@@ -383,6 +383,33 @@ export class Equipment {
     return g;
   }
 
+  /**
+   * Public: put a live grenade in the world without anyone throwing it (the
+   * cinematic director, test rigs). Same body, model and detonation as a
+   * thrown one. Returns the live record, or null if it detonated on the spot.
+   */
+  spawnLive(kind, pos, vel, fuse = 3.5, owner = null) {
+    return this._spawn(kind === 'flash' ? 'flash' : 'frag', pos, vel, fuse, owner);
+  }
+
+  /** Public: set off a live record from `spawnLive` now, fuse or not. */
+  detonateNow(rec, extra = null) {
+    if (!rec?.active) return false;
+    const i = this.live.indexOf(rec);
+    if (i >= 0) this.live.splice(i, 1);
+    this._detonate(rec.kind, rec.body.position, rec.owner, extra);
+    this._retire(rec);
+    return true;
+  }
+
+  /** Public: take a live record out of the world without a bang. */
+  discard(rec) {
+    if (!rec?.active) return;
+    const i = this.live.indexOf(rec);
+    if (i >= 0) this.live.splice(i, 1);
+    this._retire(rec);
+  }
+
   /** Spawn a live grenade body. Returns its record (or null if the pool is exhausted). */
   _spawn(kind, pos, vel, fuse, owner) {
     const phys = this.weapons.physics ?? this.ctx.peek('physics');
@@ -484,7 +511,8 @@ export class Equipment {
   /*  detonation                                                            */
   /* ====================================================================== */
 
-  _detonate(kind, where, owner) {
+  /** `extra` rides on the explosion payload (see detonateNow). */
+  _detonate(kind, where, owner, extra = null) {
     this.stats.detonated++;
     // Lift the charge a little off whatever it is resting on: every listener
     // occlusion-tests a ray from this point, and a ray that starts 3 cm above a
@@ -500,10 +528,10 @@ export class Equipment {
     }
     const pos = new THREE.Vector3(where.x, where.y + lift, where.z); // per event, not per frame
     if (kind === 'flash') this._flashbang(pos, owner);
-    else this._frag(pos, owner);
+    else this._frag(pos, owner, extra);
   }
 
-  _frag(pos, owner) {
+  _frag(pos, owner, extra = null) {
     const def = this.defs.frag;
     this.ctx.events.emit('explosion', {
       position: pos,
@@ -514,6 +542,7 @@ export class Equipment {
       source: owner,
       team: owner?.team ?? (owner?.isPlayer ? 'esf' : undefined),
       kind: 'frag',
+      ...extra,
     });
   }
 

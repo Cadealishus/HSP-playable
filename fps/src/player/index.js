@@ -100,6 +100,9 @@ export class PlayerSystem {
     this.hitbox = null;
 
     this.controlEnabled = true;
+    /** Set by `cinematic`: the camera is not Doug's eye, so blasts near the
+     *  lens must not wound, shake or suppress him. */
+    this.invulnerable = false;
     this.adsAmount = 0;
     this._adsExternal = false;
     this._adsExternalAge = 0;
@@ -458,7 +461,7 @@ export class PlayerSystem {
   }
 
   _onExplosion(e) {
-    if (!e?.position) return;
+    if (!e?.position || this.invulnerable) return;
     const eye = this.ctx.camera.position;
     const r = e.radius ?? 5;
     const d = this._tmp.copy(e.position).distanceTo(eye);
@@ -639,6 +642,7 @@ export class PlayerSystem {
   }
 
   applyDamage(amount, from, opts) {
+    if (this.invulnerable) return 0;
     return this.health.damage(amount, from ?? null, { yaw: this.movement.yaw, ...opts });
   }
   heal(a) {

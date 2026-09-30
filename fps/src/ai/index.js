@@ -1062,7 +1062,9 @@ export class AiSystem {
     a.hasTarget = true;
     a.targetVisible = true;
     a.alertness = 1;
-    a.lastKnown.copy(p);
+    // `lookAt` pins the man's attention on a point (cinematic staging) instead
+    // of the player's position.
+    a.lastKnown.copy(s.lookAt ?? p);
     a.lastKnownAge = 0;
     a.crouch = !!s.crouch;
     a.aimWeight = s.aimWeight ?? 1;

@@ -948,9 +948,12 @@ export class PhysicsSystem {
   }
 
   lateUpdate(dt, ctx) {
+    // `interpolateRagdolls` (set by `cinematic` for slow motion) draws each doll
+    // between its last two fixed steps; off, the latest step is drawn as-is.
+    const alpha = this.interpolateRagdolls ? ctx.time.alpha : 1;
     for (let i = 0; i < this.ragdolls.length; i++) {
       const rd = this.ragdolls[i];
-      if (rd.bones3D) rd.writeToSkeleton();
+      if (rd.bones3D) rd.writeToSkeleton(alpha);
     }
     if (this.debug?.enabled) this.debug.rebuild(this, ctx.camera, dt);
     this.stats.bodies = this.bodies.bodies.length;

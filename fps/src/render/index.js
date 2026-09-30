@@ -625,6 +625,16 @@ export class RenderSystem {
     });
   }
 
+  /**
+   * Declare a camera cut: the next frame keeps no temporal history, so TAA
+   * does not ghost the previous shot through the new one and motion blur does
+   * not smear the jump as one enormous camera move. Used by `cinematic`.
+   */
+  cut() {
+    this._firstFrame = true;
+    this.taa?.reset();
+  }
+
   setExposureBias(ev) {
     this.settings.exposureBias = ev;
   }
@@ -1557,7 +1567,15 @@ export class RenderSystem {
 
     // ---- 11. motion blur --------------------------------------------------
     if (this.motionBlur) {
-      const shutter = this.settings.shutter * (1 / 60 / dt);
+      // `realtimeShutter` (cinematic slow motion) sizes the shutter from the
+      // wall-clock frame time: the velocity buffer is a per-frame delta, and a
+      // 0.2x clock would otherwise open the shutter 5x and smear every pan.
+      let shDt = dt;
+      if (this.realtimeShutter) {
+        shDt = Math.min(0.1, Math.max(1 / 480, ctx.time.raw - (this._shutterRaw ?? ctx.time.raw) || 1 / 60));
+      }
+      this._shutterRaw = ctx.time.raw;
+      const shutter = this.settings.shutter * (1 / 60 / shDt);
       color = this.motionBlur.render(renderer, color, gb, this.frame, shutter);
     }
 
