@@ -96,6 +96,8 @@ export class CinematicSystem {
     const seq = this.playing;
     if (!seq || (which && which !== seq)) return;
     this.playing = null;
+    this._skipOcc = null;
+    this._occ = null;
     try {
       seq._end(this.ctx);
     } catch (err) {
@@ -267,6 +269,78 @@ export class CinematicSystem {
     const d = this._v.subVectors(pos, target);
     const len = d.length();
     pos.copy(target).addScaledVector(d, Math.max(0.6, first - 0.35) / len);
+  }
+
+  /**
+   * True when nothing stands between a and b (both ends padded). Two tests:
+   * the physics world (fast, walls and props with colliders) and then the
+   * rendered opaque meshes, which is what catches banners, awnings and
+   * debris that have no collider. Only called when a shot picks between
+   * framings, never per frame.
+   */
+  lineClear(a, b) {
+    const phys = this.ctx.peek('physics');
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 0.6) return true;
+    if (phys?.raycast) {
+      const hit = phys.raycast(a.x, a.y, a.z, dx, dy, dz, len - 0.4, phys.MASK?.WORLD);
+      if (hit?.hit) return false;
+    }
+    const list = this._occluders();
+    const rc = this._ray ?? (this._ray = new THREE.Raycaster());
+    rc.set(a, this._v2.set(dx / len, dy / len, dz / len));
+    rc.near = 0.05;
+    rc.far = len - 0.4;
+    this._hits.length = 0;
+    rc.intersectObjects(list, false, this._hits);
+    return this._hits.length === 0;
+  }
+
+  /**
+   * Opaque, reasonably sized world meshes near the set, gathered once per
+   * take (see buildOccluders) so a shot change costs only the rays.
+   */
+  _occluders() {
+    if (!this._occ) this.buildOccluders();
+    return this._occ;
+  }
+
+  /**
+   * Gather the meshes the visibility test rays against: within `radius` of
+   * `center` when given. Sequences call this from setup(), where a hitch is
+   * invisible (it lands before the first frame of the take).
+   */
+  buildOccluders(center = null, radius = 45) {
+    this._hits = this._hits ?? [];
+    const out = (this._occ = []);
+    const skip = this._skipOcc;
+    const sph = this._sph ?? (this._sph = new THREE.Sphere());
+    this.ctx.scene.updateMatrixWorld();
+    this.ctx.scene.traverseVisible((o) => {
+      if (!o.isMesh || o.isSkinnedMesh || skip?.has(o)) return;
+      if (o.isInstancedMesh && o.count > 256) return;
+      const ud = o.userData;
+      if (ud.owNoPrepass || ud.owProbe) return;
+      const m = o.material;
+      if (!m || (Array.isArray(m) ? m.some((x) => x.transparent) : m.transparent)) return;
+      if (m.side === THREE.BackSide) return; // sky dome
+      const g = o.geometry;
+      if (!g) return;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      if (g.boundingSphere.radius > 150) return;
+      if (center) {
+        sph.copy(g.boundingSphere).applyMatrix4(o.matrixWorld);
+        if (sph.center.distanceTo(center) - sph.radius > radius) return;
+      }
+      out.push(o);
+    });
+    return out;
+  }
+
+  /** Meshes the visibility test must ignore (a sequence's own actors). */
+  ignoreForVisibility(objects) {
+    this._skipOcc = new Set(objects);
   }
 
   resize(w, h) {

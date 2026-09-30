@@ -42,12 +42,18 @@ import * as THREE from 'three';
  *   timeScale     number, `[[t, v], ...]` keys in shot seconds, or `(seq, t) => v`
  *   cameraShake   number (trauma 0..1) or `{ trauma, decay, amplitude, rotation, frequency }`,
  *                 kicked when the shot starts. `seq.shake()` kicks one any time.
+ *   candidates    `[{ ...shot fields }, ...]` alternative framings (offset,
+ *                 direction, position, ...). When the shot starts, each is
+ *                 tried and the one whose camera can see the most subjects
+ *                 (tracked actor / framed actors / includes) wins; ties go
+ *                 to the earliest. Set them in onEnter if they need the scene.
  *   events        `[{ at, fn(seq) }]` cues in shot seconds
  *   onEnter(seq) / onUpdate(seq, t, dt) / onExit(seq)
  *
  * SEQUENCE OPTIONS
  *   setup(seq, ctx)     stage the scene; runs inside play(), before shot 0
  *   teardown(seq, ctx)  runs from stop(), whether it finished or was aborted
+ *   onUpdate(seq, dt)   every frame, after the current shot's own onUpdate
  *   shake               defaults for cameraShake
  */
 
@@ -205,6 +211,8 @@ export class CinematicSequence {
     this.shots = opts.shots ?? [];
     this.setup = opts.setup ?? null;
     this.teardown = opts.teardown ?? null;
+    /** Every frame, after the shot's own update: `(seq, dt)`. */
+    this.onUpdate = opts.onUpdate ?? null;
     this.shakeDefaults = opts.shake ?? {};
     /** Free-form bag for a sequence's own state (actors, grenade, ...). */
     this.data = {};
@@ -333,6 +341,7 @@ export class CinematicSequence {
       this._blendDur = 0;
     }
     s.onEnter?.(this);
+    if (s.candidates?.length) this._pickCandidate(s);
     if (s.cameraShake) this.shake(s.cameraShake);
     // Evaluate at t=0 and snap: a cut starts exactly on its first frame.
     this._goals(0, 0);
@@ -377,6 +386,7 @@ export class CinematicSequence {
       }
     }
     s.onUpdate?.(this, t, dt);
+    this.onUpdate?.(this, dt);
 
     this._goals(t, dt);
     this._collideGoal();
@@ -411,6 +421,43 @@ export class CinematicSequence {
     this.host.collideGoal(this._goalTgt, this._goalPos);
   }
 
+  /** Try each of `shot.candidates` and keep the one that sees most subjects. */
+  _pickCandidate(s) {
+    const host = this.host;
+    if (!host?.lineClear) {
+      Object.assign(s, s.candidates[0]);
+      return;
+    }
+    const t0 = performance.now();
+    const subjects = [];
+    if (s._actor) subjects.push(s._actor);
+    if (s._actors) subjects.push(...s._actors);
+    for (const spec of s.include ?? []) subjects.push(spec);
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < s.candidates.length; i++) {
+      const c = s.candidates[i];
+      Object.assign(s, c);
+      this._goals(0, 0);
+      const before = _v2.copy(this._goalPos);
+      this._collideGoal();
+      let score = 0;
+      for (const sub of subjects) {
+        const p = typeof sub === 'string' || Array.isArray(sub) || sub.isVector3 ? this.resolve(sub, _v3) : actorCenter(sub, _v3);
+        if (p && host.lineClear(this._goalPos, p)) score += 1;
+      }
+      // a goal the wall check had to move is a compromise
+      if (before.distanceToSquared(this._goalPos) > 0.01) score -= 0.5;
+      if (score > bestScore + 1e-6) {
+        bestScore = score;
+        best = c;
+      }
+      if (score >= subjects.length) break; // sees everything, unmoved: take it
+    }
+    Object.assign(s, best);
+    if (host.debug) console.info(`[cinematic] ${s.name}: candidate ${s.candidates.indexOf(best)} (${bestScore}/${subjects.length}) in ${(performance.now() - t0).toFixed(1)}ms`);
+  }
+
   /** Where the shot wants the camera this frame (before damping). */
   _goals(t, dt) {
     const s = this.shot;
@@ -419,6 +466,12 @@ export class CinematicSequence {
     const mode = s.cameraMode ?? 'static';
     const P = this._goalPos;
     const T = this._goalTgt;
+    // lens first: `frame` fits its distance to this shot's FOV
+    const f0 = s.fov ?? this.cam.fov;
+    const f1 = s.fovEnd ?? f0;
+    const fu = s.fovEnd !== undefined ? easeFn(s.fovEase ?? s.ease)(clamp01(t / dur)) : 0;
+    this.cam.fov = f0 + (f1 - f0) * fu;
+    this.cam.roll = typeof s.roll === 'function' ? s.roll(this, t) : s.roll ?? 0;
 
     if (mode === 'track') {
       const c = actorCenter(s._actor, _v3) ?? this.resolve(s.target, _v3) ?? T;
@@ -447,12 +500,6 @@ export class CinematicSequence {
       this.resolve(s.target, T) ?? T;
       if (s.targetEnd !== undefined && this.resolve(s.targetEnd, _v2)) T.lerp(_v2, u);
     }
-
-    const f0 = s.fov ?? this.cam.fov;
-    const f1 = s.fovEnd ?? f0;
-    const fu = s.fovEnd !== undefined ? easeFn(s.fovEase ?? s.ease)(clamp01(t / dur)) : 0;
-    this.cam.fov = f0 + (f1 - f0) * fu;
-    this.cam.roll = typeof s.roll === 'function' ? s.roll(this, t) : s.roll ?? 0;
   }
 
   /**

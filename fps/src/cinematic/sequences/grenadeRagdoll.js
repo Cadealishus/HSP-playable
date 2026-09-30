@@ -52,6 +52,11 @@ export function createGrenadeRagdoll(ctx, opts = {}) {
     teardown: (s) => teardown(s, ctx),
     shake: { decay: 0.9, amplitude: 0.16, rotation: 2.6, frequency: 20 },
     shots: buildShots(ctx, opts),
+    onUpdate: (s) => {
+      // `ai` decides shadow casting from the bind-pose sphere at the spawn
+      // point; a doll 6 m up the street is still very much on screen.
+      for (const a of s.data.men ?? []) a.mesh.userData.owNoShadow = false;
+    },
   });
   return seq;
 }
@@ -99,6 +104,10 @@ function setup(s, ctx, opts) {
     const a = ai.spawn(variant, p, Math.atan2(face.x, face.z));
     a.cinematic = true;
     a.name = name;
+    // The skinned mesh's bounds are the bind pose at the spawn point: once
+    // the ragdoll carries the body away, three would cull it the moment the
+    // spawn point leaves the frame. Two meshes; draw them always.
+    a.mesh.frustumCulled = false;
     a.staged = {
       crouch: false, speed: 0, fire: false, noDamage: true, aimWeight: 0.35,
       heading: new THREE.Vector3(0, 0, 1), lookAt: watch.clone(),
@@ -120,6 +129,8 @@ function setup(s, ctx, opts) {
   const wr = phys.raycast(sp.x, G.y + STAR_HIT_HEIGHT, sp.z, D.x, 0, D.z, 16, phys.MASK.WORLD);
   d.starWall = wr.hit ? wr.point.clone() : L(Math.min(set.wall, 12), STAR_HIT_HEIGHT, -0.42);
   _lastTake = { men: d.men };
+  host.ignoreForVisibility(d.men.map((a) => a.mesh));
+  host.buildOccluders(G, 45);
 
   // ---- the grenade: the player's real frag, thrown in from off screen ----
   const weapons = ctx.get('weapons');
@@ -166,6 +177,8 @@ function grenadeAt(s, out) {
 /* scouting                                                               */
 /* ====================================================================== */
 
+const _p = new THREE.Vector3();
+
 function scout(ctx, opts) {
   const world = ctx.peek('world');
   const ai = ctx.get('ai');
@@ -207,6 +220,11 @@ function scout(ctx, opts) {
       const w6 = ray(G, dx, dz, 6.0, 16);
       if (!(w4 >= 5.5 && w4 <= 11)) continue;
       if (Math.abs(w2 - w4) > 1.2) continue; // a vertical face, not an awning
+      // ...and a wide one, not a telephone pole: the same face 1 m either side
+      const px = dz, pz = -dx;
+      const wl = ray(_p.set(G.x + px, G.y, G.z + pz), dx, dz, 4.0, 16);
+      const wr = ray(_p.set(G.x - px, G.y, G.z - pz), dx, dz, 4.0, 16);
+      if (Math.abs(wl - w4) > 1.0 || Math.abs(wr - w4) > 1.0) continue;
       const tall = Math.abs(w6 - w4) < 1.2 ? 1 : 0;
       // near side of the flight must be clear at head height
       if (ray(G, dx, dz, 1.6, 6) < 6) continue;
@@ -316,7 +334,6 @@ function buildShots(ctx, opts) {
   const tmp = new THREE.Vector3();
   const tmp2 = new THREE.Vector3();
   const tmp3 = new THREE.Vector3();
-  const P = (fn) => (s) => fn(s, tmp); // point spec from a (seq, out) function
 
   return [
     /* 1 ----------------------------------------------------------------- */
@@ -350,7 +367,7 @@ function buildShots(ctx, opts) {
       // low on the street behind the charge, looking up-range at both men
       position: (s) => {
         const g = grenadeAt(s, tmp);
-        const o = s.data.O(-1.65, 0, 0.02);
+        const o = s.data.O(-1.9, 0, 0.02);
         return tmp.set(g.x + o[0], g.y + 0.09, g.z + o[2]);
       },
       positionEnd: (s) => {
@@ -361,7 +378,7 @@ function buildShots(ctx, opts) {
       target: (s) => {
         const g = grenadeAt(s, tmp);
         const o = s.data.O(1.3, 0, 0.05);
-        return tmp.set(g.x + o[0], g.y + 0.5, g.z + o[2]);
+        return tmp.set(g.x + o[0], g.y + 0.78, g.z + o[2]);
       },
       fov: 50,
       fovEnd: 43,
@@ -420,20 +437,22 @@ function buildShots(ctx, opts) {
       until: (s) => nearImpact(s, 2.0),
       cameraMode: 'frame',
       actors: (s) => s.data.men,
-      include: ['blast'],
       direction: [0, 0, 0], // set in onEnter
       fov: 50,
-      safeFrame: { x: 0.26, y: 0.72 },
-      padding: 1.0,
-      minDistance: 9,
-      maxDistance: 26,
+      safeFrame: { x: 0.34, y: 0.7 },
+      padding: 0.6,
+      minDistance: 7,
+      maxDistance: 13,
       smoothing: { position: 0.7, target: 0.35 },
       timeScale: [[0, 0.3], [1.6, 0.45]],
       onEnter: (s) => {
-        const o = s.data.O(-0.8, 0, 0.62);
-        s.shot.direction = [o[0], 0.2, o[2]];
-        const o2 = s.data.O(-0.62, 0, 0.8);
-        s.shot.directionEnd = [o2[0], 0.26, o2[2]];
+        // side-behind on the open side first, then the alternatives
+        const dirs = [[-0.8, 0.62], [-0.62, 0.8], [-1, 0.15], [-0.6, -0.8], [0.1, 1], [-0.3, -1]];
+        s.shot.candidates = dirs.map(([x, z]) => {
+          const o = s.data.O(x, 0, z);
+          const o2 = s.data.O(x * 0.85 + 0.1, 0, z * 0.85 + 0.1 * Math.sign(z || 1));
+          return { direction: [o[0], 0.12, o[2]], directionEnd: [o2[0], 0.18, o2[2]] };
+        });
       },
     },
     /* 6 ----------------------------------------------------------------- */
@@ -449,9 +468,18 @@ function buildShots(ctx, opts) {
       smoothing: { position: 0.45, target: 0.2 },
       timeScale: [[0, 0.45], [0.9, 0.55], [1.7, 1.0]],
       onEnter: (s) => {
-        s.shot.offset = s.data.O(-3.2, 0.9, 3.6);
-        s.shot.offsetEnd = s.data.O(-2.4, 0.4, 4.0);
+        const O = s.data.O;
+        s.shot.candidates = [
+          { offset: O(-3.2, 0.9, 3.6), offsetEnd: O(-2.4, 0.4, 4.0) },
+          { offset: O(-3.2, 0.9, -3.6), offsetEnd: O(-2.4, 0.4, -4.0) },
+          { offset: O(-4.6, 1.4, 0.8), offsetEnd: O(-4.0, 0.9, 1.4) },
+          { offset: O(-1.5, 2.6, 3.2), offsetEnd: O(-1.2, 2.0, 3.6) },
+        ];
         s.data.impactSeen = false;
+      },
+      onExit: (s) => {
+        s.data.impactActor = s.shot._actor;
+        s.data.impactOffset = s.shot.offsetEnd;
       },
       onUpdate: (s) => {
         // the landing gets its own jolt
@@ -463,23 +491,27 @@ function buildShots(ctx, opts) {
     },
     /* 7 ----------------------------------------------------------------- */
     {
+      // Hold on the aftermath from where the impact shot ended (a sightline
+      // it has already proved), easing back and up if there is room.
       name: 'aftermath',
       duration: 1.2,
-      cameraMode: 'frame',
-      actors: (s) => s.data.men,
-      direction: [0, 0, 0],
-      fov: 46,
-      safeFrame: { x: 0.34, y: 0.8 },
-      padding: 1.4,
-      minDistance: 7,
-      maxDistance: 22,
-      smoothing: { position: 1.2, target: 0.6 },
+      cameraMode: 'dolly',
+      transition: { type: 'blend', duration: 1.2 },
+      position: (s) => s.data.holdFrom,
+      positionEnd: (s) => s.data.holdTo,
+      target: (s) => actorCenter(s.data.impactActor ?? s.data.star, tmp)?.setY(tmp.y - 0.2),
+      fov: 44,
+      fovEnd: 48,
+      ease: 'out',
       timeScale: 1,
+      collide: false,
       onEnter: (s) => {
-        const o = s.data.O(-0.3, 0, 1);
-        s.shot.direction = [o[0], 0.34, o[2]];
-        const o2 = s.data.O(-0.15, 0, 1);
-        s.shot.directionEnd = [o2[0], 0.3, o2[2]];
+        const d = s.data;
+        d.holdFrom = s.cam.position.clone();
+        const back = tmp2.subVectors(s.cam.position, s.cam.target).setY(0).normalize();
+        const to = d.holdFrom.clone().addScaledVector(back, 1.8).setY(d.holdFrom.y + 0.7);
+        const host = s.host;
+        d.holdTo = host?.lineClear && !host.lineClear(s.cam.target, to) ? d.holdFrom.clone() : to;
       },
     },
   ];
