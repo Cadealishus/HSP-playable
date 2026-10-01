@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOP OPS — Mission Ideas</title>
+<style>
+  @font-face { font-family: 'Anton'; src: url('fonts/Anton.ttf'); }
+  @font-face { font-family: 'Marker'; src: url('fonts/PermanentMarker.ttf'); }
+  html, body { margin: 0; background: #0d0b09; color: #ebe0c6; font: 14px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px; }
+  canvas { height: min(84vh, 1920px); aspect-ratio: 9 / 16; background: #000; max-width: calc(100vw - 24px); object-fit: contain; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button { background: #2a333b; color: #ebe0c6; border: 1px solid #5d6b72; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+  button.on { background: #d6402f; border-color: #d6402f; }
+  body.render { padding: 0; } body.render .bar { display: none; } body.render canvas { height: auto; width: 1080px; max-width: none; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<div class="bar" id="bar"></div>
+<script src="engine.js"></script>
+<script src="scene-plane.js"></script>
+<script src="scene-tunnel.js"></script>
+<script src="scene-hostage.js"></script>
+<script src="scene-stupid.js"></script>
+<script src="cut.js"></script>
+<script>
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  makeTextures();
+  const render = new URLSearchParams(location.search).has('render');
+  if (render) document.body.classList.add('render');
+  let mode = 'cut', text = true, t0 = performance.now();
+  const bar = document.getElementById('bar');
+  const btn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { fn(); t0 = performance.now(); sync(); }; bar.appendChild(b); return b; };
+  const btns = {};
+  btns.cut = btn('Full cut', () => (mode = 'cut'));
+  for (const id of Object.keys(SCENES)) btns[id] = btn(SCENES[id].label || id, () => (mode = id));
+  const tb = btn('Text: on', () => (text = !text));
+  function sync() { for (const k in btns) btns[k].classList.toggle('on', k === mode); tb.textContent = 'Text: ' + (text ? 'on' : 'off'); }
+  sync();
+  function loop(now) {
+    const t = (now - t0) / 1000;
+    if (mode === 'cut') renderCut(ctx, t % ensureCut(), { text });
+    else renderScene(ctx, mode, t % SCENES[mode].dur, { text: false });
+    requestAnimationFrame(loop);
+  }
+  if (!render) document.fonts.ready.then(() => requestAnimationFrame(loop));
+</script>
+</body>
+</html>
