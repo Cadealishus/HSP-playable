@@ -7,7 +7,7 @@ const out = process.env.OUT || path.join(dir, '_stills'); fs.mkdirSync(out, { re
 const [scene, ...times] = process.argv.slice(2);
 const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1080, height: 1920 } });
 p.on('console', m => console.log('page:', m.text())); p.on('pageerror', e => console.log('ERR', e.message));
-await p.goto('file://' + dir + '/index.html?render'); await p.evaluate(() => document.fonts.ready);
+await p.goto('file://' + dir + '/index.html?render'); await p.evaluate(async () => { await document.fonts.load('100px Anton'); await document.fonts.load('40px Marker'); await document.fonts.ready; });
 for (const t of times) {
   const data = await p.evaluate(([s, t]) => { const c = document.getElementById('c'), x = c.getContext('2d');
     if (s === 'cut') renderCut(x, t, { text: true }); else renderScene(x, s, t, {}); return c.toDataURL('image/jpeg', 0.85); }, [scene, +t]);

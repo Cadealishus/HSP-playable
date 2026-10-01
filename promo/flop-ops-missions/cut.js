@@ -24,6 +24,7 @@ const CUT = [
   { id: 'hostage', cap: 'Hostage rescue?' },
   { id: 'stupid', cap: 'Something completely stupid?' },
   { id: 'aftermath', cap: null, outro: 'Give me your worst idea.' },
+  { id: 'title', cap: null, card: true, cta: 'Comment your worst mission' },
 ];
 let CUT_DUR = 0;
 function cutStarts() { let a = 0; return CUT.map((c) => { const s = a; a += SCENES[c.id].dur; CUT_DUR = a; return s; }); }
@@ -81,6 +82,10 @@ function titleText(ctx, txt, x, y, size, pop, o = {}) {
 function drawCaptions(ctx, t, i, lt) {
   seed(8800 + Math.floor(t * 12));
   const c = CUT[i];
+  if (c.card) {
+    tapeText(ctx, c.cta, 540, 1665, 60, -0.03, (lt - 0.6) * 5, { tape: PAL.amber });
+    return;
+  }
   if (!c.outro) {
     titleText(ctx, 'MISSION IDEAS???', 540, 250, 128, (t - 0.0) * 5, { bar: true });
   }

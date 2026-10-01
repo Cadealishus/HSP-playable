@@ -6,7 +6,7 @@
 const ROOM = { L: 150, R: 2200, C: 520, F: 1300 };
 const SHOOT = { x: 380, h: 430 };
 const ENEMY = { x: 1330, h: 420 };
-const T_FIRE = 0.72, T_HIT = 1.8;
+const T_FIRE = 0.5, T_HIT = 1.65; // backblast lands on the drop at 8.3s in the cut
 
 function drawRoom(ctx, st) {
   const { L, R, C, F } = ROOM;

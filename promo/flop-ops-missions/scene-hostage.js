@@ -6,7 +6,7 @@ SCENES.hostage = {
   dur: 2.6, seed: 3,
   draw(ctx, t, tq) {
     const FL = 1.55, CE = -0.92, DZ = 3.0, BZ = 8.0, DW = 0.5, DT = -0.62;
-    const blast = 0.12;
+    const blast = 0.4; // lands on the music hit at 5.6s in the cut
     const bt = tq - blast;
     const camz = lerp(-1.4, 1.75, ease.out(seg(t, 0.0, 2.6)));
     const kick = bt > 0 ? Math.exp(-bt * 7) : 0;
