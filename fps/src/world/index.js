@@ -293,6 +293,13 @@ export class WorldSystem {
     if (map.weather) ctx.peek('sky')?.setWeather?.(map.weather);
     /** Map self-test hook (dev / capture eval only). */
     this.selfTest = () => map.selfTest?.(ctx, this) ?? null;
+    // Mission-map hooks (EXPANSION.md §5): lighting preset, named anchors, and
+    // the maps' own lighting switches (UNDERGROUND setPower, ESTATE setAlarm).
+    this.lighting = map.lighting ?? 'day';
+    this.anchors = map.anchors ?? {};
+    if (map.setPower) this.setPower = (mode) => map.setPower(mode);
+    if (map.setAlarm) this.setAlarm = (on) => map.setAlarm(on);
+    if (this.lighting !== 'day') ctx.peek('sky')?.setLightingPreset?.(this.lighting);
 
     console.info(
       `[world] map "${id}" built in ${(performance.now() - t0).toFixed(0)}ms — ` +
@@ -461,6 +468,7 @@ export class WorldSystem {
   update(dt, ctx) {
     // Distance LOD for the scatter clouds: one bounding-sphere test per batch.
     this.A?.updateLod(ctx.camera);
+    this._map?.update?.(dt, ctx);
 
     // Street lamps come on as the sun goes down, driven by the sky's real solar
     // altitude rather than a timer, so it is right at any time of day.
