@@ -147,6 +147,8 @@ export class Projectiles {
             owner: r.owner,
             source: r.owner,
             kind: 'rocket',
+            impulse: r.P.impulse,
+            team: r.owner?.team,
           });
           this.stats.exploded++;
         } else this.stats.duds++;

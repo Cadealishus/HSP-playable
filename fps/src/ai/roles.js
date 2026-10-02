@@ -168,6 +168,8 @@ const CLASS_TRAITS = {
   shotgun: { cls: 'shotgun', audio: 'ai_shotgun', noise: 1.1, bloom: 0, pellets: 8, pelletSpread: 0.045, tracerEvery: 2, rpm: 70, magSize: 6, reload: 3.4, damage: 15, maxRange: 60, penetration: 0.35 },
   lmg: { cls: 'lmg', audio: 'ai_lmg', noise: 1.15, bloom: 0.0028, pellets: 1, tracerEvery: 2, rpm: 720, magSize: 100, reload: 5.6, damage: 30, maxRange: 400, penetration: 1.4 },
   sniper: { cls: 'sniper', audio: 'ai_sniper', noise: 1.3, bloom: 0, pellets: 1, tracerEvery: 1, rpm: 42, magSize: 5, reload: 3.6, damage: 92, maxRange: 600, penetration: 2 },
+  marksman: { cls: 'sniper', audio: 'ai_marksman', noise: 1.3, bloom: 0.002, pellets: 1, tracerEvery: 1, rpm: 180, magSize: 10, reload: 2.8, damage: 56, maxRange: 500, penetration: 1.9 },
+  carbine_sd: { cls: 'rifle', audio: 'ai_suppressed', noise: 0.25, bloom: 0.0035, pellets: 1, tracerEvery: 5 },
   rocket: {
     cls: 'rocket', audio: 'ai_rocket', noise: 1.4, bloom: 0, pellets: 1, tracerEvery: 1, rpm: 30, magSize: 1, reload: 4.2,
     damage: 150, maxRange: 300,
@@ -197,7 +199,8 @@ export function resolveWeapon(id, weapons = null) {
   const own = lookupDef(key, weapons);
   const rifle = lookupDef('rifle', weapons);
   const base = own ?? rifle ?? {};
-  const traits = CLASS_TRAITS[key] ?? CLASS_TRAITS[base.class] ?? CLASS_TRAITS.rifle;
+  const cmap = { launcher: 'rocket', marksman: 'marksman' };
+  const traits = CLASS_TRAITS[key] ?? CLASS_TRAITS[cmap[base.class] ?? base.class] ?? CLASS_TRAITS.rifle;
   // own def wins on every number it has; a missing def takes the class traits
   // for what makes the class, and the rifle for everything else
   const pick = (k, fallback) => (own && own[k] !== undefined ? own[k] : traits[k] !== undefined ? traits[k] : base[k] !== undefined ? base[k] : fallback);
@@ -219,15 +222,22 @@ export function resolveWeapon(id, weapons = null) {
     maxRange: pick('maxRange', 400),
     penetration: pick('penetration', 1),
     dropoff: pick('dropoff', 0.6),
-    noise: own?.noise ?? (own?.suppressed ? 0.3 : traits.noise ?? 1),
+    // hearing radius in metres (defs.js `noise`: a rifle 90, a suppressed carbine 22)
+    noise: own?.noise ?? (own?.suppressed ? 22 : 90 * (traits.noise ?? 1)),
+    /** suppression multiplier on near misses (defs.js `suppression`) */
+    suppression: own?.suppression ?? (traits.cls === 'lmg' ? 1.8 : 1),
     suppressed: !!own?.suppressed,
     bloom: traits.bloom ?? 0.004,
     tracerEvery: own?.tracerEvery ?? traits.tracerEvery ?? 3,
     projectile: projDef
       ? {
-        speed: projDef.speed ?? projDef.velocity ?? 58,
+        // a boosting rocket: fly it at three quarters of its burnt-out speed
+        speed: projDef.maxSpeed ? projDef.maxSpeed * 0.75 : projDef.speed ?? projDef.velocity ?? 58,
         radius: projDef.radius ?? projDef.blastRadius ?? 5.5,
-        damage: projDef.damage ?? own?.damage ?? 150,
+        // the player's 84 mm does 420; an AI heavy's blast is halved so a
+        // near miss is survivable and only a direct hit kills
+        damage: (projDef.damage ?? own?.damage ?? 150) * (own ? 0.5 : 1),
+        impulse: projDef.impulse,
         arm: projDef.arm ?? projDef.armDistance ?? 4,
       }
       : null,

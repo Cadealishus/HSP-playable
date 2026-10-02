@@ -79,6 +79,10 @@ export class Animator {
     this.probe = opts.probe ?? null;
     this.scale = opts.scale ?? 1;
     this.enabled = true;
+    /** no weapon (civilians): arms are placed by IK from `armPose` instead */
+    this.unarmed = opts.unarmed === true;
+    /** 'down' | 'handsUp' | 'cower' — unarmed arm pose */
+    this.armPose = 'down';
 
     this.P = new Poser(rig);
 
@@ -292,6 +296,12 @@ export class Animator {
     root.updateMatrixWorld(true);
 
     if (this.footIk && !this.vaulting) this._footIk();
+    if (this.unarmed) {
+      if (st.lookTarget) this._lookAt(st.lookTarget, 0.5);
+      this._unarmedArms();
+      this._updateMuzzle();
+      return;
+    }
     if (st.aimTarget && st.aimWeight > 0.01 && !this.vaulting) this._aimIk(st.aimTarget, st.aimWeight);
     if (st.lookTarget) this._lookAt(st.lookTarget, Math.max(0.35, st.aimWeight));
     this._supportHandIk();
@@ -442,6 +452,42 @@ export class Animator {
     // clears the plate carrier (~8 cm) instead of lying along it
     this._pole.set(1.15, -0.8, 0.05).applyQuaternion(this.bones[0].parent.getWorldQuaternion(this._q2));
     this._twoBone(this.armL, t, this._pole);
+  }
+
+  /**
+   * Unarmed arms (civilians): both hands IK'd to targets built off the head
+   * and hips, in the actor's own frame. 'handsUp' is surrender, 'cower' is
+   * hands over the head, 'down' swings with the stride.
+   */
+  _unarmedArms() {
+    const root = this.bones[0].parent;
+    const q = root.getWorldQuaternion(this._q2);
+    const head = this._wp(this.iHead, this._v5 ?? (this._v5 = new THREE.Vector3()));
+    const hips = this._wp(0, this._v6 ?? (this._v6 = new THREE.Vector3()));
+    const t = this._target;
+    const off = this._off ?? (this._off = new THREE.Vector3());
+    const swing = Math.sin(this.phase * Math.PI * 2) * Math.min(0.2, this.state.speed * 0.05);
+    for (let k = 0; k < 2; k++) {
+      const side = k ? 1 : -1;
+      const chain = side < 0 ? this.armR : this.armL;
+      let base = hips;
+      if (this.armPose === 'handsUp') {
+        base = head;
+        off.set(side * 0.25, 0.14, 0.04);
+        this._pole.set(side * 1, -1, -0.2);
+      } else if (this.armPose === 'cower') {
+        base = head;
+        off.set(side * 0.08, 0.08, 0.14);
+        this._pole.set(side * 1, -0.4, 0.6);
+      } else {
+        off.set(side * 0.22, 0.0, 0.06 + swing * side);
+        this._pole.set(side * 0.3, 0, -1);
+      }
+      off.applyQuaternion(q);
+      this._pole.applyQuaternion(q);
+      t.copy(base).add(off);
+      this._twoBone(chain, t, this._pole);
+    }
   }
 
   /* ---------------- D: feet ---------------- */

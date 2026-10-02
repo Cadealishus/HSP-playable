@@ -60,6 +60,21 @@ const CALLOUT_GAP = { contact: 5, lastknown: 6, lost: 8, grenade: 2, help: 10 };
 /** Callout -> radio subtitle kind (radio.js). */
 const CALLOUT_RADIO = { lost: 'lost', help: 'help' };
 
+/**
+ * Called from the captor's update: hold the hostage in front of us, a little
+ * to our left, so our right shoulder and head are the only clean shot.
+ */
+function holdHostage(captor, hostage) {
+  const fx = Math.sin(captor.yaw), fz = Math.cos(captor.yaw);
+  // right of the character is -x in its frame: (−cos, +sin)
+  const x = captor.position.x + fx * 0.42 + fz * 0.14;
+  const z = captor.position.z + fz * 0.42 - fx * 0.14;
+  hostage.position.set(x, captor.position.y, z);
+  hostage.controller?.teleport(x, captor.position.y, z);
+  hostage.yaw = captor.yaw;
+  hostage.targetYaw = captor.yaw;
+}
+
 function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
@@ -188,6 +203,7 @@ export class Agent {
 
     this.animator = new Animator(RIG, bones, {
       weapon: def.weapon,
+      unarmed: !def.weapon,
       rng: this.rng.fork(),
       scale: this.scale,
       probe: (x, z, fromY, out) => this.ai.probeGround(x, z, fromY, out),
@@ -364,6 +380,11 @@ export class Agent {
     this.grenadeWarnT = -Infinity;
     this.friendBlockT = -Infinity;
     this.holding = opts.holding ?? null;
+    this._dmgFrame = -1;
+    this._dmgMax = 0;
+    this._dmgDir = new THREE.Vector3();
+    this._impDir = new THREE.Vector3();
+    this._impFrame = -1;
   }
 
   /**
@@ -448,13 +469,39 @@ export class Agent {
       this.thinks++;
       this.perception.look(now, since);
       this._hearBots(now);
-      this.brain.think(now);
+      if (this.holding?.alive) this._holdHostage(now);
+      else this.brain.think(now);
       this._legacy(now);
     }
 
     this._move(dt);
+    if (this.holding?.alive) holdHostage(this, this.holding);
     this._shoot(dt);
     this._drive(dt);
+  }
+
+  /**
+   * HOSTAGE-TAKER (EXPANSION.md §7, `ai.spawn(..., { holding: civ })`): plant
+   * the feet, keep the hostage between us and the threat, and shoot over his
+   * shoulder at anything we can actually see. No cover, no flanking: the
+   * shield is the plan.
+   */
+  _holdHostage(now) {
+    const T = this.perception.target;
+    this.state = this.brain.state = 'hold_hostage';
+    this.stopMove();
+    this.crouch = false;
+    this.wantFire = false;
+    this.aimWeight = 0.9;
+    if (T && T.conf > 0.2) {
+      this.face(T.pos);
+      if (T.visible && T.acquired) {
+        T.predict(now, this.fireAt);
+        this.fireTarget = T;
+        this.blindFire = false;
+        this.wantFire = this.clearShot(this.fireAt);
+      }
+    }
   }
 
   /** Mirror the brain's picture onto the fields older callers read. */
@@ -554,6 +601,7 @@ export class Agent {
    * matching radio subtitle.
    */
   callout(kind, actor = null, pos = null, conf = null) {
+    if (this.team === 'civ') return false;
     const now = this.ctx.time.elapsed;
     const gap = CALLOUT_GAP[kind] ?? 4;
     if (now - (this._calloutT[kind] ?? -Infinity) < gap) return false;
@@ -704,7 +752,7 @@ export class Agent {
       const list = lists[l];
       for (let i = 0; i < list.length; i++) {
         const o = list[i];
-        if (o === this || !o.alive || (o.team !== this.team && o.team !== 'civ')) continue;
+        if (o === this || o === this.holding || !o.alive || (o.team !== this.team && o.team !== 'civ')) continue;
         const ox = o.position.x - eye.x, oy = o.position.y + 1.1 - eye.y, oz = o.position.z - eye.z;
         const t = ox * ux + oy * uy + oz * uz;
         if (t < 0.4 || t > len - 0.5) continue;

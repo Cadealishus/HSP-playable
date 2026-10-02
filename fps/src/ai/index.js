@@ -50,6 +50,8 @@ import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
+import { Civilian } from './civilian.js';
+import { buildCivilian, isCivLook, CIV_IDS } from './civbody.js';
 
 const EMPTY = Object.freeze([]);
 
@@ -133,6 +135,7 @@ export class AiSystem {
     /** running index into CALLSIGNS for the killfeed display name */
     this._callsignSeq = 0;
     this._esfSeq = 0;
+    this._civSeq = 0;
     this._roleSeq = 0;
     /** the heavy's rockets and the marksman's glint (projectiles.js) */
     this.projectiles = new Projectiles(this);
@@ -389,13 +392,22 @@ export class AiSystem {
       if (!e || !e.origin || e.ai === true) return; // ours are heard in onAgentFire
       // The player's shot. Loudness scales with the weapon's `noise` (defs.js):
       // a suppressed gun carries a fraction of the 90 m an open rifle does.
+      // weapons puts the def's hearing radius (metres) and suppression
+      // multiplier on the event: a suppressed carbine carries ~22 m, a rifle 90
       const w = e.weapon;
-      const noise = typeof w === 'object' && w ? w.noise ?? (w.suppressed ? 0.3 : 1) : 1;
-      this.onShot(this.player, e.origin, e.dir, 90 * noise);
+      const radius = e.noise ?? (typeof w === 'object' && w ? w.noise : null) ?? 90;
+      const supp = e.suppression ?? (typeof w === 'object' && w ? w.suppression : null) ?? 1;
+      this.onShot(this.player, e.origin, e.dir, radius, supp);
     });
 
     on('bullet:impact', (e) => {
       if (!e || !e.point) return;
+      // physics' damage:dealt carries no direction: remember the round's line
+      // from its entry impact, which physics emits immediately before it
+      if (e.actor instanceof Agent && !e.exit && e.incident) {
+        e.actor._impDir.copy(e.incident);
+        e.actor._impFrame = this.ctx.time.frame;
+      }
       for (const a of this.agents) {
         if (!a.alive) continue;
         const d = a.position.distanceTo(e.point);
@@ -412,8 +424,29 @@ export class AiSystem {
       const src = e.source instanceof Agent ? e.source : this.player;
       // friendly fire is off (ESF hitboxes are off MASK.BULLET anyway)
       if (src !== a && src.team === a.team && a.team !== 'civ') { e.amount = 0; return; }
-      const amount = e.amount * (src === this.player ? this._falloff(e.point) : 1);
-      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, e.incident, null, src);
+      let amount = e.amount * (src === this.player ? this._falloff(e.point) : 1);
+      // ONE ROUND, ONE WOUND. A penetrating round that passes through two of
+      // this man's capsules (arm then chest, chest then the lower torso)
+      // arrives as two damage:dealt on the same frame along the same line;
+      // summing them is what let a 56-damage marksman round one-shot a chest.
+      // The round counts once, at its worst hit.
+      const frame = this.ctx.time.frame;
+      const inc = e.incident ?? (a._impFrame === frame ? a._impDir : null);
+      // a human shield works: a round that went through the hostage first
+      // stops in him, it does not carry on into the man holding him
+      const h = a.holding;
+      if (h && inc && h._dmgFrame === frame && h._dmgDir.dot(inc) > 0.999) { e.amount = 0; return; }
+      if (a._dmgFrame === frame && inc && a._dmgDir.dot(inc) > 0.999) {
+        const extra = amount - a._dmgMax;
+        if (extra <= 0) { e.amount = 0; return; }
+        a._dmgMax = amount;
+        amount = extra;
+      } else {
+        a._dmgFrame = frame;
+        a._dmgMax = amount;
+        if (inc) a._dmgDir.copy(inc);
+      }
+      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src);
       if (!a.alive) e.killed = true;
     });
 
@@ -421,23 +454,32 @@ export class AiSystem {
       if (!e || !e.position) return;
       const radius = e.radius ?? 5;
       const owner = this._resolveOwner(e.owner ?? e.source);
-      for (const a of this.agents) {
-        if (!a.alive) continue;
-        const d = a.position.distanceTo(e.position) + 0.001;
-        a.hear(e.position, 120);
-        if (d > radius) continue;
-        // friendly fire off: the owner's teammates are spared (not the owner)
-        if (owner && owner !== a && owner.team === a.team) continue;
-        if (this.phys && !this.phys.lineOfSight(e.position, a.eye, this.phys.MASK.EXPLOSION)) continue;
-        const f = 1 - d / radius;
-        this._v.copy(a.position).sub(e.position).normalize();
-        a.suppress(1.4 * f);
-        // `blast` rides along so a kill launches the doll from the charge
-        // (physics has already shoved everything that was dead before it)
-        this._blast.position = e.position;
-        this._blast.radius = radius;
-        this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
-        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast, owner);
+      const ownerTeam = owner?.team ?? e.team ?? null;
+      const phys = this.phys;
+      const lists = [this.agents, this.civilians];
+      for (const list of lists) {
+        for (const a of list) {
+          if (!a.alive) continue;
+          const d = a.position.distanceTo(e.position) + 0.001;
+          a.hear(e.position, 120);
+          if (d > radius) continue;
+          // friendly fire off: the owner's teammates are spared (the owner is not)
+          if (ownerTeam && a !== owner && a.team === ownerTeam && a.team !== 'civ') continue;
+          // cover: the blast has to reach the torso or the head, not just the eye
+          if (phys) {
+            const torso = this._v2.set(a.position.x, a.position.y + 1.1, a.position.z);
+            if (!phys.lineOfSight(e.position, torso, phys.MASK.EXPLOSION) &&
+              !phys.lineOfSight(e.position, a.eye, phys.MASK.EXPLOSION)) continue;
+          }
+          const f = 1 - d / radius;
+          this._v.copy(a.position).sub(e.position).normalize();
+          a.suppress(1.4 * f);
+          // `blast` rides along so a kill launches the doll from the charge
+          this._blast.position = e.position;
+          this._blast.radius = radius;
+          this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
+          a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast, owner);
+        }
       }
     });
 
@@ -470,8 +512,13 @@ export class AiSystem {
    * audible out to `radius` metres. Enemies of the shooter hear a threat;
    * anyone near the line of fire is suppressed.
    */
-  onShot(shooter, origin, dir, radius) {
+  onShot(shooter, origin, dir, radius, suppression = 1) {
     const now = this.ctx.time.elapsed;
+    for (const c of this.civilians) {
+      if (!c.alive) continue;
+      c.hear(origin, radius * 0.6);
+      if (dir && this._distanceToRay(c.position, origin, dir, c.eyeHeight) < 2.6) c.suppress(0.4);
+    }
     for (const a of this.agents) {
       if (!a.alive || a === shooter) continue;
       const d = a.position.distanceTo(origin);
@@ -485,7 +532,7 @@ export class AiSystem {
       a.perception.hearFrom(shooter, origin, strength, 'gunshot', now);
       if (dir) {
         const r = this._distanceToRay(a.position, origin, dir, a.eyeHeight);
-        if (r < 2.6) a.suppress(0.45 * (1 - r / 2.6) + 0.12);
+        if (r < 2.6) a.suppress((0.45 * (1 - r / 2.6) + 0.12) * suppression);
       }
     }
   }
@@ -512,6 +559,16 @@ export class AiSystem {
   /* ================================================================== */
 
   variant(name, opts = {}) {
+    if (isCivLook(name)) {
+      let c = this._variants.get(name);
+      if (!c) {
+        c = buildCivilian(name, { rng: this.rng.fork(), materials: this.materials });
+        this._variants.set(name, c);
+        const r = this.ctx.peek('render');
+        if (r?.patcher) for (const m of c.materials) r.patcher.patch(m);
+      }
+      return c;
+    }
     name = variantForTeam(name, opts.team);
     const style = opts.weapon ?? null;
     const key = style && style !== VARIANTS[name]?.weapon ? `${name}|${style}` : name;
@@ -634,12 +691,39 @@ export class AiSystem {
     if (opts.skill !== undefined) a.setDifficulty(opts.skill);
     if (team === 'esf') this.iff.attach(a);
     this.agents.push(a);
+    if (opts.holding) this.takeHostage(a, opts.holding);
     return a;
+  }
+
+  /**
+   * A civilian (EXPANSION.md §7) on team 'civ'.
+   * @param opts { behavior: 'cower'|'flee'|'hostage'|'follow', to: Vector3,
+   *               target: actor|id|'player', captor: Agent, look: 'civ_a'..,
+   *               name }
+   */
+  spawnCivilian(position, yaw = 0, opts = {}) {
+    const look = isCivLook(opts.look) ? opts.look : CIV_IDS[this._civSeq++ % CIV_IDS.length];
+    const c = new Civilian(this, { ...opts, variant: look, position, yaw });
+    c.name = opts.name ?? 'CIVILIAN';
+    this.civilians.push(c);
+    if (opts.captor) this.takeHostage(opts.captor, c);
+    return c;
+  }
+
+  /** `captor` holds `civ` as a human shield (see Agent._holdHostage). */
+  takeHostage(captor, civ) {
+    if (!captor || !civ) return;
+    captor.holding = civ;
+    civ.captor = captor;
+    civ.behavior = 'hostage';
+    civ.released = false;
   }
 
   /** Called by Agent.die(): drop the IFF tag, free any claims. */
   onAgentDeath(a) {
     this.iff.detach(a);
+    // a dead hostage-taker lets go
+    if (a.holding) a.holding.release?.();
   }
 
   /**
@@ -803,6 +887,37 @@ export class AiSystem {
     return n;
   }
 
+  /** Public form of _reapCorpses (modes call it on respawn). */
+  reapCorpses(keep = 14) {
+    this._reapCorpses(keep);
+  }
+
+  /**
+   * Remove every bot and civilian WITHOUT a death (no actor:death, no
+   * ragdoll): for mode/mission resets. Returns how many were removed.
+   */
+  despawnAll() {
+    let n = 0;
+    for (const list of [this.agents, this.civilians]) {
+      for (const a of list) {
+        if (a.alive) n++;
+        this.iff.detach(a);
+        this.cover?.release(a.id);
+        a.alive = false;
+        a.dispose();
+      }
+      list.length = 0;
+    }
+    for (const s of this.squads) {
+      s.members.length = 0;
+      s.flankers.length = 0;
+      s.leader = null;
+    }
+    this.squads.length = 0;
+    this.actors.length = 0;
+    return n;
+  }
+
   /** Patrol route for a squad: its anchor plus the two nearest other points. */
   _patrolRoute(anchor, ranked) {
     const route = [anchor.position.clone()];
@@ -911,7 +1026,9 @@ export class AiSystem {
     fe.flashScale = W?.cls === 'shotgun' || W?.cls === 'lmg' ? 1.0 : 0.8;
     fe.seed = (agent.id * 2654435761 + ctx.time.frame) >>> 0;
     ctx.events.emit('weapon:fire', fe);
-    this.onShot(agent, origin, dir, 90 * (W?.noise ?? 1));
+    fe.noise = W?.noise ?? 90;
+    fe.suppression = W?.suppression ?? 1;
+    this.onShot(agent, origin, dir, fe.noise, fe.suppression);
 
     if (W?.projectile) {
       this.launchProjectile?.(agent, origin, dir);
@@ -1013,7 +1130,7 @@ export class AiSystem {
       const list = lists[l];
       for (let i = 0; i < list.length; i++) {
         const a = list[i];
-        if (!a.alive || a === shooter) continue;
+        if (!a.alive || a === shooter || a === shooter.holding) continue;
         if (a.team === shooter.team) continue; // friendly fire off: passes through
         // bounding sphere around the body before the seven capsules
         const cx = a.position.x - o.x, cy = a.position.y + 0.9 - o.y, cz = a.position.z - o.z;
@@ -1433,24 +1550,30 @@ export class AiSystem {
    * the thrower's team (friendly fire is off).
    */
   _onFlash(e) {
+    // weapons/equipment.js already calls agent.stun() on every agent in
+    // `ai.agents` it reaches (EXPANSION.md §6): never stun those twice. What
+    // is left for us is the people it does not know about (civilians, who
+    // live in `ai.civilians`), and the reaction everyone has to the bang.
     if (!e?.position) return;
     const radius = e.radius ?? 12;
     const owner = this._resolveOwner(e.owner);
+    const ownerTeam = owner?.team ?? e.team ?? null;
     const phys = this.phys;
-    const lists = [this.agents, this.civilians];
-    for (const list of lists) {
-      for (const a of list) {
-        if (!a.alive) continue;
-        if (owner && owner !== a && owner.team === a.team) continue;
-        const eye = a.eye;
-        const d = eye.distanceTo(e.position);
-        if (d > radius) continue;
-        if (phys && !phys.lineOfSight(e.position, eye, phys.MASK.SIGHT)) continue;
-        const dx = (e.position.x - eye.x) / (d || 1), dz = (e.position.z - eye.z) / (d || 1);
-        const facing = dx * Math.sin(a.yaw) + dz * Math.cos(a.yaw); // 1 = looking at it
-        const k = (1 - d / radius) * (0.55 + 0.45 * Math.max(0, facing)) + 0.25;
-        a.stun(Math.min(1, k), 2.2 + 3.2 * Math.min(1, k));
-      }
+    const now = this.ctx.time.elapsed;
+    for (const a of this.agents) {
+      if (!a.alive || (ownerTeam && a.team === ownerTeam)) continue;
+      if (a.position.distanceTo(e.position) < radius * 2) a.perception.hearFrom(owner, e.position, 0.9, 'flash', now);
+    }
+    for (const c of this.civilians) {
+      if (!c.alive) continue;
+      const eye = c.eye;
+      const d = eye.distanceTo(e.position);
+      if (d > radius) continue;
+      if (phys && !phys.lineOfSight(e.position, eye, phys.MASK.SIGHT)) continue;
+      const dx = (e.position.x - eye.x) / (d || 1), dz = (e.position.z - eye.z) / (d || 1);
+      const facing = dx * Math.sin(c.yaw) + dz * Math.cos(c.yaw);
+      const k = (1 - d / radius) * (0.55 + 0.45 * Math.max(0, facing)) + 0.25;
+      c.stun(Math.min(1, k), 2.2 + 3.2 * Math.min(1, k));
     }
   }
 
@@ -1520,6 +1643,11 @@ export class AiSystem {
         }
       }
     }
+    for (let i = 0; i < this.civilians.length; i++) {
+      const c = this.civilians[i];
+      if (c.alive) c.update(dt, ctx);
+      else if (c.deadTime !== undefined) c.deadTime += dt;
+    }
     this._updateGrenades(dt);
     this.projectiles.update(dt);
     this.projectiles.updateGlints(ctx.camera);
@@ -1545,6 +1673,11 @@ export class AiSystem {
       a.syncHitboxes();
       // Dead men keep their contact: a ragdoll on the floor needs it most.
       g.addActor(a);
+    }
+    for (let i = 0; i < this.civilians.length; i++) {
+      const c = this.civilians[i];
+      c.syncHitboxes();
+      g.addActor(c);
     }
     g.end();
   }
@@ -1609,8 +1742,9 @@ export class AiSystem {
     const sunY = Math.max(0.06, sun.y);
     let irrelevant = 0;
 
-    for (let i = 0; i < this.agents.length; i++) {
-      const a = this.agents[i];
+    const nA = this.agents.length;
+    for (let i = 0; i < nA + this.civilians.length; i++) {
+      const a = i < nA ? this.agents[i] : this.civilians[i - nA];
       const geo = a.mesh.geometry;
       const bs = geo.boundingSphere;
       if (!bs) { a.lodIrrelevant = false; continue; }
