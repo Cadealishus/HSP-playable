@@ -102,6 +102,7 @@ export class Brain {
     this.hasSlot = false;
     this.interactT = -Infinity;
     this.noContactT = 0;
+    this._shotsHere = 0;
     this._v = new THREE.Vector3();
     this._v2 = new THREE.Vector3();
     this._threat = new THREE.Vector3();
@@ -240,6 +241,12 @@ export class Brain {
       if (role.id === 'sniper' && vis && dist < 12) sc.retreat = Math.max(sc.retreat, 0.75);
       if (role.id === 'rocket' && known && dist < 9) sc.retreat = Math.max(sc.retreat, 0.8);
       if (a.wasHurtRecently(1.2) && !vis && coverOK) sc.take_cover = Math.max(sc.take_cover, 0.8);
+      // marksmen relocate after a few shots from one spot, or once found
+      if (role.relocates && (a.shotsFired - this._shotsHere >= 3 || (a.wasHurtRecently(0.8) && now - this.lastRetreat > 4))) {
+        sc.retreat = Math.max(sc.retreat, 0.95);
+      }
+      // breachers indoors (hemmed-in nav cells) push even harder
+      if (role.indoor && a.ai.enclosedAt(a.position) && vis) sc.engage += 0.15;
     }
 
     // ---- sounds and suspicion
@@ -251,7 +258,7 @@ export class Brain {
 
     // ---- peacetime
     sc.patrol = 0.25;
-    sc.idle = 0.1;
+    sc.idle = 0.05;
     // a zone order is a job: stand in it / hold it before chasing noises
     if (this.order && !known && this._orderNeedsMove()) sc.patrol = 0.5;
 
@@ -342,6 +349,7 @@ export class Brain {
         break;
       case S.RETREAT:
         this.lastRetreat = now;
+        this._shotsHere = a.shotsFired;
         this._pickCover(now, true);
         a.callout('help');
         break;

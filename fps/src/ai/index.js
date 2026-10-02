@@ -49,6 +49,7 @@ import { PlayerProxy, normTeam } from './teams.js';
 import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
+import { Projectiles } from './projectiles.js';
 
 const EMPTY = Object.freeze([]);
 
@@ -133,6 +134,8 @@ export class AiSystem {
     this._callsignSeq = 0;
     this._esfSeq = 0;
     this._roleSeq = 0;
+    /** the heavy's rockets and the marksman's glint (projectiles.js) */
+    this.projectiles = new Projectiles(this);
     /** team callouts: range-limited and delayed (comms.js) */
     this.comms = new Comms(this);
     /** EXPANSION.md §3: fn(agent) -> order | null */
@@ -989,6 +992,10 @@ export class AiSystem {
     if ((agent.id + agent.ammo) % every === 0) this.ctx.events.emit('bullet:tracer', this._tracerEvent);
   }
 
+  launchProjectile(agent, origin, dir) {
+    this.projectiles.launch(agent, origin, dir);
+  }
+
   _worldBulletMask() {
     const M = this.phys.MASK, L = this.phys.LAYER;
     return M.BULLET & ~L.ACTOR;
@@ -1447,6 +1454,15 @@ export class AiSystem {
     }
   }
 
+  /** True when the nav cell under `p` is hemmed in by walls (indoors-ish). */
+  enclosedAt(p) {
+    const g = this.grid;
+    if (!g) return false;
+    const ix = g.cellX(p.x), iz = g.cellZ(p.z);
+    if (!g.inside(ix, iz)) return false;
+    return g.enclosure[g.index(ix, iz)] >= 2;
+  }
+
   /** Rockets: only at range or into a group, never close (roles.js HEAVY). */
   rocketWorthIt(a, p) {
     const d = a.distTo(p);
@@ -1505,6 +1521,8 @@ export class AiSystem {
       }
     }
     this._updateGrenades(dt);
+    this.projectiles.update(dt);
+    this.projectiles.updateGlints(ctx.camera);
     if (this._flop) this._updateFlop();
     this.stats.agents = this.agents.length;
     this.stats.alive = alive;
@@ -1999,6 +2017,7 @@ export class AiSystem {
     this._grenadeMat?.dispose();
     this.ground?.dispose();
     this.iff?.dispose();
+    this.projectiles?.dispose();
     for (const v of this._variants.values()) v.geometry.dispose();
     this._variants.clear();
     this.materials?.dispose();
