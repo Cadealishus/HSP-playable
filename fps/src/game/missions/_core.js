@@ -87,6 +87,8 @@ export const obj = {
       text,
       spawn: [group],
       markerName: 'CLEAR',
+      // the waypoint sits on the nearest live member of the squad
+      marker: (m) => m.nearestOf(group),
       sub: (m) => `HOSTILES REMAINING  ${m.groupAlive(group)}`,
       update: (m) => m.groupClear(group),
       skip: (m) => m.killGroup(group),
@@ -527,7 +529,10 @@ export class MissionMode {
       radius: o.radius ?? 3,
       targetId: null,
     };
-    const rec = { group: q.group, order, tag: def.tag ?? null, alertKind: def.alert ?? 'hunt', def };
+    // Two order records per agent, swapped (not mutated) on alert, so the AI's
+    // brain sees a new order object and re-plans.
+    const alertOrder = { kind: def.alert === 'attack' ? 'attack' : 'hunt', pos: new THREE.Vector3().copy(pos), radius: 4, targetId: null };
+    const rec = { group: q.group, order, alertOrder, tag: def.tag ?? null, alertKind: def.alert ?? 'hunt', def };
     this._recs.set(a, rec);
     if (def.tag) {
       this.tagged.set(def.tag, a);
@@ -537,6 +542,22 @@ export class MissionMode {
     g.alive++;
     if (g.alerted) this._alertRec(rec);
     return a;
+  }
+
+  /** Position of the live member of `group` nearest Doug (a live reference), or null. */
+  nearestOf(group) {
+    const p = this.playerPos();
+    let best = null;
+    let bd = Infinity;
+    for (const [a, rec] of this._recs) {
+      if (rec.group !== group || a.alive === false || !a.position) continue;
+      const d = p ? (a.position.x - p.x) ** 2 + (a.position.z - p.z) ** 2 + (a.position.y - p.y) ** 2 : 0;
+      if (d < bd) {
+        bd = d;
+        best = a.position;
+      }
+    }
+    return best;
   }
 
   /** True once an agent with this tag has spawned (it may since have died). */
@@ -559,12 +580,13 @@ export class MissionMode {
   }
 
   _alertRec(rec) {
-    if (rec.alertKind === 'stay') return;
-    rec.order.kind = rec.alertKind === 'attack' ? 'attack' : 'hunt';
-    if (rec.order.kind === 'attack') {
+    if (rec.alertKind === 'stay' || rec.order === rec.alertOrder) return;
+    if (rec.order.kind === 'hunt') return; // already hunting
+    if (rec.alertOrder.kind === 'attack') {
       const pp = this.playerPos();
-      if (pp && rec.order.pos?.isVector3) rec.order.pos.copy(pp);
+      if (pp) rec.alertOrder.pos.copy(pp);
     }
+    rec.order = rec.alertOrder;
   }
 
   _onDamage(e) {
@@ -842,7 +864,13 @@ export class MissionMode {
     const a = own ?? this.anchors?.[name];
     if (!a) return null;
     if (a.isVector3) return { pos: a, yaw: 0 };
-    if (a.isBox3) return { pos: a.getCenter(new THREE.Vector3()).setY(a.min.y + 0.5), yaw: 0 };
+    if (a.isBox3) {
+      // converted once (hudState asks every frame)
+      const c = this._boxSpots ?? (this._boxSpots = new Map());
+      let r = c.get(a);
+      if (!r) c.set(a, (r = { pos: a.getCenter(new THREE.Vector3()).setY(a.min.y + 0.5), yaw: 0 }));
+      return r;
+    }
     if (a.pos) return a;
     return null;
   }
@@ -855,7 +883,13 @@ export class MissionMode {
     h.objective.index = Math.min(this.index, this.objectives.length - 1);
     h.objective.id = o?.id ?? '';
     h.objective.text = this.result ? (this.result.winner === 'esf' ? 'MISSION COMPLETE' : 'MISSION FAILED') : o?.text ?? '';
-    h.objective.sub = !this.result && o?.sub ? o.sub(this) ?? '' : '';
+    // the sub line is a built string: refresh it four times a second, not per frame
+    if (this.result || !o?.sub) h.objective.sub = '';
+    else if (this.t - (this._subT ?? -1) >= 0.25 || this._subFor !== o) {
+      this._subT = this.t;
+      this._subFor = o;
+      h.objective.sub = o.sub(this) ?? '';
+    }
     h.scoreEsf = Math.max(0, this.index);
     h.scoreHostile = this.objectives.length;
     h.kills = this.stats.kills;

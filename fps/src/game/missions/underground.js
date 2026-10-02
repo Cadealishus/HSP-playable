@@ -129,7 +129,6 @@ export class UndergroundMission extends MissionMode {
         complete: (m) => m.say('You are in the ticket hall. Command reminds you that ESF does not reimburse fares.', "Wasn't going to."),
       }),
       obj.clear('hall', 'CLEAR THE TICKET HALL', 'hall', {
-        marker: (m) => m.anchorSpot('fareGates')?.pos ?? null,
         complete: (m) => m.say('Ticket hall clear. The fare gates remain undefeated.', null),
       }),
       obj.reach('platform', 'GO DOWN TO PLATFORM A', pts.platformBox, {

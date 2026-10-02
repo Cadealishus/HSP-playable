@@ -195,15 +195,16 @@ export class HostageMission extends MissionMode {
     if (!vip || vip.alive === false) return;
     const target = 'player';
     if (this.setCivBehavior(vip, 'follow', { target })) return;
-    // No behaviour switch in this AI build: the same man, re-issued as a
-    // follower on the spot he is standing on (an in-place swap, Doug is with him).
-    const pos = vip.position?.clone?.() ?? at(-21, G, -2.5).pos;
+    // No behaviour switch in this AI build: re-issue the same man as a follower
+    // on the spot he stands on (an in-place swap; Doug is with him). Only where
+    // the AI can remove the old one, so there are never two VIPs.
     const ai = this.ctx.peek('ai');
-    try {
-      if (typeof ai?.despawnCivilian === 'function') ai.despawnCivilian(vip);
-    } catch {
-      /* gone */
+    if (typeof ai?.despawnCivilian !== 'function') {
+      console.warn('[mission:hostage] the AI cannot switch a civilian to follow; the VIP stays put');
+      return;
     }
+    const pos = vip.position.clone();
+    ai.despawnCivilian(vip);
     this.civs.delete('vip');
     this._civRecs.delete(vip);
     this.spawnCivilian('vip', { pos, yaw: 0 }, { behavior: 'follow', target, vip: true, name: 'THE VIP' });
