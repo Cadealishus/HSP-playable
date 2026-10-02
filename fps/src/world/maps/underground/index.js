@@ -55,6 +55,9 @@ import { signList } from './signs.js';
  *   serviceDoor         {pos, yaw}  the facility's second door
  *   commandFacility     Box3        the whole facility floor volume
  *   commsConsole        {pos, yaw}  the target equipment (stand here, face yaw)
+ *   powerSwitch         {pos, yaw}  the south electrical room switchboard: where
+ *                                   the mission throws the mains back on
+ *                                   (world.setPower('normal'))
  *   extraction          {pos, yaw}  exit shaft E-3, foot of the ladder
  *   chokepoints         {name,pos}[] fare gates, hall stair, tunnel mouth,
  *                                   ramp, blast door, service door
@@ -148,6 +151,9 @@ export async function buildMap({ ctx, materials, render, rng, root, disp, fonts,
     serviceDoor: { pos: W(69.2, Y.deep, 27), yaw: yawOf(0, 1) },
     commandFacility: box(V.facility.x0, -0.5, V.facility.z0, V.facility.x1, 7, V.facility.z1),
     commsConsole: { pos: W(CF.console.x, Y.deep + CF.dais.h, CF.console.z - 1.0), yaw: yawOf(0, 1) },
+    // the switchboard in the south electrical room (the open panel on the east
+    // wall): stand here facing yaw to throw the mains back on
+    powerSwitch: { pos: W(V.elecSouth.x1 - 1.4, Y.plat, V.elecSouth.z0 + 2.2), yaw: yawOf(1, 0) },
     extraction: { pos: W(92, Y.deep, 41.8), yaw: yawOf(1, 0) },
     chokepoints: [
       { name: 'fareGates', pos: W(-46, Y.hall, -22) },

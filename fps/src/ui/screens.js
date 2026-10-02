@@ -336,6 +336,11 @@ export class GameOverScreen {
 
 /* ---------------------------------------------------------- match report --- */
 
+function mmssFmt(sec) {
+  const t = Math.max(0, Math.round(sec || 0));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+
 /** Command's read on a bot match. Deterministic from the numbers. */
 export function matchAssessment(d = {}) {
   const lines = [];
@@ -365,18 +370,24 @@ export class MatchOverScreen {
     guard(this.root);
     const card = el('div', 'ow-report', this.root);
     const head = el('div', 'ow-rp-head', card);
-    el('span', 'ow-rp-kicker', head, 'MATCH REPORT');
+    this.kicker = el('span', 'ow-rp-kicker', head, 'MATCH REPORT');
     this.op = el('span', 'ow-rp-op', head, '');
     this.title = el('div', 'ow-sc-title', card, 'VICTORY');
-    const sc = el('div', 'ow-rp-score ow-mr-score', card);
+    const sc = (this.scoreRow = el('div', 'ow-rp-score ow-mr-score', card));
     this.esf = el('div', 'ow-sc-score esf', sc, '0');
     el('div', 'ow-rp-unit', sc, 'ESF');
     el('div', 'ow-mr-dash', sc, '—');
     el('div', 'ow-rp-unit', sc, 'HOSTILE');
     this.hos = el('div', 'ow-sc-score hos', sc, '0');
+    // Missions: the rank instead of a score line (SPECIAL OPERATIONS debrief).
+    this.rankRow = el('div', 'ow-rp-score ow-mr-rank', card);
+    this.rank = el('div', 'ow-sc-score esf', this.rankRow, '—');
+    this.rankLabel = el('div', 'ow-rp-unit', this.rankRow, '');
+    setStyle(this.rankRow, 'display', 'none');
     this.delta = el('div', 'ow-sc-delta', card, '');
     const stats = el('div', 'ow-sc-stats', card);
     this.stat = {};
+    this.statK = {};
     for (const [key, label] of [
       ['KILLS', 'KILLS'],
       ['DEATHS', 'DEATHS'],
@@ -384,7 +395,7 @@ export class MatchOverScreen {
       ['ACCURACY', 'ACCURACY'],
     ]) {
       const s = el('div', 'ow-sc-stat', stats);
-      el('div', 'k', s, label);
+      this.statK[key] = el('div', 'k', s, label);
       this.stat[key] = el('div', 'v', s, '—');
     }
     const as = el('div', 'ow-rp-assess', card);
@@ -404,6 +415,14 @@ export class MatchOverScreen {
   }
 
   setData(d = {}) {
+    const mission = d.kind === 'mission';
+    setText(this.kicker, mission ? 'MISSION DEBRIEF' : 'MATCH REPORT');
+    setStyle(this.scoreRow, 'display', mission ? 'none' : '');
+    setStyle(this.rankRow, 'display', mission ? '' : 'none');
+    setText(this.restartBtn, mission ? d.retryLabel ?? 'REPLAY MISSION' : 'REMATCH');
+    setText(this.statK.DEATHS, mission ? 'TIME' : 'DEATHS');
+    setText(this.statK.KD, mission ? 'CIVILIANS' : 'K / D');
+    if (mission) return this._setMission(d);
     const won = d.winner === 'esf';
     const draw = d.winner === 'draw';
     setText(this.op, `${d.label ?? ''}${d.mapName ? ' · ' + d.mapName : ''}`);
@@ -424,6 +443,27 @@ export class MatchOverScreen {
     let acc = d.accuracy;
     setText(this.stat.ACCURACY, acc === null || acc === undefined ? '—' : Math.round(acc <= 1 ? acc * 100 : acc) + '%');
     const lines = matchAssessment(d);
+    for (let i = 0; i < this.assess.length; i++) setText(this.assess[i], lines[i] ?? '');
+  }
+
+  /** SPECIAL OPERATIONS: time, kills, accuracy, civilians, the rank, Command's summary. */
+  _setMission(d) {
+    const won = d.winner === 'esf';
+    setText(this.op, `${d.label ?? ''}${d.mapName ? ' · ' + d.mapName : ''}`);
+    setText(this.title, won ? 'MISSION COMPLETE' : 'MISSION FAILED');
+    setClass(this.root, 'won', won);
+    setClass(this.root, 'lost', !won);
+    setText(this.rank, d.grade ?? '—');
+    setText(this.rankLabel, d.gradeLabel ? `RANK · ${d.gradeLabel}` : 'RANK');
+    const obj = `OBJECTIVES ${d.objectivesDone ?? 0} / ${d.objectivesTotal ?? 0}`;
+    setText(this.delta, won ? `${obj} · PAR ${mmssFmt(d.par)}` : `${obj}${d.failedAt ? ' · FAILED AT: ' + d.failedAt : ''}`);
+    setText(this.stat.KILLS, d.kills | 0);
+    setText(this.stat.DEATHS, mmssFmt(d.timeS ?? d.durationS));
+    const civ = (d.civHits | 0) + (d.civKills | 0);
+    setText(this.stat.KD, civ === 0 ? 'UNHARMED' : `${d.civHits | 0} HIT${d.civKills ? ` · ${d.civKills} KILLED` : ''}`);
+    const acc = d.accuracy;
+    setText(this.stat.ACCURACY, acc === null || acc === undefined ? '—' : Math.round(acc <= 1 ? acc * 100 : acc) + '%');
+    const lines = d.debrief ?? [];
     for (let i = 0; i < this.assess.length; i++) setText(this.assess[i], lines[i] ?? '');
   }
 

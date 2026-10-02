@@ -1134,6 +1134,10 @@ const CSS = `
 .ow-mh-chip.inside::after { content:''; position:absolute; left:25%; right:25%; bottom: calc(-6px * var(--k));
   height: calc(2px * var(--k)); background: var(--acc); }
 .ow-mh-status { font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.22em; color: var(--ink-2); white-space:nowrap; }
+.ow-mh-mis { text-align:center; max-width: calc(560px * var(--k)); }
+.ow-mh-mis-k { font-size: max(10px, calc(10.5px * var(--k))); font-weight:600; letter-spacing:.28em; color: var(--acc); }
+.ow-mh-mis-t { margin-top: calc(var(--u) * 1); font-family: var(--fd); font-weight:600; font-size: calc(19px * var(--k)); letter-spacing:.06em; line-height:1.15; }
+.ow-mh-mis-s { margin-top: calc(var(--u) * 1); font-size: max(10px, calc(11px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
 .ow-mh-status.hot { color: var(--enemy); }
 
 .ow-mh-respawn { position:absolute; left:50%; top:38%; transform: translate(-50%,-50%); text-align:center;

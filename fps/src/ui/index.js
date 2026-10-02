@@ -366,10 +366,14 @@ export class UiSystem {
     // Two or more kills inside the 1.2 s window (src/game/scoring.js). A feed
     // note, not a banner; three or more and Command notices.
     // Command on the net for the bot-match modes (src/game/modes/lines.js).
+    // `speaker` (optional, default Command) names someone else on the net, e.g. a
+    // hijacker on the cabin PA in a mission; a banner may come without a line.
     on('mode:announce', (e) => {
-      if (!e?.text) return;
-      const tier = e.kind === 'result' ? 5 : e.kind === 'start' || e.kind === 'round' ? 3 : 2;
-      this.radio.sayExact('command', e.text, e.reply ?? null, tier);
+      if (!e) return;
+      if (e.text) {
+        const tier = e.kind === 'result' ? 5 : e.kind === 'start' || e.kind === 'round' ? 3 : 2;
+        this.radio.sayExact(e.speaker ?? 'command', e.text, e.reply ?? null, tier);
+      }
       if (e.banner) this.banner.show(e.banner.title, e.banner.sub ?? '', 2.6, e.banner.kind ?? 'info');
     });
 

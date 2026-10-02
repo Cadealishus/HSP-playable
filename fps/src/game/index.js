@@ -34,7 +34,7 @@ import * as THREE from 'three';
 import { Scoring } from './scoring.js';
 import { MODES, MODE_INFO, modeAvailable } from './modes/index.js';
 import { aiCaps } from './modes/team.js';
-import { availableMissions, loadMission } from './missions.js';
+import { availableMissions, loadMission, missionCaps } from './missions.js';
 import { DEFAULT_SESSION, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
 
 /**
@@ -665,7 +665,7 @@ export class GameSystem {
   }
 
   availableMissions() {
-    return availableMissions(this._maps());
+    return availableMissions(this._maps(), missionCaps(this.ctx));
   }
 
   /** The running mode's HUD snapshot (preallocated; read, never keep). */

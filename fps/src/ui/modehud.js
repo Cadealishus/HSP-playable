@@ -40,7 +40,7 @@ export class ModeHud {
   constructor(chrome, centre) {
     // ---- score bar --------------------------------------------------------
     this.root = el('div', 'ow-mh', chrome);
-    const bar = el('div', 'ow-mh-bar', this.root);
+    const bar = (this.bar = el('div', 'ow-mh-bar', this.root));
     const l = el('div', 'ow-mh-side esf', bar);
     const lt = el('div', 'ow-mh-top', l);
     el('span', 'ow-mh-team', lt, 'ESF');
@@ -81,6 +81,13 @@ export class ModeHud {
     }
 
     this.status = el('div', 'ow-mh-status', this.root, '');
+
+    // ---- mission objective line (SPECIAL OPERATIONS) -------------------------
+    this.mis = el('div', 'ow-mh-mis', this.root);
+    this.misK = el('div', 'ow-mh-mis-k', this.mis, '');
+    this.misT = el('div', 'ow-mh-mis-t', this.mis, '');
+    this.misS = el('div', 'ow-mh-mis-s', this.mis, '');
+    setStyle(this.mis, 'display', 'none');
 
     // ---- centre cards -------------------------------------------------------
     this.respawn = el('div', 'ow-mh-respawn', centre);
@@ -174,6 +181,18 @@ export class ModeHud {
       return;
     }
 
+    // ---- mission: an objective line instead of a score bar --------------------
+    const mission = h.mode === 'mission';
+    setStyle(this.bar, 'display', mission ? 'none' : '');
+    setStyle(this.mis, 'display', mission ? '' : 'none');
+    if (mission) {
+      const ob = h.objective;
+      setText(this.misK, h.over ? h.label ?? '' : `OBJECTIVE ${Math.min(ob.total, ob.index + 1)}/${ob.total}`);
+      setText(this.misT, ob.text ?? '');
+      setText(this.misS, ob.sub ?? '');
+      setStyle(this.misS, 'display', ob.sub ? '' : 'none');
+    }
+
     // ---- score bar ----------------------------------------------------------
     const sd = h.mode === 'sd';
     setText(this.scoreE, h.scoreEsf | 0);
@@ -204,8 +223,8 @@ export class ModeHud {
     for (let i = 0; i < MAX_CHIPS; i++) {
       const ch = this.chipEls[i];
       const o = objs[i];
-      // Hardpoint shows the active zone only.
-      const vis = !!o && (h.mode !== 'hp' || o.active);
+      // Hardpoint shows the active zone only; a mission's waypoint is not a zone.
+      const vis = !!o && !mission && (h.mode !== 'hp' || o.active);
       setStyle(ch, 'display', vis ? '' : 'none');
       if (!vis) continue;
       shownChips++;
@@ -243,6 +262,9 @@ export class ModeHud {
         else if (o.owner === 'hostile') theirs++;
       }
       status = `ZONES  ESF ${ours} · HOSTILE ${theirs}`;
+    } else if (mission) {
+      const civ = h.civLimit ? ` · CIVILIAN HITS ${h.civHits | 0}/${h.civLimit}` : '';
+      status = `${mmss(Math.floor(h.elapsed ?? 0))} · KILLS ${h.kills | 0}${civ}`;
     } else {
       status = `K ${h.kills | 0} · D ${h.deaths | 0}`;
     }
@@ -285,6 +307,10 @@ export class ModeHud {
     };
     for (const o of objs) {
       if (!o.pos) continue;
+      if (h.mode === 'mission') {
+        put(o.pos, o.label ?? '', o.name ?? 'OBJECTIVE', o.color ?? '#E9B64A', o.lift ?? 1.6);
+        continue;
+      }
       if (h.mode === 'hp' && !o.active) continue;
       let name;
       if (h.mode === 'sd') name = h.attacking ? (o.planted ? 'DEFEND' : 'PLANT') : o.planted ? 'DEFUSE' : 'DEFEND';

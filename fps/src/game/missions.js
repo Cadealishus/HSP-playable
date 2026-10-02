@@ -17,19 +17,51 @@ import { MISSION_IDS, MISSION_MAP } from './session.js';
  */
 const LOADERS = import.meta.glob('./missions/*.js');
 
-/** Menu copy until a module publishes its own. */
+/**
+ * Menu copy, briefing rows, the issued kit and what each operation needs from
+ * the AI. Static data so the menu never has to load a mission module; the
+ * modules read their `loadout` from here too (one source).
+ *
+ * `requires`: AI capabilities (missionCaps below). A mission
+ * whose requirement is missing in the running build is NOT offered: if the
+ * menu lists it, it launches and it can be completed.
+ */
 export const MISSION_INFO = {
   underground: {
-    label: 'UNDERGROUND',
-    blurb: 'Below the city, in the dark. Command has provided a torch. Command has provided one torch.',
+    label: 'OPERATION LAST TRAIN',
+    blurb: 'Below the city, in the dark. Hostiles have moved into a station that closed in 1998. Command has provided a torch. Command has provided one torch.',
+    briefing: [
+      ['LOCATION', 'Grand Arcade station, Line 4. Closed "for a few weeks" in 1998.'],
+      ['OBJECTIVE', 'Take the station. Shut down their command facility. Leave.'],
+      ['PLAN', 'Phase one: go downstairs. Phase two: Doug.'],
+      ['ASSETS', 'Doug. The stairs.'],
+    ],
+    loadout: { primary: 'smg', secondary: 'pistol', lethal: 'frag', tactical: 'flash' },
+    requires: ['spawn'],
   },
   flight717: {
     label: 'FLIGHT 717',
-    blurb: 'Port Ellery International. A hijacked airliner at the gate. Boarding is delayed.',
+    blurb: 'Port Ellery International. A hijacked airliner at Gate 12 with passengers aboard. Boarding is delayed.',
+    briefing: [
+      ['LOCATION', 'Port Ellery International. Gate 12. Flight 717 to Ostend.'],
+      ['OBJECTIVE', 'Retake the terminal, board the aircraft, remove the hijackers.'],
+      ['RULES', 'Passengers are not targets. Three hits and Command pulls you out.'],
+      ['PLAN', 'Phase one: board. Phase two: remain seated, everyone except Doug.'],
+    ],
+    loadout: { primary: 'carbine_sd', secondary: 'pistol', lethal: 'frag', tactical: 'flash' },
+    requires: ['spawn', 'civilians'],
   },
   hostage: {
     label: 'HOSTAGE TAKER',
-    blurb: 'A private estate. One hostage, several captors. Command asks that the hostage be returned undamaged.',
+    blurb: 'A private estate, at night. One VIP, several captors. Command asks that the VIP be returned undamaged, or at least recognisable.',
+    briefing: [
+      ['LOCATION', 'The Residence. Visitors by appointment. There are no appointments.'],
+      ['OBJECTIVE', 'Get in. Find the VIP. Take the shot. Walk him to the LZ.'],
+      ['RULES', 'The VIP must survive. He is being used as a shield. Aim accordingly.'],
+      ['PLAN', 'Phase one: ring the bell. Phase two: Doug.'],
+    ],
+    loadout: { primary: 'rifle', secondary: 'pistol', lethal: 'frag', tactical: 'flash' },
+    requires: ['spawn', 'civilians'],
   },
 };
 
@@ -37,14 +69,30 @@ function loaderFor(id) {
   return LOADERS[`./missions/${id}.js`] ?? null;
 }
 
-/** Missions whose module exists in this build and whose map is registered. */
-export function availableMissions(maps) {
+/**
+ * Missions whose module exists in this build, whose map is registered and
+ * whose AI requirements the running build meets (`caps`: { spawn, orders,
+ * civilians }; omitted = not checked, e.g. a Node test).
+ */
+export function availableMissions(maps, caps = null) {
   const ids = new Set((maps ?? []).map((m) => m.id));
-  return MISSION_IDS.filter((id) => loaderFor(id) && ids.has(MISSION_MAP[id])).map((id) => ({
-    id,
-    map: MISSION_MAP[id],
-    ...MISSION_INFO[id],
-  }));
+  return MISSION_IDS.filter((id) => loaderFor(id) && ids.has(MISSION_MAP[id]))
+    .filter((id) => !caps || (MISSION_INFO[id].requires ?? []).every((r) => caps[r]))
+    .map((id) => ({
+      id,
+      map: MISSION_MAP[id],
+      ...MISSION_INFO[id],
+    }));
+}
+
+/** What the running AI offers missions (duck-typed). */
+export function missionCaps(ctx) {
+  const ai = ctx?.peek?.('ai');
+  return {
+    spawn: typeof ai?.spawn === 'function',
+    orders: typeof ai?.setOrderProvider === 'function',
+    civilians: typeof ai?.spawnCivilian === 'function',
+  };
 }
 
 /** Load a mission's class. Resolves null when it is not in the build. */

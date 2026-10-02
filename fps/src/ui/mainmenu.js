@@ -416,14 +416,61 @@ export class MainMenu {
       onSelect: () => this.host.launch?.({ kind: 'mission', mission: m.id, mode: null, map: m.map }),
       panel: (p) => {
         const map = (this.host.maps?.() ?? []).find((x) => x.id === m.map);
-        this._blurb(p, m.label, m.blurb, m.briefing ?? (map ? [['LOCATION', map.subtitle ?? map.name]] : []));
+        const rows = [...(m.briefing ?? (map ? [['LOCATION', map.subtitle ?? map.name]] : []))];
+        rows.push(['KIT', this._missionKit() === 'own' ? `YOUR LOADOUT · ${this._kitLine(this._loadout())}` : `ISSUED · ${this._kitLine(m.loadout)}`]);
+        this._blurb(p, m.label, m.blurb, rows);
         if (map?.preview) this._plan(p, map);
         el('div', 'ow-mm-go', p, 'ENTER TO DEPLOY');
       },
     }));
+    items.push(this._missionKitItem(missions));
     items.push(this._difficultyItem());
     items.push({ kind: 'back', label: 'BACK' });
     return { crumb: 'MAIN MENU  ›  SPECIAL OPERATIONS', items };
+  }
+
+  /** Missions carry their own issued kit unless the player picks the LOADOUT screen's. */
+  _missionKit() {
+    try {
+      return localStorage.getItem('flopops.missionKit') === 'own' ? 'own' : 'issue';
+    } catch {
+      return 'issue';
+    }
+  }
+
+  _kitLine(L) {
+    if (!L) return '—';
+    const ws = this.host.weapons?.() ?? [];
+    const name = (id) => ws.find((w) => w.id === id)?.displayName ?? (id ? String(id).toUpperCase() : null);
+    return [name(L.primary), name(L.secondary)].filter(Boolean).join(' · ');
+  }
+
+  _missionKitItem(missions) {
+    return {
+      kind: 'value',
+      label: 'MISSION KIT',
+      value: () => (this._missionKit() === 'own' ? 'YOUR LOADOUT' : 'ISSUED'),
+      onChange: () => {
+        try {
+          localStorage.setItem('flopops.missionKit', this._missionKit() === 'own' ? 'issue' : 'own');
+        } catch {
+          /* storage blocked: stays issued */
+        }
+      },
+      panel: (p) => {
+        const own = this._missionKit() === 'own';
+        const rows = missions.map((m) => [m.label, this._kitLine(m.loadout)]);
+        rows.push(['YOUR LOADOUT', this._kitLine(this._loadout())]);
+        this._blurb(
+          p,
+          'MISSION KIT · ' + (own ? 'YOUR LOADOUT' : 'ISSUED'),
+          own
+            ? 'Doug takes the kit from the LOADOUT screen. Command accepts no responsibility, which is normal.'
+            : 'Each operation issues its own kit, chosen by Command for the job. Change it here, or on the LOADOUT screen with YOUR LOADOUT selected.',
+          rows
+        );
+      },
+    };
   }
 
   _page_loadout() {
