@@ -26,6 +26,10 @@
  *                   [x, z, w, d, kind] rects in the map's own level metres
  *                   (x east, z south). kind: 'floor' | 'block' | 'apron' |
  *                   'plane' | 'objective'
+ *   modes           the modes the map supports (docs/EXPANSION.md §5):
+ *                   'tdm' | 'dom' | 'hp' | 'sd' | 'survival'. Every MP map's
+ *                   build publishes the spawns and zones those modes read.
+ *   missionOnly     true for a map that only hosts a mission (optional)
  *   load()          -> Promise<module> with the map's `build*` entry point
  *                   (absent for `town`, which is the world system's own path)
  */
@@ -36,7 +40,8 @@ export const MAPS = [
   {
     id: 'town',
     idx: '01',
-    name: 'BORDER TOWN',
+    name: 'URBAN PLAZA',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
     subtitle: 'Border town · the square',
     operation: 'OPERATION TOTAL CONFIDENCE',
     objectiveLabel: 'Hold the town square for as long as it takes.',
@@ -71,6 +76,7 @@ export const MAPS = [
     id: 'airport',
     idx: '02',
     name: 'HOLDING PATTERN',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
     subtitle: 'Port Ellery International · Gate 12',
     operation: 'OPERATION CARRY-ON',
     objectiveLabel: 'Hold Gate 12. Boarding will not complete.',
@@ -104,6 +110,132 @@ export const MAPS = [
       ],
     },
     load: () => import('./airport/index.js'),
+  },
+  {
+    id: 'underground',
+    idx: '03',
+    name: 'UNDERGROUND',
+    subtitle: 'Grand Arcade station · Line 4 (closed)',
+    operation: 'OPERATION LAST TRAIN',
+    objectiveLabel: 'Hold Platform A. The train is not coming.',
+    heldNoun: 'Platform A',
+    lighting: 'underground',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
+    mission: [
+      ['LOCATION', 'Grand Arcade. Closed in 1998 for "a few weeks".'],
+      ['OBJECTIVE', 'Hold Platform A.'],
+      ['DURATION', 'Until the next train. (See: LOCATION.)'],
+      ['PLAN', 'Phase one: go downstairs. Phase two: Doug.'],
+      ['ASSETS', 'Doug. The stairs.'],
+    ],
+    // Street and hall in the north-west, the station box across the middle,
+    // the east tunnel, and the command facility in the south-east.
+    preview: {
+      box: [-66, -58, 162, 114],
+      rects: [
+        [-66, -58, 162, 114, 'apron'],
+        [-66, -58, 28, 14, 'floor'],
+        [-62, -32, 32, 20, 'floor'],
+        [-20, -14, 60, 22, 'floor'],
+        [-44, -8, 128, 10, 'floor'],
+        [-16, 8.4, 52, 3, 'floor'],
+        [-10, -17.4, 46, 3, 'floor'],
+        [24, 21, 52, 4, 'floor'],
+        [72, 2, 4, 19, 'floor'],
+        [34, 29, 44, 27, 'floor'],
+        [78, 36, 18, 11, 'floor'],
+        [1, -7.6, 32.8, 3, 'plane'],
+        [46, -7.6, 32.8, 3, 'plane'],
+        [2, -25, 31, 7.2, 'block'],
+        [-14, 11.8, 39, 7.2, 'block'],
+        [8.5, -12.5, 3, 3, 'objective'],
+      ],
+    },
+    load: () => import('./underground/index.js'),
+  },
+  {
+    id: 'estate',
+    idx: '04',
+    name: 'THE RESIDENCE',
+    subtitle: 'A walled residence on the hill · night',
+    operation: 'OPERATION HOUSE CALL',
+    objectiveLabel: 'Hold the fountain court. Nobody is coming to the door.',
+    heldNoun: 'The fountain court',
+    lighting: 'night',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
+    mission: [
+      ['LOCATION', 'The Residence. Visitors by appointment. There are no appointments.'],
+      ['OBJECTIVE', 'Hold the fountain court.'],
+      ['DURATION', 'Until morning. (It is 01:30.)'],
+      ['PLAN', 'Phase one: ring the bell. Phase two: Doug.'],
+      ['ASSETS', 'Doug. The element of surprise, briefly.'],
+    ],
+    // The walled compound: the court and gate to the south, the house
+    // stepping up the hill to the north, yards either side.
+    preview: {
+      box: [-52, -42, 104, 100],
+      rects: [
+        [-52, -42, 104, 100, 'apron'],
+        [-44, -36, 88, 84, 'floor'],
+        [-26.2, 0, 58.2, 10.2, 'floor'],
+        [-26, 0, 56, 10, 'block'],
+        [-25.8, -16.2, 47.6, 16.2, 'block'],
+        [-24.2, -32.2, 44.4, 16, 'block'],
+        [8, 40, 5, 4.6, 'block'],
+        [-44, -16, 18.2, 26.2, 'apron'],
+        [-2.2, 19.8, 3, 3, 'objective'],
+      ],
+    },
+    load: () => import('./estate/index.js'),
+  },
+  {
+    id: 'industrial',
+    idx: '05',
+    name: 'DEMURRAGE',
+    modes: ['tdm', 'dom', 'hp', 'sd', 'survival'],
+    subtitle: 'Harrow Point Freight Terminal · Yard 4',
+    operation: 'OPERATION PROOF OF DELIVERY',
+    objectiveLabel: 'Secure the yard. Sign for it.',
+    heldNoun: 'The yard',
+    mission: [
+      ['LOCATION', 'Harrow Point Freight Terminal, Yard 4. Nothing has moved since March.'],
+      ['OBJECTIVE', 'Secure the yard.'],
+      ['DURATION', 'Until the paperwork clears.'],
+      ['PLAN', 'Phase one: secure the yard. Phase two: sign for it.'],
+      ['ASSETS', 'Doug. One (1) forklift. Keys not located.'],
+    ],
+    // Two warehouses (north-west, south-east) with their dock aprons, the
+    // container stacks and the gantry between them, pipe racks on both fences.
+    preview: {
+      box: [-70, -58, 140, 116],
+      rects: [
+        [-68, -56, 136, 112, 'apron'],
+        [-34, -50, 36, 20, 'block'],
+        [-34, -30, 36, 4.5, 'floor'],
+        [-2, 30, 36, 20, 'block'],
+        [-2, 25.5, 36, 4.5, 'floor'],
+        [-64, -55.5, 120, 2.2, 'floor'],
+        [-56, 53.3, 120, 2.2, 'floor'],
+        [-54.2, -20, 2.4, 12, 'plane'],
+        [-54.2, 3, 2.4, 12, 'plane'],
+        [51.8, -15, 2.4, 12, 'plane'],
+        [51.8, 8, 2.4, 12, 'plane'],
+        [-44, -9.7, 12, 2.4, 'plane'],
+        [32, 7.3, 12, 2.4, 'plane'],
+        [-21, 7.8, 12, 2.4, 'plane'],
+        [9, -10.2, 12, 2.4, 'plane'],
+        [-23, -16.7, 12, 2.4, 'plane'],
+        [11, 14.3, 12, 2.4, 'plane'],
+        [-28.2, 8, 2.4, 12, 'plane'],
+        [25.8, -20, 2.4, 12, 'plane'],
+        [16, -48, 8, 8, 'block'],
+        [28, -48, 8, 8, 'block'],
+        [-24, 40, 8, 8, 'block'],
+        [-36, 40, 8, 8, 'block'],
+        [-1.5, -1.5, 3, 3, 'objective'],
+      ],
+    },
+    load: () => import('./industrial/index.js'),
   },
 ];
 

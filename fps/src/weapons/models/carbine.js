@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Assembly } from '../geometry.js';
+import { addSuppressor } from '../kit.js';
 import { profileX, sectionZ, planY, latheZ, latheX, lathe, cyl, rbox, xf, at, roundContour, rrect, extrude } from '../mmgeo.js';
 
 /**
@@ -128,7 +129,9 @@ function screwHead(r = 2.4, h = 1.6) {
   return body;
 }
 
-export function buildCarbine() {
+/** `opts.suppressed` builds the KESTREL 556 SD: the same carbine with a can. */
+export function buildCarbine(opts = {}) {
+  const suppressed = opts.suppressed === true;
   const body = new Assembly('carbine-body');
   const S = new MM(body);
 
@@ -403,10 +406,14 @@ export function buildCarbine() {
     0.206
   );
 
-  const muzzleZ = Z0 - 0.5755;
+  let muzzleZ = Z0 - 0.5755;
+  if (suppressed) {
+    // A 38 mm baffled can threaded over the birdcage: 170 mm past the crown.
+    muzzleZ = addSuppressor(body, Z0 - 0.52, BORE, { len: 0.2, r: 0.019 });
+  }
   return {
-    id: 'carbine',
-    label: 'KESTREL 556',
+    id: suppressed ? 'carbine_sd' : 'carbine',
+    label: suppressed ? 'KESTREL 556 SD' : 'KESTREL 556',
     fxClass: 'carbine',
     body,
     moving: { magazine, charging, bolt, trigger },

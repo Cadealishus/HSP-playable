@@ -3,12 +3,19 @@ import { Rng } from '../core/rng.js';
 import { WeaponMaterials, ENV_OCCLUSION } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
 import { ProjectileSim } from './ballistics.js';
-import { WEAPON_DEFS, buildRecoilPattern, SPREAD_MODS } from './defs.js';
+import { WEAPON_DEFS, WEAPON_IDS, normalizeDef, buildRecoilPattern, SPREAD_MODS } from './defs.js';
 import { buildCarbine } from './models/carbine.js';
 import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
 import { buildPistol } from './models/pistol.js';
+import { buildShotgun } from './models/shotgun.js';
+import { buildSniper, buildMarksman } from './models/sniper.js';
+import { buildLmg } from './models/lmg.js';
+import { buildLauncher } from './models/launcher.js';
+import { RocketSim } from './rockets.js';
 import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
+import { Equipment } from './equipment.js';
+import { WeaponOverlays } from './overlay.js';
 
 /**
  * WEAPONS — weapon meshes, the first-person viewmodel rig, ADS, recoil, sway,
@@ -64,10 +71,29 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  * Anything else (ammo counts, fire mode, the current weapon) is a getter on
  * this object rather than an event, so no new event types are introduced.
  */
-/** Swap order (Tab / wheel / number keys 1-4). The carbine is the primary. */
-const WEAPON_ORDER = ['carbine', 'rifle', 'smg', 'pistol'];
+/**
+ * Model builders by `def.model`. Adding a gun is adding a def (defs.js) plus a
+ * builder here.
+ */
+const BUILDERS = {
+  carbine: () => buildCarbine(),
+  carbine_sd: () => buildCarbine({ suppressed: true }),
+  rifle: () => buildRifle(),
+  smg: () => buildSmg(),
+  pistol: () => buildPistol(),
+  mpistol: () => buildPistol({ auto: true }),
+  shotgun: () => buildShotgun(),
+  sniper: () => buildSniper(),
+  marksman: () => buildMarksman(),
+  lmg: () => buildLmg(),
+  rocket: () => buildLauncher(),
+};
+/** Registry order (every weapon the game knows). */
+const WEAPON_ORDER = WEAPON_IDS;
 const PRIMARY_ID = 'carbine';
-const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+const SECONDARY_ID = 'pistol';
+const DIGITS = ['Digit1', 'Digit2', 'Digit3'];
+const RELOAD_CLIPS = new Set(['reloadTac', 'reloadEmpty', 'reloadStart', 'reloadShell', 'reloadEnd']);
 
 export class WeaponSystem {
   static id = 'weapons';
@@ -97,7 +123,14 @@ export class WeaponSystem {
     this._up = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
     this._camDir = new THREE.Vector3();
-    this._firePayload = { weapon: null, origin: new THREE.Vector3(), dir: new THREE.Vector3(), seed: 0 };
+    this._firePayload = {
+      weapon: null, origin: new THREE.Vector3(), dir: new THREE.Vector3(), seed: 0,
+      // Additive (EXPANSION §6): def id + class, the hearing radius AI should use
+      // (a suppressed carbine is ~22 m, a rifle 90), a suppression multiplier
+      // for the line of fire, the pellet count, and fx overrides.
+      id: null, class: null, noise: 90, suppression: 1, suppressed: false, pellets: 1,
+      flashScale: undefined, intensity: undefined, light: undefined,
+    };
     this._reloadPayload = { weapon: null, phase: 'start' };
     // `weapon:shell` carries the canonical { position, velocity } plus the real
     // case dimensions and a spin, so fx can size and tumble the brass instead of
@@ -112,6 +145,16 @@ export class WeaponSystem {
     };
     this._pendingShots = 0;
     this._pendingFirst = false;
+    /** The carried loadout (EXPANSION §6). `carried` is the swap order. */
+    this.loadout = { primary: PRIMARY_ID, secondary: SECONDARY_ID, lethal: 'frag', tactical: 'flash' };
+    this.carried = [PRIMARY_ID, SECONDARY_ID];
+    this._cycling = false;
+    this._shellReload = false;
+    this._shellStop = false;
+    this._scopeT = 0;
+    this._breath = { hold: 0, tired: 0, t: 0 };
+    this._swayAim = { x: 0, y: 0 };
+    this.moveSpeedScale = 1;
 
     // Deferred shell ejections (a case leaves the port a few ms after the shot).
     this._shellQueue = [];
@@ -133,7 +176,11 @@ export class WeaponSystem {
     this._hudState = {
       name: '', mode: 'auto', ammo: 0, reserve: 0, magSize: 0,
       reloading: false, reloadProgress: 0, ads: false, spread: 0, firing: false,
+      lethalCount: 0, tacticalCount: 0, lethal: 'frag', tactical: 'flash',
+      cook: -1, cookKind: null, cookRemaining: 0, throwing: false,
+      scoped: false,
     };
+    this._overlayState = { scope: 0, style: 'sniper', swayX: 0, swayY: 0, flash: 0, blur: 0, cook: -1, cookText: '', danger: false };
   }
 
   /* ====================================================================== */
@@ -157,31 +204,58 @@ export class WeaponSystem {
     this.viewmodel.onClipEvent = (name, clip) => this._onClipEvent(name, clip);
 
     const t0 = performance.now();
-    const builders = { carbine: buildCarbine, rifle: buildRifle, smg: buildSmg, pistol: buildPistol };
     let tris = 0;
     for (const id of WEAPON_ORDER) {
-      const def = { ...WEAPON_DEFS[id] };
-      def.cycleTime = 60 / def.rpm;
-      const model = builders[id]();
+      const def = normalizeDef(WEAPON_DEFS[id]);
+      const build = BUILDERS[def.model];
+      if (!build) continue;
+      const model = build();
       const entry = this.viewmodel.addWeapon(model, def);
       tris += entry.tris;
-      this.states.set(id, {
+      const st = {
         def,
         pattern: buildRecoilPattern(def, Rng),
-        mag: def.magSize,
+        mag: 0,
         chambered: true,
-        reserve: def.reserve,
+        reserve: 0,
         mode: def.modes[0],
         modeIndex: 0,
-      });
+      };
+      this._fill(st);
+      this.states.set(id, st);
     }
+    this.rockets = new RocketSim(ctx, this.mats);
     this.viewmodel.setActive(this.activeId);
     this.viewmodel.play('draw');
+
+    // ---- equipment (frag / flashbang) + screen overlays ----
+    this.physics = ctx.peek('physics');
+    this.equipment = new Equipment(ctx, this);
+    this.equipment.build(this.mats, this.viewmodel);
+    this.overlays = new WeaponOverlays(ctx);
 
     // Player hooks (all optional: the viewmodel works standalone).
     this.player = ctx.peek('player');
     this.fx = ctx.peek('fx');
     this.physics = ctx.peek('physics');
+    // EXPANSION §6: `player.flash(intensity, duration)` is implemented here (the
+    // white-out is a weapons overlay). Installed only if the player system does
+    // not provide its own.
+    if (this.player && typeof this.player.flash !== 'function') {
+      this.player.flash = (i, d) => this.equipment.flashPlayer(i, d);
+    }
+    // ADS zoom / sensitivity: the registry drives them per weapon (and per
+    // scope). The configured values are kept as the fallback.
+    this._baseAdsFov = ctx.config.adsFovScale ?? 0.72;
+    this._baseAdsSens = ctx.config.adsSensScale ?? 0.8;
+    this._installMoveScale();
+    // Run start / redeploy: a fresh loadout of ammunition and equipment.
+    this._lastGameState = null;
+    this._off_gs = ctx.events.on('game:state', (e) => {
+      const st = e?.state ?? null;
+      if (st === 'play' && this._lastGameState !== 'play' && this._lastGameState !== null) this.resupply();
+      this._lastGameState = st;
+    });
     this._off = [];
     this._off.push(
       ctx.events.on('player:land', (e) => this.viewmodel.land(Math.abs(e?.velocity ?? 3)))
@@ -218,8 +292,33 @@ export class WeaponSystem {
     return this.state?.def ?? null;
   }
 
+  /** The carried weapons, in swap order (1 / 2 / 3, Tab, wheel). */
   get weaponIds() {
+    return this.carried.slice();
+  }
+
+  /** Every weapon in the registry. */
+  get allWeaponIds() {
     return [...this.states.keys()];
+  }
+
+  /** Magazine + chamber (+ reserve) to full. A chamberless weapon (the
+   *  launcher: `magSize` is what the tube holds) keeps its round in `mag`. */
+  _fill(s) {
+    const d = s.def;
+    s.reserve = d.reserve;
+    if (d.projectile) {
+      s.mag = d.magSize;
+      s.chambered = false;
+    } else {
+      s.mag = d.magSize;
+      s.chambered = true;
+    }
+  }
+
+  /** Rounds ready to fire (chamber + magazine; a launcher's tube). */
+  _loaded(s) {
+    return s.mag + (s.chambered ? 1 : 0);
   }
 
   get ammo() {
@@ -247,8 +346,12 @@ export class WeaponSystem {
   }
 
   get reloading() {
-    const n = this.viewmodel?.clipName;
-    return n === 'reloadTac' || n === 'reloadEmpty';
+    return RELOAD_CLIPS.has(this.viewmodel?.clipName) || this._shellReload;
+  }
+
+  /** 0..1 how far into the scope the player is (1 = overlay up, gun hidden). */
+  get scopeProgress() {
+    return this._scopeT;
   }
 
   get inspecting() {
@@ -293,14 +396,28 @@ export class WeaponSystem {
     h.magSize = a.magSize;
     h.reloading = this.reloading;
     // 0..1 through the active reload clip; the bar is meaningless otherwise.
-    h.reloadProgress = h.reloading && vm?.clip?.duration
-      ? Math.min(1, vm.clipT / vm.clip.duration)
-      : 0;
+    h.reloadProgress = !h.reloading ? 0
+      : this._shellReload ? Math.min(1, s.mag / Math.max(1, s.def.magSize))
+        : vm?.clip?.duration ? Math.min(1, vm.clipT / vm.clip.duration) : 0;
+    h.scoped = this._scopeT > 0.98;
+    h.weaponId = s.def.id;
+    h.weaponClass = s.def.class;
     h.ads = (vm?.adsT ?? 0) > 0.5;
     // `ui` maps this to reticle bloom as 4 + spread * 40 px, so hand it a
     // normalised 0..1 rather than raw degrees.
     h.spread = Math.min(1, Math.max(0, this._spread / 6));
     h.firing = this.firing;
+    const eq = this.equipment;
+    if (eq) {
+      h.lethalCount = eq.lethalCount;
+      h.tacticalCount = eq.tacticalCount;
+      h.lethal = eq.lethal;
+      h.tactical = eq.tactical;
+      h.cook = eq.cookFraction;
+      h.cookKind = h.cook >= 0 ? eq.th.kind : null;
+      h.cookRemaining = eq.cookRemaining;
+      h.throwing = eq.throwing;
+    }
     return h;
   }
 
@@ -310,15 +427,55 @@ export class WeaponSystem {
 
   setWeapon(id) {
     if (!this.states.has(id) || id === this.activeId || this._switchTo) return false;
+    if (!this.carried.includes(id)) return false;
+    if (this.equipment?.throwing) return false;
+    this._abortShellReload();
+    this._cycling = false;
     this._switchTo = id;
     this._switchTimer = this.viewmodel.play('holster');
+    // Fast swap: going TO the sidearm, the long gun comes down at x speed.
+    const fast = this.states.get(id).def.fastSwap ?? 1;
+    if (fast > 1) {
+      this.viewmodel.clipRate = fast;
+      this._switchTimer /= fast;
+    }
     return true;
   }
 
-  nextWeapon() {
-    const ids = this.weaponIds;
-    const i = ids.indexOf(this.activeId);
-    return this.setWeapon(ids[(i + 1) % ids.length]);
+  nextWeapon(step = 1) {
+    const ids = this.carried;
+    const i = Math.max(0, ids.indexOf(this.activeId));
+    const n = ids.length;
+    return this.setWeapon(ids[(((i + step) % n) + n) % n]);
+  }
+
+  /**
+   * EXPANSION §6. `{ primary, secondary, lethal, tactical }` — any may be
+   * omitted to keep the current one. Weapons must exist and fit the slot
+   * (a primary in the primary slot, a secondary in the secondary slot).
+   * Refills ammunition and equipment by default (`opts.refill === false` to
+   * keep counts); swaps instantly unless `opts.animated`.
+   * @returns {object} the resulting loadout
+   */
+  setLoadout(lo = {}, opts = {}) {
+    const ok = (id, slot) => id && this.states.has(id) && this.states.get(id).def.slot === slot;
+    // `null` empties a slot (a sidearm-only loadout); undefined keeps it.
+    if (lo.primary === null) this.loadout.primary = null;
+    else if (ok(lo.primary, 'primary')) this.loadout.primary = lo.primary;
+    if (lo.secondary === null) this.loadout.secondary = null;
+    else if (ok(lo.secondary, 'secondary')) this.loadout.secondary = lo.secondary;
+    if (!this.loadout.primary && !this.loadout.secondary) this.loadout.secondary = SECONDARY_ID;
+    if (lo.lethal) this.loadout.lethal = lo.lethal;
+    if (lo.tactical) this.loadout.tactical = lo.tactical;
+    this.carried = [this.loadout.primary, this.loadout.secondary].filter(Boolean);
+    this.equipment?.setLoadout(this.loadout.lethal, this.loadout.tactical);
+    this.loadout.lethal = this.equipment?.lethal ?? this.loadout.lethal;
+    this.loadout.tactical = this.equipment?.tactical ?? this.loadout.tactical;
+    if (opts.refill !== false) this.resupply();
+    const want = this.carried.includes(this.activeId) ? this.activeId : this.carried[0];
+    if (opts.animated) this.setWeapon(want);
+    else this.setWeaponImmediate(want);
+    return { ...this.loadout };
   }
 
   cycleFireMode() {
@@ -330,10 +487,36 @@ export class WeaponSystem {
     return s.mode;
   }
 
+  /** Abort a running reload (a grenade throw does this). Ammo is only moved at
+   *  'magin', so an aborted reload leaves the magazine exactly as it was. */
+  cancelReload() {
+    if (!this.reloading) return false;
+    this._shellReload = false;
+    this.viewmodel.stopClip();
+    this.viewmodel.boltHold = this.state && !this.state.chambered ? 1 : 0;
+    return true;
+  }
+
+  /** Refill every carried weapon (mag + reserve) and the equipment slots. */
+  resupply() {
+    for (const s of this.states.values()) this._fill(s);
+    this.equipment?.resupply();
+    return true;
+  }
+
   reload() {
     const s = this.state;
     if (!s || this.reloading || this.switching) return false;
+    if (this.equipment?.throwing) return false;
     if (s.mag >= s.def.magSize || s.reserve <= 0) return false;
+    this._cycling = false;
+    if (s.def.reloadStyle === 'shell') {
+      this.viewmodel.stopClip();
+      this._shellReload = true;
+      this._shellStop = false;
+      this.viewmodel.play('reloadStart');
+      return true;
+    }
     this.viewmodel.stopClip();
     const empty = s.mag === 0 && !s.chambered;
     this.viewmodel.play(empty ? 'reloadEmpty' : 'reloadTac');
@@ -354,16 +537,28 @@ export class WeaponSystem {
   canFire() {
     const s = this.state;
     if (!s) return false;
-    if (this.reloading || this.switching) return false;
+    if (this.switching || this._cycling) return false;
+    if (this.reloading && !(this._shellReload && this._loaded(s) > 0)) return false;
     if (this._fireTimer > 0) return false;
-    return s.chambered;
+    return this._loaded(s) > 0;
+  }
+
+  /** A trigger pull during a shell-by-shell load stops it (CoD: fire to cancel). */
+  _abortShellReload() {
+    if (!this._shellReload) return;
+    this._shellReload = false;
+    const n = this.viewmodel.clipName;
+    if (n === 'reloadStart' || n === 'reloadShell' || n === 'reloadEnd') this.viewmodel.stopClip();
   }
 
   /** One round leaves the barrel. Returns false if the trigger clicked dry. */
   tryFire() {
     const s = this.state;
     if (!s) return false;
-    if (this.reloading || this.switching || this._fireTimer > 0) return false;
+    if (this._shellReload && this._loaded(s) > 0) this._abortShellReload();
+    if (this.reloading || this.switching || this._cycling || this._fireTimer > 0) return false;
+    if (this.equipment?.throwing || this.viewmodel.throwLower > 0.05) return false;
+    if (s.def.projectile) return this._fireProjectile(s);
     if (!s.chambered) {
       // Dry: lock the bolt back and let the player know by feel.
       this.viewmodel.boltHold = 1;
@@ -393,33 +588,37 @@ export class WeaponSystem {
     const cam = this.ctx.camera;
     cam.updateMatrixWorld();
     this._camDir.set(0, 0, -1).applyQuaternion(cam.quaternion).normalize();
-    this._dir.copy(this._camDir);
-    const spreadRad = this._spread * DEG;
-    if (spreadRad > 1e-5) {
-      const d = this.rng.disc(this._disc ?? (this._disc = { x: 0, y: 0 }));
-      this._right.set(1, 0, 0).applyQuaternion(cam.quaternion);
-      this._up.set(0, 1, 0).applyQuaternion(cam.quaternion);
-      this._dir
-        .addScaledVector(this._right, Math.tan(spreadRad) * d.x)
-        .addScaledVector(this._up, Math.tan(spreadRad) * d.y)
-        .normalize();
-    }
+    this._aimDir(cam, this._spread, this._dir);
 
-    // ---- projectile ----
-    this.viewmodel.muzzleWorld(this._muzzle);
+    // ---- projectile(s) ----
+    // Rounds leave from the muzzle when scoped the muzzle is hidden under the
+    // overlay; from the eye, so the shot goes where the reticle is.
+    if (this._scopeT > 0.98) this._muzzle.copy(cam.position);
+    else this.viewmodel.muzzleWorld(this._muzzle);
     const seed = this.rng.u32();
-    this.sim.spawn({
-      origin: this._muzzle,
-      dir: this._dir,
-      speed: def.muzzleVelocity,
-      damage: def.damage,
-      penetration: def.penetration,
-      dragK: def.dragK,
-      dropoff: def.dropoff,
-      maxRange: def.maxRange,
-      weapon: def,
-      tracer: this.stats.fired % def.tracerEvery === 0,
-    });
+    const pellets = def.pellets;
+    const cone = pellets > 1 ? lerp(def.pelletSpread ?? 3, def.pelletSpreadAds ?? 2, this.adsProgress) : 0;
+    for (let k = 0; k < pellets; k++) {
+      if (pellets > 1) {
+        // Each pellet: the aimed direction plus its own point in the cone.
+        this._pellet = this._pellet ?? new THREE.Vector3();
+        this._pellet.copy(this._dir);
+        this._coneAround(this._pellet, cone, cam);
+      }
+      this.sim.spawn({
+        origin: this._muzzle,
+        dir: pellets > 1 ? this._pellet : this._dir,
+        speed: def.muzzleVelocity,
+        damage: def.damage,
+        penetration: def.penetration,
+        dragK: def.dragK,
+        dropoff: def.dropoff,
+        falloffExp: def.falloffExp,
+        maxRange: def.maxRange,
+        weapon: def,
+        tracer: def.tracerEvery > 0 && (pellets > 1 ? k < 2 : this.stats.fired % def.tracerEvery === 0),
+      });
+    }
 
     // ---- feedback ----
     this.viewmodel.addRecoil(pitch, yaw, first);
@@ -436,8 +635,82 @@ export class WeaponSystem {
     this._pendingFirst = this._pendingFirst || first;
     this._fireSeed = seed;
 
-    // Shell leaves the port shortly after the shot, once the bolt is back.
-    this._queueShell(Math.min(0.05, this._fireTimer * 0.45));
+    // Shell leaves the port shortly after the shot, once the bolt is back — or,
+    // on a pump / bolt gun, when the action is worked (the `cycle` clip).
+    if (def.action === 'pump' || def.action === 'bolt') {
+      if (this._loaded(s) > 0) {
+        this._cycling = true;
+        this.viewmodel.play('cycle');
+      } else {
+        this._queueShell(0.3);
+      }
+    } else {
+      this._queueShell(Math.min(0.05, this._fireTimer * 0.45));
+    }
+    return true;
+  }
+
+  /** Aim direction: camera forward + the spread cone + scope sway. */
+  _aimDir(cam, spreadDeg, out) {
+    this._camDir.set(0, 0, -1).applyQuaternion(cam.quaternion).normalize();
+    out.copy(this._camDir);
+    this._right.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    this._up.set(0, 1, 0).applyQuaternion(cam.quaternion);
+    const spreadRad = spreadDeg * DEG;
+    if (spreadRad > 1e-5) {
+      const d = this.rng.disc(this._disc ?? (this._disc = { x: 0, y: 0 }));
+      out.addScaledVector(this._right, Math.tan(spreadRad) * d.x).addScaledVector(this._up, Math.tan(spreadRad) * d.y);
+    }
+    // The scope's breathing sway is real: the round goes where the reticle is.
+    if (this._scopeT > 0.5) {
+      out.addScaledVector(this._right, this._swayAim.x * this._scopeT).addScaledVector(this._up, -this._swayAim.y * this._scopeT);
+    }
+    return out.normalize();
+  }
+
+  /** Rotate `v` to a uniformly distributed point inside a cone of half-angle `deg`. */
+  _coneAround(v, deg, cam) {
+    const d = this.rng.disc(this._disc ?? (this._disc = { x: 0, y: 0 }));
+    const t = Math.tan(deg * DEG);
+    v.addScaledVector(this._right, t * d.x).addScaledVector(this._up, t * d.y).normalize();
+    void cam;
+    return v;
+  }
+
+  /** The launcher: a rocket, not a round. */
+  _fireProjectile(s) {
+    const def = s.def;
+    if (s.mag <= 0) {
+      this._fireTimer = 0.25;
+      return false;
+    }
+    if (this.inspecting) this.viewmodel.stopClip();
+    s.mag--;
+    const cam = this.ctx.camera;
+    cam.updateMatrixWorld();
+    this._aimDir(cam, this._spread, this._dir);
+    this.viewmodel.muzzleWorld(this._muzzle);
+    // Launch from the muzzle, but never from inside a wall the tube is poking
+    // into: pull the origin back along eye->muzzle to just short of it.
+    const phys = this.physics;
+    if (phys?.raycast) {
+      this._tmp.copy(this._muzzle).sub(cam.position);
+      const len = this._tmp.length();
+      const hit = phys.raycast(cam.position, this._tmp, len, phys.MASK?.BULLET);
+      if (hit?.hit) this._muzzle.copy(cam.position).addScaledVector(this._tmp.divideScalar(len), Math.max(0.05, hit.distance - 0.05));
+    }
+    this.rockets.fire(this._muzzle, this._dir, def.projectile, this.player ?? null);
+    const idx = 0;
+    const pitch = s.pattern[idx * 2];
+    const yaw = s.pattern[idx * 2 + 1];
+    this.viewmodel.addRecoil(pitch, yaw, true);
+    this.player?.addRecoil?.(pitch, yaw, def.recoil.roll * 0.35, def.recoil.punch);
+    this.player?.addTrauma?.(0.55);
+    this._fireTimer = 60 / def.rpm;
+    this._sinceShot = 0;
+    this.stats.fired++;
+    this._pendingShots++;
+    this._fireSeed = this.rng.u32();
     return true;
   }
 
@@ -458,6 +731,18 @@ export class WeaponSystem {
   _onClipEvent(name, clipName) {
     const s = this.state;
     const isReload = clipName === 'reloadTac' || clipName === 'reloadEmpty';
+    if (clipName === 'cycle') {
+      if (name === 'eject') {
+        this._queueShell(0);
+        this._emitReload('end');
+      }
+      if (name === 'end') this._cycling = false;
+      return;
+    }
+    if (clipName === 'reloadStart' || clipName === 'reloadShell' || clipName === 'reloadEnd') {
+      this._onShellEvent(name, clipName, s);
+      return;
+    }
     switch (name) {
       case 'start':
         if (isReload) this._emitReload('start');
@@ -489,11 +774,38 @@ export class WeaponSystem {
           this.viewmodel.play('draw');
           this._shotIndex = 0;
           this._spread = 0;
+          this._cycling = false;
         }
         break;
       default:
         break;
     }
+  }
+
+  /** Shell-by-shell loading loop (shotgun). */
+  _onShellEvent(name, clipName, s) {
+    if (!s || !this._shellReload) return;
+    const vm = this.viewmodel;
+    if (name === 'start') this._emitReload('start');
+    if (name === 'shell' && s.reserve > 0 && s.mag < s.def.magSize) {
+      s.mag++;
+      s.reserve--;
+      this._emitReload('magin');
+    }
+    if (name !== 'end') return;
+    if (clipName === 'reloadEnd') {
+      this._shellReload = false;
+      if (!s.chambered && s.mag > 0) {
+        // Empty gun: the last act of the load is racking one into the chamber.
+        s.mag--;
+        s.chambered = true;
+        this._cycling = true;
+        vm.play('cycle');
+      }
+      return;
+    }
+    const more = s.mag < s.def.magSize && s.reserve > 0 && !this._shellStop;
+    vm.play(more ? 'reloadShell' : 'reloadEnd');
   }
 
   /**
@@ -508,6 +820,10 @@ export class WeaponSystem {
     const take = Math.min(want, s.reserve);
     s.reserve -= take;
     s.mag += take;
+    if (s.def.projectile) {
+      this._shotIndex = 0;
+      return;
+    }
     if (empty && !s.chambered && s.mag > 0) {
       s.mag--;
       s.chambered = true;
@@ -599,6 +915,8 @@ export class WeaponSystem {
 
   fixedUpdate(h) {
     this.sim.fixedUpdate(h);
+    this.equipment?.fixedUpdate(h);
+    this.rockets?.fixedUpdate(h);
   }
 
   update(dt, ctx) {
@@ -620,25 +938,31 @@ export class WeaponSystem {
 
     // ---- gather state ----------------------------------------------------
     const live = !input.frozen && input.enabled !== false && this.debugMode === null;
-    st.ads = live ? input.ads || player?.adsRequested === true : this.debugMode === 'ads';
-    st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 : false;
+    const throwing = this.equipment?.throwing === true;
+    st.ads = live ? (input.ads || player?.adsRequested === true) && !throwing : this.debugMode === 'ads';
+    // A throw pending behind a sprint brings the sprint pose down first.
+    st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 && !throwing : false;
     st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
     st.crouch = player?.stance === 'crouch';
     st.airborne = player?.airborne === true;
     st.lowReady = player?.state === 'mantle' || player?.mantling === true;
-    st.empty = s.mag === 0 && !s.chambered;
+    st.empty = this._loaded(s) === 0;
 
     // ---- input -----------------------------------------------------------
-    if (live) {
+    this.equipment?.update(dt, input, live);
+    if (live && throwing) {
+      st.trigger = false;
+    } else if (live) {
       if (input.actionPressed('reload')) this.reload();
       if (input.pressed('KeyB')) this.cycleFireMode();
       if (input.pressed('KeyI')) this.inspect();
-      // 1-4 in swap order: carbine, rifle, smg, pistol.
-      for (let i = 0; i < WEAPON_ORDER.length; i++) {
-        if (input.pressed(DIGITS[i])) this.setWeapon(WEAPON_ORDER[i]);
+      // 1 / 2 / 3 select the carried weapons in slot order; Tab and the wheel
+      // cycle them (wheel down = next, wheel up = previous).
+      for (let i = 0; i < DIGITS.length && i < this.carried.length; i++) {
+        if (input.pressed(DIGITS[i])) this.setWeapon(this.carried[i]);
       }
-      if (input.pressed('Tab')) this.nextWeapon();
-      if (input.wheel) this.nextWeapon();
+      if (input.pressed('Tab')) this.nextWeapon(1);
+      if (input.wheel) this.nextWeapon(input.wheel > 0 ? 1 : -1);
       this._runTrigger(dt, input.fire, input.firePressed, def, s);
       st.trigger = input.fire && this.canFire();
       // Auto-reload on a dry trigger pull, like every modern shooter.
@@ -650,6 +974,15 @@ export class WeaponSystem {
 
     // Push the ADS curve to the player so camera FOV / move speed follow it.
     player?.setAdsProgress?.(this.viewmodel.adsT);
+    this._updateScope(dt, def, live ? input : null);
+    // Registry-driven zoom and aim sensitivity (per weapon, per scope).
+    const cfg = ctx.config;
+    const sc = def.scope;
+    cfg.adsFovScale = sc ? Math.min(1, sc.fov / Math.max(1, cfg.fov)) : def.adsFov ?? this._baseAdsFov;
+    cfg.adsSensScale = sc ? sc.sens : this._baseAdsSens;
+    this.moveSpeedScale = def.moveMult ?? 1;
+    player?.setMoveSpeedScale?.(this.moveSpeedScale);
+    this.rockets?.update(dt);
 
     this.stats.live = this.sim.stats.live;
     this.stats.fired = this.sim.stats.fired;
@@ -700,14 +1033,25 @@ export class WeaponSystem {
     vm.anchor.visible =
       this.debugMode !== null || (!this._uiScreen && !(gs === 'attract' || gs === 'down' || gs === 'over'));
     vm.update(dt, this._state);
+    this._updateOverlays(dt);
 
     // ---- muzzle flash / audio, now that the pose is final ---------------
     if (this._pendingShots > 0) {
       const def = this.current;
       vm.muzzleWorld(this._firePayload.origin);
       vm.boreDir(this._firePayload.dir);
-      this._firePayload.weapon = def;
-      this._firePayload.seed = this._fireSeed >>> 0;
+      const fp = this._firePayload;
+      fp.weapon = def;
+      fp.seed = this._fireSeed >>> 0;
+      fp.id = def.id;
+      fp.class = def.class;
+      fp.noise = def.noise;
+      fp.suppression = def.suppression;
+      fp.suppressed = def.suppressed;
+      fp.pellets = def.pellets;
+      fp.flashScale = def.flashScale;
+      fp.intensity = def.flashIntensity;
+      fp.light = def.flashLight;
       for (let i = 0; i < this._pendingShots; i++) {
         ctx.events.emit('weapon:fire', this._firePayload);
       }
@@ -749,6 +1093,85 @@ export class WeaponSystem {
     }
   }
 
+  /**
+   * Scope: the overlay fades in over the last 15% of the ADS curve. While it is
+   * up, the aim point sways on a slow breathing figure-eight scaled by
+   * `scope.sway`; SHIFT holds the breath (sway x0.15) for up to 4 s, after
+   * which the shooter gasps (sway x2 for 1.5 s). The sway is applied to the
+   * aim direction in tryFire, so it is a real skill, not a decoration.
+   */
+  _updateScope(dt, def, input) {
+    const sc = def.scope;
+    const ads = this.viewmodel.adsT;
+    this._scopeT = sc ? clamp01((ads - 0.85) / 0.15) : 0;
+    const b = this._breath;
+    b.t += dt;
+    if (!sc || this._scopeT <= 0) {
+      b.hold = 0;
+      b.tired = Math.max(0, b.tired - dt);
+      this._swayAim.x = 0;
+      this._swayAim.y = 0;
+      return;
+    }
+    const wantHold = input ? input.action('sprint') : false;
+    if (wantHold && b.tired <= 0) {
+      b.hold += dt;
+      if (b.hold > 4) {
+        b.hold = 0;
+        b.tired = 1.5;
+      }
+    } else {
+      b.hold = 0;
+      if (b.tired > 0) b.tired -= dt;
+    }
+    const mult = b.hold > 0 ? 0.15 : b.tired > 0 ? 2 : 1;
+    this._swayMult = damp(this._swayMult ?? 1, mult, 6, dt);
+    const t = b.t;
+    // Radians of aim offset: ~0.25 deg at sway 1 (a 12x reticle wanders ~1/3 of
+    // a mil-dot per breath).
+    const a = 0.0045 * (sc.sway ?? 1) * this._swayMult;
+    this._swayAim.x = a * (Math.sin(t * 0.9) * 0.7 + Math.sin(t * 2.3 + 1.1) * 0.3);
+    this._swayAim.y = a * (Math.sin(t * 1.8 + 0.4) * 0.5 + Math.sin(t * 0.55) * 0.5);
+  }
+
+  /**
+   * Weapon weight: `def.moveMult` scales the player's move speed. The player
+   * system may implement `setMoveSpeedScale(x)` itself; until it does, its
+   * `movement.targetSpeed()` is wrapped once here (composition only; nothing in
+   * src/player is edited).
+   */
+  _installMoveScale() {
+    const p = this.player;
+    if (!p || typeof p.setMoveSpeedScale === 'function') return;
+    const mv = p.movement;
+    if (!mv || typeof mv.targetSpeed !== 'function' || mv.__owSpeedScaled) return;
+    const orig = mv.targetSpeed.bind(mv);
+    mv.targetSpeed = () => orig() * (this.moveSpeedScale ?? 1);
+    mv.__owSpeedScaled = true;
+  }
+
+  _updateOverlays() {
+    const o = this._overlayState;
+    const eq = this.equipment;
+    const shown = this.viewmodel.anchor.visible;
+    o.flash = eq ? eq.flashLevel : 0;
+    o.blur = eq ? eq.flashBlur : 0;
+    const cf = eq && shown ? eq.cookFraction : -1;
+    o.cook = cf;
+    o.danger = cf > 0.65 && eq.th.kind === 'frag';
+    o.cookText = cf >= 0 ? eq.cookRemaining.toFixed(1) : '';
+    const sd = this.current?.scope;
+    o.scope = shown && sd ? this._scopeT : 0;
+    o.style = sd?.overlay ?? 'sniper';
+    const px = (typeof innerHeight === 'number' ? innerHeight : 1080) * 0.5;
+    const fovR = ((this.ctx.camera.fov ?? 20) * DEG) / 2;
+    const k = px / Math.tan(fovR);
+    o.swayX = -this._swayAim.x * k * 0;
+    o.swayY = -this._swayAim.y * k * 0;
+    this.viewmodel.scopeHide = o.scope > 0.98;
+    this.overlays?.update(o);
+  }
+
   /* ====================================================================== */
   /*  capture harness                                                       */
   /* ====================================================================== */
@@ -787,10 +1210,11 @@ export class WeaponSystem {
 
     const s = this.state;
     if (s) {
-      s.mag = kind === 'fire' ? 22 : s.def.magSize;
-      s.chambered = true;
-      s.reserve = s.def.reserve;
+      this._fill(s);
+      if (kind === 'fire') s.mag = Math.max(1, Math.min(s.mag, 22));
     }
+    this._cycling = false;
+    this._shellReload = false;
 
     if (kind === 'ads') {
       vm.adsT = 1;
@@ -833,10 +1257,20 @@ export class WeaponSystem {
     return kind;
   }
 
-  /** Swap without the draw animation (harness + debug only). */
+  /**
+   * Swap without the draw animation (run start, harness, debug). A weapon that
+   * is not carried takes its slot in the loadout.
+   */
   setWeaponImmediate(id) {
     if (!this.states.has(id)) return false;
+    if (!this.carried.includes(id)) {
+      const slot = this.states.get(id).def.slot;
+      this.loadout[slot === 'secondary' ? 'secondary' : 'primary'] = id;
+      this.carried = [this.loadout.primary, this.loadout.secondary].filter(Boolean);
+    }
     this._switchTo = null;
+    this._cycling = false;
+    this._shellReload = false;
     this.activeId = id;
     this.viewmodel.setActive(id);
     return true;
@@ -863,14 +1297,26 @@ export class WeaponSystem {
    */
   selectLoadout(id, opts = {}) {
     if (!this.states.has(id)) return false;
-    if (opts.refill) {
-      const s = this.states.get(id);
-      s.mag = s.def.magSize;
-      s.chambered = true;
-      s.reserve = s.def.reserve;
-    }
-    if (opts.animated) return id === this.activeId ? true : this.setWeapon(id);
+    if (opts.refill) this._fill(this.states.get(id));
+    if (opts.animated && this.carried.includes(id)) return id === this.activeId ? true : this.setWeapon(id);
     return this.setWeaponImmediate(id);
+  }
+
+  /**
+   * Debug / pickup: put any weapon in hand (it takes its loadout slot, full
+   * ammunition), or +1 of a throwable ('frag' | 'flash'). `window.FLOP.give`.
+   * @returns {string|null} what was given
+   */
+  give(id) {
+    if (this.equipment?.defs?.[id]) {
+      this.equipment.give(id, 1);
+      return id;
+    }
+    if (!this.states.has(id)) return null;
+    this._fill(this.states.get(id));
+    this.setWeaponImmediate(id);
+    this.viewmodel.play('draw');
+    return id;
   }
 
   /** The default primary (what a run starts with if the loadout names nothing). */
@@ -896,6 +1342,10 @@ export class WeaponSystem {
         modes: d.modes.slice(),
         blurb: d.blurb ?? '',
         primary: id === PRIMARY_ID,
+        slot: d.slot ?? 'primary',
+        damage: d.projectile ? d.projectile.damage : d.damage * (d.pellets ?? 1),
+        pellets: d.pellets ?? 1,
+        reserve: d.reserve,
       });
     }
     return out;
@@ -919,6 +1369,10 @@ export class WeaponSystem {
 
   dispose() {
     for (const off of this._off ?? []) off();
+    this._off_gs?.();
+    this.rockets?.dispose();
+    this.equipment?.dispose();
+    this.overlays?.dispose();
     this.sim?.clear();
     for (const p of this._droppedMags) {
       p.group.removeFromParent();

@@ -90,6 +90,37 @@ const CITY_GLOW = {
 };
 
 /**
+ * Map lighting presets (docs/EXPANSION.md §5). A map publishes
+ * `world.lighting`; `setLightingPreset()` puts the sky on that preset's hour and
+ * applies its overrides. `day` is the shipping default (17.2) and changes
+ * nothing. `night` is the existing moonlit 01:30 anchor. `underground` keeps
+ * that night sky for whatever is at street level, but publishes a dim neutral
+ * ambient of its own instead of the moonlit one, kills the city/neon terms and
+ * holds exposure a little under the meter: below ground the practical lights
+ * do all the work, and the fill only exists so nothing is ever pitch black.
+ */
+export const LIGHTING_PRESETS = {
+  day: { hour: 17.2 },
+  dusk: { hour: 19.25 },
+  night: { hour: 1.5 },
+  underground: {
+    hour: 1.5,
+    // whole-sky ambient stand-in (level AND hue): a cool-grey room fill
+    ambient: [0.0085, 0.0095, 0.0115],
+    exposureBias: 0.35,
+    indirectScale: 1.0,
+  },
+  // the same space on battery power: the meter is held a stop further down so
+  // losing the mains reads as losing light, not as a red colour grade
+  underground_emergency: {
+    hour: 1.5,
+    ambient: [0.0075, 0.0068, 0.0072],
+    exposureBias: 1.35,
+    indirectScale: 1.0,
+  },
+};
+
+/**
  * OVERWATCH sky, atmosphere and global lighting.
  *
  * ---------------------------------------------------------------------------
@@ -116,6 +147,11 @@ const CITY_GLOW = {
  *   sky.setTimeOfDay(hours)      0..24, local solar time. Rebakes everything.
  *   sky.timeOfDay                current hour
  *   sky.setTimeRate(hoursPerSec) animate the sun (0 = frozen; default 0)
+ *   sky.setLightingPreset(name)  'day' | 'dusk' | 'night' | 'underground'
+ *                                ('underground_emergency': UNDERGROUND on battery)
+ *                                (LIGHTING_PRESETS); the world calls it with
+ *                                the active map's `lighting`
+ *   sky.lightingPreset           the active preset name
  *   sky.sunDirection             Vector3 pointing AT the sun   (read only)
  *   sky.moonDirection            Vector3 pointing AT the moon  (read only)
  *   sky.sunAltitude              radians above the horizon
@@ -177,6 +213,8 @@ export class SkySystem {
     // interior/detail set) override this.
     this.hour = 17.2;
     this.timeRate = 0;
+    /** Active map lighting preset (see LIGHTING_PRESETS). */
+    this.lightingPreset = 'day';
 
     // ---- weather / atmosphere state ---------------------------------------
     this.weather = {
@@ -426,6 +464,13 @@ export class SkySystem {
 
     this._applyWeather();
     this._applyFog();
+    // A world that is already built publishes its preset; otherwise the world
+    // calls setLightingPreset() itself once its map is up.
+    const wl = ctx.peek?.('world')?.lighting;
+    if (wl && wl !== 'day' && LIGHTING_PRESETS[wl]) {
+      this.lightingPreset = wl;
+      this.hour = LIGHTING_PRESETS[wl].hour;
+    }
     this.setTimeOfDay(this.hour);
 
     console.info(
@@ -483,6 +528,18 @@ export class SkySystem {
       );
     }
     return this;
+  }
+
+  /**
+   * Put the sky on a map lighting preset (LIGHTING_PRESETS): its hour, plus
+   * any overrides it carries, which persist through later setTimeOfDay calls
+   * until another preset is chosen. Unknown names are ignored.
+   */
+  setLightingPreset(name) {
+    const p = LIGHTING_PRESETS[name];
+    if (!p) return this;
+    this.lightingPreset = name;
+    return this.setTimeOfDay(p.hour);
   }
 
   /** Hours of sky time per second of wall clock. 0 freezes the sun. */
@@ -881,6 +938,17 @@ export class SkySystem {
     s.uStarParams.value.x = 0.07 * nightRamp;
     s.uStarParams.value.y = 0.55;
     s.uStarParams.value.w = 0.16 * nightRamp;
+
+    // ---- map preset overrides -----------------------------------------------
+    const pre = LIGHTING_PRESETS[this.lightingPreset];
+    if (pre?.ambient) {
+      this.ambientColor.setRGB(pre.ambient[0], pre.ambient[1], pre.ambient[2]);
+      this.neonAmount = 0;
+      gA.set(0, 0, 0, gA.w);
+      gB.set(0, 0, 0, gB.w);
+    }
+    if (pre?.exposureBias !== undefined) this.exposureBias = pre.exposureBias;
+    if (pre?.indirectScale !== undefined) this.indirectScale = pre.indirectScale;
 
     // ---- light transforms --------------------------------------------------
     // Clamp the light direction just above the horizon: a directional light at

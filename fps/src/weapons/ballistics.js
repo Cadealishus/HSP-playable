@@ -79,6 +79,7 @@ export class ProjectileSim {
     p.penetration = o.penetration ?? 1;
     p.dragK = o.dragK ?? 0.3;
     p.dropoff = o.dropoff ?? 0.5;
+    p.falloffExp = o.falloffExp ?? 2;
     p.maxRange = o.maxRange ?? 400;
     p.travelled = 0;
     p.age = 0;
@@ -129,7 +130,7 @@ export class ProjectileSim {
           // Contact: hand the round to the penetration solver, which emits
           // `bullet:impact` for every entry and exit face it goes through.
           const range01 = Math.min(1, p.travelled / p.maxRange);
-          const falloff = 1 - (1 - p.dropoff) * range01 * range01;
+          const falloff = 1 - (1 - p.dropoff) * Math.pow(range01, p.falloffExp);
           phys.fireBullet({
             origin: p.prev,
             dir: this._hitDir,

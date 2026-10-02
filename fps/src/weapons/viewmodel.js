@@ -160,6 +160,37 @@ export class Viewmodel {
       this.armR.bakeSurfaceMasks(bakeArms, shapeMasks, this.rng);
       this.armL.bakeSurfaceMasks(bakeArms, shapeMasks, this.rng);
     }
+    /**
+     * THE THROWING ARM (grenades). A third arm parented straight to the anchor,
+     * so its shoulder and its hand targets are in CAMERA space: while it is up the
+     * gun (and both of the rig's arms) is lowered out of frame, so the viewer only
+     * ever sees one right arm. Hidden unless a throw is running.
+     */
+    this.throwArm = new Arm(1, handMats, {
+      scale: 1,
+      shoulderX: 0.205,
+      shoulderY: -0.2,
+      shoulderZ: 0.06,
+      pose: 'wrap',
+    });
+    if (bakeArms) this.throwArm.bakeSurfaceMasks(bakeArms, shapeMasks, this.rng);
+    this.throwArm.root.visible = false;
+    this.anchor.add(this.throwArm.root);
+    this.throwItems = new Map();
+    this._throw = {
+      phase: 'idle',
+      t: 0,
+      kind: null,
+      shake: 0,
+      released: false,
+      lower: 0,
+      prevPhase: 'idle',
+      from: { p: [0, 0, 0], f: [0, 0, -1], b: [1, 0, 0] },
+      cur: { p: [0, 0, 0], f: [0, 0, -1], b: [1, 0, 0] },
+    };
+    this._throwPos = new THREE.Vector3();
+    this._throwQuat = new THREE.Quaternion();
+
     // Body-fixed shoulders, expressed in camera space and re-based into rig
     // space every frame so the elbows do not swing when the gun moves.
     this.shoulderR = new THREE.Vector3(0.205, -0.2, 0.06);
@@ -442,6 +473,8 @@ export class Viewmodel {
     if (parts.slide && n.slideRest) applyNode(parts.slide, n.slideRest);
     if (parts.trigger && n.triggerPivot) applyNode(parts.trigger, n.triggerPivot);
     if (parts.selector && n.selectorPivot) applyNode(parts.selector, n.selectorPivot);
+    if (parts.pump && n.pumpRest) applyNode(parts.pump, n.pumpRest);
+    const handgun = def.class === 'pistol';
 
     const entry = {
       id: model.id,
@@ -471,7 +504,12 @@ export class Viewmodel {
       triggerPull: model.nodes.triggerPull ?? -0.3,
       magLen: model.magSize?.len ?? 0.2,
       shell: model.shell,
-      lhandPose: model.id === 'pistol' ? 'cup' : 'clamp',
+      lhandPose: handgun ? 'cup' : 'clamp',
+      handgun,
+      pumpTravel: new THREE.Vector3().fromArray(model.nodes.pumpTravel ?? [0, 0, 0]),
+      boltLift: model.nodes.boltLift ?? 0,
+      magHidden: model.nodes.magHidden === true || def.reloadStyle === 'shell',
+      manual: def.action === 'pump' || def.action === 'bolt',
     };
     this._fitSupportHand(entry);
     this.weapons.set(model.id, entry);
@@ -501,7 +539,7 @@ export class Viewmodel {
   _fitSupportHand(w) {
     const hg = w.model.nodes.handguard;
     const gL = w.gripL;
-    if (!hg || !gL || w.id === 'pistol') return;
+    if (!hg || !gL || w.handgun) return;
     this._handPosL.fromArray(gL.pos);
     handBasis(this._handQuatL, gL.finger ?? [0.82, 0.5, -0.28], gL.back ?? [-0.5, 0.32, -0.8]);
     const poseName = `clamp:${w.id}`;
@@ -570,7 +608,7 @@ export class Viewmodel {
     this.magVisible = true;
     this.armR.setPose('grip');
     // The FITTED clamp for this weapon, not the authored one — see _fitSupportHand.
-    this.armL.setPose(w.lhandPose ?? (id === 'pistol' ? 'cup' : 'clamp'));
+    this.armL.setPose(w.lhandPose ?? (w.handgun ? 'cup' : 'clamp'));
     return w;
   }
 
@@ -586,6 +624,7 @@ export class Viewmodel {
     this.clip = clip;
     this.clipT = 0;
     this.clipPrevT = -1;
+    this.clipRate = 1;
     return clip.duration;
   }
 
@@ -645,7 +684,7 @@ export class Viewmodel {
       0.0018 * scale * ws,
       this.rng.signed() * 0.003 * scale * ws
     );
-    this.boltCycle = 1;
+    if (!w.manual) this.boltCycle = 1;
   }
 
   jump() {
@@ -706,7 +745,8 @@ export class Viewmodel {
 
     /* -------- blends --------------------------------------------------- */
     const adsRate = 1 / Math.max(0.05, def.adsTime);
-    const wantAds = this.clip && this.clip.name !== 'draw' ? 0 : s.ads ? 1 : 0;
+    const clipBlocksAds = this.clip && this.clip.name !== 'draw' && this.clip.name !== 'cycle';
+    const wantAds = clipBlocksAds || this._throw.lower > 0.02 ? 0 : s.ads ? 1 : 0;
     this.adsTarget = wantAds;
     // Linear rate with a smootherstep shaping: a spring here reads as mushy.
     this.adsT = clamp01(this.adsT + (wantAds ? adsRate : -adsRate * 1.25) * dt);
@@ -837,7 +877,7 @@ export class Viewmodel {
     /* -------- clip (reload / inspect / draw) -------------------------- */
     const res = this.clipResult;
     if (this.clip) {
-      this.clipT += dt;
+      this.clipT += dt * (this.clipRate ?? 1);
       const c = this.clip;
       const tt = clamp(this.clipT, 0, c.duration);
       c.sample(tt, res);
@@ -856,6 +896,17 @@ export class Viewmodel {
       }
     }
 
+    /* -------- grenade throw: the gun drops out of frame ----------------- */
+    const lw = smootherstep(0, 1, this._throw.lower);
+    if (lw > 1e-4) {
+      px += 0.05 * lw;
+      py -= 0.34 * lw;
+      pz += 0.15 * lw;
+      rx -= 0.95 * lw;
+      ry += 0.55 * lw;
+      rz += 0.6 * lw;
+    }
+
     /* -------- compose -------------------------------------------------- */
     this.rig.position.set(
       this._basePos.x + px,
@@ -872,10 +923,15 @@ export class Viewmodel {
       this.rig.quaternion.copy(this.rigOverride.quaternion);
     }
     this.rig.updateMatrix();
-    this.rig.updateMatrixWorld(true);
+    // From the anchor down: the muzzle / eject queries must not depend on the
+    // renderer having refreshed the anchor's world matrix this frame.
+    this.anchor.updateMatrixWorld(true);
+    // Fully scoped: the scope overlay replaces the viewmodel.
+    this.rig.visible = !this.scopeHide;
 
     /* -------- hands (first: the magazine can be held by one) ---------- */
     this._solveHands(w, res);
+    this._updateThrow(dt);
 
     /* -------- moving parts -------------------------------------------- */
     this._updateParts(w, dt, s, res);
@@ -906,8 +962,19 @@ export class Viewmodel {
     // 1 -> 0 over the cycle: out fast, back with a small bounce.
     const stroke = cyc > 0.55 ? (1 - cyc) / 0.45 : cyc / 0.55;
     const clipBolt = res.active ? res.parts.bolt : 0;
-    const boltOff = Math.max(stroke, this.boltHold, clipBolt * this.boltHold);
+    let boltOff = Math.max(stroke, this.boltHold, clipBolt * this.boltHold);
 
+    if (w.manual && res.active && this.clip?.name === 'cycle') {
+      boltOff = res.parts.bolt;
+    }
+    if (p.pump) {
+      const k = res.active ? res.parts.pump : 0;
+      const r0 = w.model.nodes.pumpRest.pos;
+      p.pump.position.set(r0[0] + w.pumpTravel.x * k, r0[1] + w.pumpTravel.y * k, r0[2] + w.pumpTravel.z * k);
+    }
+    if (p.bolt && w.boltLift) {
+      p.bolt.rotation.z = res.active && this.clip?.name === 'cycle' ? w.boltLift * res.parts.lift : 0;
+    }
     if (p.bolt) {
       p.bolt.position.set(
         w.model.nodes.boltRest.pos[0] + w.boltTravel.x * boltOff,
@@ -942,6 +1009,7 @@ export class Viewmodel {
     if (p.magazine) {
       const inHand = res.active ? res.parts.mag : 0;
       this.magVisible = res.active ? res.parts.magVisible : true;
+      if (w.magHidden) this.magVisible = res.active && res.parts.mag > 0.05 && res.parts.magVisible;
       p.magazine.visible = this.magVisible;
       if (inHand > 1e-4) {
         // Follow the support hand: the magazine is gripped by its spine.
@@ -987,7 +1055,7 @@ export class Viewmodel {
     let pos = gL.pos;
     let finger = gL.finger ?? [0.82, 0.5, -0.28];
     let back = gL.back ?? [-0.5, 0.32, -0.8];
-    let pose = w.lhandPose ?? (w.id === 'pistol' ? 'cup' : 'clamp');
+    let pose = w.lhandPose ?? (w.handgun ? 'cup' : 'clamp');
     if (res.active && res.lhand.weight > 0.5) {
       pos = res.lhand.pos;
       finger = res.lhand.finger;
@@ -1110,6 +1178,134 @@ export class Viewmodel {
   }
 
   /* ====================================================================== */
+  /*  grenade throw                                                         */
+  /* ====================================================================== */
+
+  /** Register the in-hand copy of a throwable (built by equipment.js). */
+  addThrowItem(kind, group) {
+    group.visible = false;
+    // Seated in the palm: 70 mm down the metacarpals from the wrist target and
+    // 34 mm to the palm side (the hand's -Y; +Y is the back of the hand).
+    group.position.set(0.004, -0.036, -0.07);
+    group.rotation.set(0.35, 0, -0.2);
+    group.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = false;
+        o.receiveShadow = true;
+        o.frustumCulled = false;
+      }
+    });
+    this.throwArm.hand.add(group);
+    this.throwItems.set(kind, group);
+  }
+
+  /**
+   * Drive the throw layer. Called every frame by equipment.js.
+   * @param {'idle'|'wait'|'prime'|'hold'|'throw'|'recover'} phase
+   * @param {number} t     0..1 through prime/throw/recover; seconds in hold
+   * @param {string} kind  'frag' | 'flash'
+   * @param {number} shake 0..1 hand tremble (a cook running out)
+   * @param {boolean} released the grenade has left the hand
+   */
+  setThrow(phase, t, kind, shake = 0, released = false) {
+    const T = this._throw;
+    if (phase !== T.prevPhase) {
+      // Every phase starts from wherever the hand actually is, so a short hold
+      // or an interrupted phase never snaps.
+      const c = T.cur;
+      for (let k = 0; k < 3; k++) {
+        T.from.p[k] = c.p[k];
+        T.from.f[k] = c.f[k];
+        T.from.b[k] = c.b[k];
+      }
+      T.prevPhase = phase;
+    }
+    T.phase = phase;
+    T.t = t;
+    if (kind) T.kind = kind;
+    T.shake = shake;
+    T.released = released;
+  }
+
+  _updateThrow(dt) {
+    const T = this._throw;
+    const arm = this.throwArm;
+    // Gun lowering: down over 0.18 s when a throw starts, up during recover.
+    const want = T.phase === 'idle' ? 0 : T.phase === 'recover' ? Math.max(0, 1 - T.t * 1.6) : T.phase === 'wait' ? 0.25 : 1;
+    const rate = T.phase === 'recover' ? 30 : 5.6;
+    T.lower = want > T.lower ? Math.min(want, T.lower + dt * rate) : Math.max(want, T.lower - dt * 4.2);
+    if (T.phase === 'recover') T.lower = Math.min(T.lower, want);
+
+    const visible = T.phase === 'prime' || T.phase === 'hold' || T.phase === 'throw' || (T.phase === 'recover' && T.t < 0.6);
+    arm.root.visible = visible;
+    // The rig's own right arm goes down with the gun; hide it once it is out of
+    // frame so the throwing arm is the only right arm ever on screen.
+    this.armR.root.visible = T.lower < 0.6;
+    this.armL.root.visible = T.lower < 0.8;
+    for (const [k, g] of this.throwItems) {
+      g.visible = visible && k === T.kind && !T.released && !(T.phase === 'prime' && T.t < 0.12);
+    }
+    if (!visible) {
+      const h = THROW_POSES.hidden;
+      for (let k = 0; k < 3; k++) {
+        T.cur.p[k] = h.p[k];
+        T.cur.f[k] = h.f[k];
+        T.cur.b[k] = h.b[k];
+      }
+      return;
+    }
+
+    const c = T.cur;
+    const P = THROW_POSES;
+    switch (T.phase) {
+      case 'prime': {
+        // Up from below the frame, then a short tug as the pin comes out.
+        const t = clamp01(T.t);
+        if (t < 0.72) blendPose(c, T.from, P.ready, smootherstep(0, 1, t / 0.72));
+        else if (t < 0.86) blendPose(c, P.ready, P.tug, smootherstep(0, 1, (t - 0.72) / 0.14));
+        else blendPose(c, P.tug, P.ready, smootherstep(0, 1, (t - 0.86) / 0.14));
+        arm.setPose('wrap');
+        break;
+      }
+      case 'hold': {
+        // Drawn back toward the ear over a quarter second, trembling as the fuse
+        // runs down.
+        blendPose(c, T.from, P.cock, smootherstep(0, 1, Math.min(1, T.t / 0.25)));
+        const n = this.noiseT * 23.0;
+        const amp = 0.0025 + 0.006 * T.shake;
+        c.p[0] += Math.sin(n) * amp;
+        c.p[1] += Math.sin(n * 1.37 + 1.3) * amp;
+        c.p[2] += Math.sin(n * 0.71 + 2.1) * amp * 0.6;
+        arm.setPose('wrap');
+        break;
+      }
+      case 'throw': {
+        const t = clamp01(T.t);
+        if (t < 0.26) blendPose(c, T.from, P.cock, smootherstep(0, 1, t / 0.26));
+        else if (t < 0.52) blendPose(c, P.cock, P.release, easeInQuad((t - 0.26) / 0.26));
+        else blendPose(c, P.release, P.follow, smootherstep(0, 1, (t - 0.52) / 0.48));
+        arm.setPose(t < 0.48 ? 'wrap' : 'open');
+        break;
+      }
+      case 'recover': {
+        blendPose(c, T.from, P.hidden, smootherstep(0, 1, clamp01(T.t / 0.6)));
+        arm.setPose('open');
+        break;
+      }
+      default:
+        break;
+    }
+    this._throwPos.set(c.p[0], c.p[1], c.p[2]);
+    handBasis(this._throwQuat, c.f, c.b);
+    arm.solve(this._throwPos, this._throwQuat);
+  }
+
+  /** 0..1 how far the gun is lowered for a throw (index.js blocks fire/ADS on it). */
+  get throwLower() {
+    return this._throw.lower;
+  }
+
+  /* ====================================================================== */
   /*  world-space queries for firing                                        */
   /* ====================================================================== */
 
@@ -1153,6 +1349,7 @@ export class Viewmodel {
     this.weapons.clear();
     this.armL.dispose();
     this.armR.dispose();
+    this.throwArm.dispose();
     for (const g of this._reticleGeo) g.dispose();
     this.anchor.removeFromParent();
   }
@@ -1161,4 +1358,36 @@ export class Viewmodel {
 function applyNode(obj, node) {
   obj.position.fromArray(node.pos);
   if (node.rot) obj.rotation.fromArray(node.rot);
+}
+
+/**
+ * Throwing-hand key poses, CAMERA space (+X right, +Y up, -Z forward). `p` is the
+ * wrist target, `f`/`b` the finger and back-of-hand directions (see handBasis).
+ *   hidden   below and right of the frame
+ *   ready    grenade low in the right of the frame, pin side toward the camera
+ *   tug      the pin coming out (a 15 mm dip toward the chest)
+ *   cock     drawn back beside the ear, palm forward
+ *   release  arm through, hand forward of the eye, fingers opening
+ *   follow   follow-through down and across the body
+ */
+const THROW_POSES = {
+  hidden: { p: [0.25, -0.47, -0.14], f: [0.05, 0.95, -0.3], b: [0.95, 0.05, 0.3] },
+  ready: { p: [0.15, -0.135, -0.37], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
+  tug: { p: [0.145, -0.148, -0.358], f: [-0.3, 0.78, -0.55], b: [0.9, 0.3, 0.3] },
+  cock: { p: [0.175, -0.1, -0.33], f: [-0.2, 0.9, -0.1], b: [0.85, 0.2, -0.45] },
+  release: { p: [0.07, 0.02, -0.44], f: [-0.1, 0.3, -0.95], b: [0.25, 0.95, 0.15] },
+  follow: { p: [-0.02, -0.4, -0.36], f: [-0.2, -0.65, -0.73], b: [0.25, 0.7, -0.65] },
+};
+
+function blendPose(out, a, b, w) {
+  for (let k = 0; k < 3; k++) {
+    out.p[k] = a.p[k] + (b.p[k] - a.p[k]) * w;
+    out.f[k] = a.f[k] + (b.f[k] - a.f[k]) * w;
+    out.b[k] = a.b[k] + (b.b[k] - a.b[k]) * w;
+  }
+}
+
+function easeInQuad(t) {
+  const x = t < 0 ? 0 : t > 1 ? 1 : t;
+  return x * x;
 }

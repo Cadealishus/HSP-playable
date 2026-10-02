@@ -18,7 +18,13 @@ import {
  * real ones: 183 mm slide, 26 mm across, bore 36 mm over the web of the hand,
  * 18-degree grip rake, 22 mm of slide travel.
  */
-export function buildPistol() {
+/**
+ * `opts.auto` builds the WREN 9 machine pistol on the same frame: a 20-round
+ * extended magazine standing 60 mm proud of the grip, a two-port compensator
+ * on the muzzle and a selector on the slide.
+ */
+export function buildPistol(opts = {}) {
+  const auto = opts.auto === true;
   const bore = 0.036;
   const slideH = 0.0248;
   const slideW = 0.0262;
@@ -195,6 +201,24 @@ export function buildPistol() {
   body.add(spring, 'steel_bright', { y: bore - 0.0125, z: zSlideFront + 0.0025 });
   spring.dispose();
 
+  if (auto) {
+    // Two-port compensator clamped to the dust cover, and the auto selector.
+    const comp = box(slideW - 0.001, slideH + 0.004, 0.032, 0.0022, 2);
+    body.add(comp, 'steel_black', { y: bore - 0.002, z: zSlideFront - 0.016 });
+    comp.dispose();
+    for (const dz of [-0.008, -0.02]) {
+      const cut = box(0.012, 0.004, 0.006, 0.0008, 1);
+      body.add(cut, 'cavity', { y: bore + slideH * 0.5 + 0.0012, z: zSlideFront + dz });
+      cut.dispose();
+    }
+    const cb = tubeZ(0.0052, 0.0036, 0.034, 12, 0.0002);
+    body.add(cb, 'cavity', { y: bore, z: zSlideFront - 0.016 });
+    cb.dispose();
+    const sel = box(0.004, 0.009, 0.012, 0.001, 1);
+    body.add(sel, 'steel', { x: -slideW * 0.5 - 0.001, y: bore - 0.004, z: zSlideRear - 0.02 });
+    sel.dispose();
+  }
+
   /* ---- moving parts --------------------------------------------------- */
   const slideAsm = new Assembly('pistol-slide');
   const slide = buildSlide(slideAsm, {
@@ -221,7 +245,7 @@ export function buildPistol() {
   const mag = buildMagazine(magazine, null, {
     w: 0.0212,
     d: 0.0295,
-    len: 0.108,
+    len: auto ? 0.168 : 0.108,
     curve: 0.004,
     segs: 5,
     witness: 3,
@@ -250,13 +274,13 @@ export function buildPistol() {
   blade.dispose();
 
   return {
-    id: 'pistol',
-    label: 'P19 SIDEARM',
+    id: auto ? 'mpistol' : 'pistol',
+    label: auto ? 'WREN 9' : 'P19 SIDEARM',
     fxClass: 'pistol',
     body,
     moving: { magazine, trigger, slide: slideAsm },
     nodes: {
-      muzzle: [0, bore, zSlideFront - 0.004],
+      muzzle: [0, bore, zSlideFront - (auto ? 0.034 : 0.004)],
       chamber: [0, bore, zSlideRear - 0.05],
       eject: [slideW * 0.5 + 0.004, bore + 0.005, zSlideRear - 0.05],
       ejectDir: [0.82, 0.52, 0.24],
