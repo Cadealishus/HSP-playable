@@ -17,7 +17,25 @@
  *   squad.js      peek rotation, contact sharing, flank and grenade rationing
  *
  * PUBLIC API — `const ai = ctx.get('ai')`
- *   ai.spawn(variant, position, yaw, opts) -> Agent
+ *   ai.spawn(variant|null, position, yaw, opts) -> Agent
+ *        opts { team: 'hostile'|'esf', role: rifleman|smg|shotgun|lmg|sniper|
+ *               rocket|commander, weapon: defs.js id, skill 0..1, name,
+ *               patrol: Vector3[], holding: Civilian }
+ *   ai.spawnCivilian(position, yaw, { behavior: 'cower'|'flee'|'hostage'|
+ *               'follow', to, target, captor, look, name }) -> Civilian
+ *   ai.setOrderProvider(fn(agent) -> order|null, owner?)   EXPANSION.md §3
+ *        order { kind: hunt|capture|defend|attack|plant|defuse|escort|hold|
+ *                patrol, pos?, radius?, targetId? }
+ *   ai.actors                              live combatants + the player proxy
+ *   ai.civilians                           civilians (never in `agents`)
+ *   ai.getActor(id)                        agent / civilian by id or name,
+ *                                          0 | 'player' for Doug
+ *   ai.despawnAll() / ai.reapCorpses(n) / ai.killAll()
+ *   agent.stun(intensity, duration)        flash / concussion
+ *   agent.team .role .alive .position .brain.state .perception
+ *   events: actor:death { actor, team, killer, killerTeam, killerName,
+ *           killerIsPlayer, headshot, ... }, civilian:hit { civ, killer,
+ *           killerTeam, amount, killed }, civilian:released { civ }
  *   ai.agents                              live Agent list
  *   ai.debugStage('firefight')             staged combat tableau for captures
  *   ai.debugStage('closeup' | 'flop')      one man at 4 m / a blast mid-launch
@@ -44,13 +62,47 @@
 
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
-import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS } from './soldier.js';
+import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
+import { PlayerProxy, normTeam } from './teams.js';
+import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
+import { IffTags } from './iff.js';
+import { Comms } from './comms.js';
+import { Projectiles } from './projectiles.js';
+import { Civilian } from './civilian.js';
+import { AiDebug } from './debug.js';
+import { buildCivilian, isCivLook, CIV_IDS } from './civbody.js';
+
+const EMPTY = Object.freeze([]);
+
+/**
+ * Ray (unit `d`) against a capsule: closest approach of the ray to the
+ * capsule's segment, then back off to the surface. Returns t, or -1.
+ */
+function rayCapsule(o, d, ax, ay, az, bx, by, bz, r, maxT) {
+  const ux = bx - ax, uy = by - ay, uz = bz - az;
+  const wx = o.x - ax, wy = o.y - ay, wz = o.z - az;
+  const b = d.x * ux + d.y * uy + d.z * uz;
+  const c = ux * ux + uy * uy + uz * uz;
+  const dd = d.x * wx + d.y * wy + d.z * wz;
+  const e = ux * wx + uy * wy + uz * wz;
+  const den = c - b * b;
+  let t = den > 1e-9 ? (e - b * dd) / den : 0;
+  t = c > 1e-9 ? Math.max(0, Math.min(1, t)) : 0;
+  const qx = ax + ux * t, qy = ay + uy * t, qz = az + uz * t;
+  const s = (qx - o.x) * d.x + (qy - o.y) * d.y + (qz - o.z) * d.z;
+  if (s < 0 || s > maxT + r) return -1;
+  const px = o.x + d.x * s - qx, py = o.y + d.y * s - qy, pz = o.z + d.z * s - qz;
+  const m2 = px * px + py * py + pz * pz;
+  if (m2 > r * r) return -1;
+  const hit = s - Math.sqrt(r * r - m2);
+  return hit < 0 ? 0 : hit;
+}
 import { RIG } from './rig.js';
 import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
-import { RadioNet, FACTION, callsign } from './radio.js';
+import { RadioNet, FACTION, callsign, ESF_CALLSIGNS } from './radio.js';
 
 /**
  * Enemy names live in radio.js: FACTION (the opposing force's name for the UI),
@@ -85,9 +137,13 @@ export class AiSystem {
     });
     // Contact occlusion under every actor. Without it the cast shadow alone
     // leaves them hovering: see grounding.js.
-    this.ground = new GroundShadows(this.root, 16);
+    this.ground = new GroundShadows(this.root, 32);
     this._variants = new Map();
     this.agents = [];
+    /** every live combatant, bots plus the player proxy (EXPANSION.md §2) */
+    this.actors = [];
+    /** the player seen as an actor (teams.js) */
+    this.player = new PlayerProxy();
     this.squads = [];
     this.grid = null;
     this.cover = null;
@@ -97,6 +153,30 @@ export class AiSystem {
     this.forcePopulate = false;
     /** running index into CALLSIGNS for the killfeed display name */
     this._callsignSeq = 0;
+    this._esfSeq = 0;
+    this._civSeq = 0;
+    this._roleSeq = 0;
+    /** the heavy's rockets and the marksman's glint (projectiles.js) */
+    this.projectiles = new Projectiles(this);
+    /** team callouts: range-limited and delayed (comms.js) */
+    this.comms = new Comms(this);
+    /** EXPANSION.md §3: fn(agent) -> order | null */
+    this.orderProvider = null;
+    this.orderOwner = null;
+    /** LOS rays per frame for every bot's perception together */
+    this.rayBudget = 96;
+    this._rays = this.rayBudget;
+    /** live grenades bots may need to run from */
+    this._threats = [];
+    /** F3 / ?aidebug=1 / FLOP.aiDebug(true): see debug.js */
+    this.debug = new AiDebug(this);
+    try {
+      if (new URLSearchParams(location.search).get('aidebug') === '1') this.debug.setEnabled(true);
+    } catch {
+      /* no location (headless) */
+    }
+    /** IFF chevrons over friendly bots */
+    this.iff = new IffTags(this.root);
     /** The opposing force, for UI copy: `{ name, short }`. */
     this.faction = FACTION;
     /** Enemy radio net: emits `ai:radio { enemy, kind, text }` for subtitles. */
@@ -105,7 +185,7 @@ export class AiSystem {
      *  blow the frame budget. The game self-limits waves well under this. */
     this.maxAlive = 20;
     this._navPending = true;
-    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0 };
+    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0, rays: 0, raysDenied: 0, unstick1: 0, unstick2: 0, unstick3: 0 };
 
     /* scratch */
     this._v = new THREE.Vector3();
@@ -132,6 +212,16 @@ export class AiSystem {
     /** scratch blast descriptor handed to Agent.applyDamage by explosions */
     this._blast = { position: null, radius: 6, strength: 1 };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
+    this._pelletDir = new THREE.Vector3();
+    this._hitFrom = new THREE.Vector3();
+    this._actorHit = { actor: null, t: 0, part: 'torso', scale: 1 };
+    this._civLists = [null, null];
+    /** non-combatants (civilian.js); never in `agents`, never targeted */
+    this.civilians = [];
+    this._fleshEvent = {
+      point: new THREE.Vector3(), normal: new THREE.Vector3(), incident: new THREE.Vector3(),
+      surface: 'flesh', surfaceIndex: 9, damage: 0, exit: false, actor: null, part: null, ai: true,
+    };
     this._grenades = [];
     this._grenadeGeo = null;
     this._grenadeMat = null;
@@ -325,21 +415,25 @@ export class AiSystem {
     const on = (t, fn) => this._off.push(ctx.events.on(t, fn));
 
     on('weapon:fire', (e) => {
-      if (!e || !e.origin || e.weapon === 'ai_rifle') return; // ignore our own
-      // A gunshot is the loudest thing in the level: everybody hears it, and
-      // anyone near the line of fire also feels suppressed by it.
-      for (const a of this.agents) {
-        if (!a.alive) continue;
-        a.hear(e.origin, 90);
-        if (e.dir) {
-          const d = this._distanceToRay(a.position, e.origin, e.dir, a.eyeHeight);
-          if (d < 2.6) a.suppress(0.45 * (1 - d / 2.6) + 0.12);
-        }
-      }
+      if (!e || !e.origin || e.ai === true) return; // ours are heard in onAgentFire
+      // The player's shot. Loudness scales with the weapon's `noise` (defs.js):
+      // a suppressed gun carries a fraction of the 90 m an open rifle does.
+      // weapons puts the def's hearing radius (metres) and suppression
+      // multiplier on the event: a suppressed carbine carries ~22 m, a rifle 90
+      const w = e.weapon;
+      const radius = e.noise ?? (typeof w === 'object' && w ? w.noise : null) ?? 90;
+      const supp = e.suppression ?? (typeof w === 'object' && w ? w.suppression : null) ?? 1;
+      this.onShot(this.player, e.origin, e.dir, radius, supp);
     });
 
     on('bullet:impact', (e) => {
       if (!e || !e.point) return;
+      // physics' damage:dealt carries no direction: remember the round's line
+      // from its entry impact, which physics emits immediately before it
+      if (e.actor instanceof Agent && !e.exit && e.incident) {
+        e.actor._impDir.copy(e.incident);
+        e.actor._impFrame = this.ctx.time.frame;
+      }
       for (const a of this.agents) {
         if (!a.alive) continue;
         const d = a.position.distanceTo(e.point);
@@ -352,37 +446,121 @@ export class AiSystem {
       if (!e || !e.target || !(e.target instanceof Agent)) return;
       const a = e.target;
       if (!a.alive) return;
-      const amount = e.amount * this._falloff(e.point);
-      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, e.incident);
+      // physics names no shooter: an unattributed round on a bot is Doug's
+      const src = e.source instanceof Agent ? e.source : this.player;
+      // friendly fire is off (ESF hitboxes are off MASK.BULLET anyway)
+      if (src !== a && src.team === a.team && a.team !== 'civ') { e.amount = 0; return; }
+      let amount = e.amount * (src === this.player ? this._falloff(e.point) : 1);
+      // ONE ROUND, ONE WOUND. A penetrating round that passes through two of
+      // this man's capsules (arm then chest, chest then the lower torso)
+      // arrives as two damage:dealt on the same frame along the same line;
+      // summing them is what let a 56-damage marksman round one-shot a chest.
+      // The round counts once, at its worst hit.
+      const frame = this.ctx.time.frame;
+      const inc = e.incident ?? (a._impFrame === frame ? a._impDir : null);
+      // a human shield works: a round that went through the hostage first
+      // stops in him, it does not carry on into the man holding him
+      const h = a.holding;
+      if (h && inc && h._dmgFrame === frame && h._dmgDir.dot(inc) > 0.999) { e.amount = 0; return; }
+      if (a._dmgFrame === frame && inc && a._dmgDir.dot(inc) > 0.999) {
+        const extra = amount - a._dmgMax;
+        if (extra <= 0) { e.amount = 0; return; }
+        a._dmgMax = amount;
+        amount = extra;
+      } else {
+        a._dmgFrame = frame;
+        a._dmgMax = amount;
+        if (inc) a._dmgDir.copy(inc);
+      }
+      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src);
       if (!a.alive) e.killed = true;
     });
 
     on('explosion', (e) => {
       if (!e || !e.position) return;
       const radius = e.radius ?? 5;
-      for (const a of this.agents) {
-        if (!a.alive) continue;
-        const d = a.position.distanceTo(e.position) + 0.001;
-        a.hear(e.position, 120);
-        if (d > radius) continue;
-        if (this.phys && !this.phys.lineOfSight(e.position, a.eye, this.phys.MASK.EXPLOSION)) continue;
-        const f = 1 - d / radius;
-        this._v.copy(a.position).sub(e.position).normalize();
-        a.suppress(1.4 * f);
-        // `blast` rides along so a kill launches the doll from the charge
-        // (physics has already shoved everything that was dead before it)
-        this._blast.position = e.position;
-        this._blast.radius = radius;
-        this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
-        a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast);
+      const owner = this._resolveOwner(e.owner ?? e.source);
+      const ownerTeam = owner?.team ?? e.team ?? null;
+      const phys = this.phys;
+      const lists = [this.agents, this.civilians];
+      for (const list of lists) {
+        for (const a of list) {
+          if (!a.alive) continue;
+          const d = a.position.distanceTo(e.position) + 0.001;
+          a.hear(e.position, 120);
+          if (d > radius) continue;
+          // friendly fire off: the owner's teammates are spared (the owner is not)
+          if (ownerTeam && a !== owner && a.team === ownerTeam && a.team !== 'civ') continue;
+          // cover: the blast has to reach the torso or the head, not just the eye
+          if (phys) {
+            const torso = this._v2.set(a.position.x, a.position.y + 1.1, a.position.z);
+            if (!phys.lineOfSight(e.position, torso, phys.MASK.EXPLOSION) &&
+              !phys.lineOfSight(e.position, a.eye, phys.MASK.EXPLOSION)) continue;
+          }
+          const f = 1 - d / radius;
+          this._v.copy(a.position).sub(e.position).normalize();
+          a.suppress(1.4 * f);
+          // `blast` rides along so a kill launches the doll from the charge
+          this._blast.position = e.position;
+          this._blast.radius = radius;
+          this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
+          a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast, owner);
+        }
       }
     });
 
     on('player:footstep', (e) => {
       if (!e || !e.position) return;
-      const loud = e.running ? 24 : 11;
-      for (const a of this.agents) if (a.alive) a.hear(e.position, loud);
+      const crouched = e.stance === 'crouch' || e.stance === 'prone';
+      const loud = crouched ? 3 : e.running ? 22 : 9;
+      const now = this.ctx.time.elapsed;
+      for (const a of this.agents) {
+        if (!a.alive || a.team !== 'hostile') continue;
+        const d = a.position.distanceTo(e.position);
+        if (d < loud) a.perception.hearFrom(this.player, e.position, (1 - d / loud) * 0.8, 'footstep', now);
+      }
     });
+
+    on('grenade:throw', (e) => this._onGrenadeThrow(e));
+    on('flash:detonate', (e) => this._onFlash(e));
+  }
+
+  /** An explosion/damage owner as an actor: an Agent, the player proxy, or null. */
+  _resolveOwner(o) {
+    if (!o) return null;
+    if (o instanceof Agent) return o;
+    if (o === 'player' || o.isPlayer === true || o === this.ctx.peek('player')) return this.player;
+    return null;
+  }
+
+  /**
+   * A gunshot from `shooter` (an Agent or the player proxy) at `origin`,
+   * audible out to `radius` metres. Enemies of the shooter hear a threat;
+   * anyone near the line of fire is suppressed.
+   */
+  onShot(shooter, origin, dir, radius, suppression = 1) {
+    const now = this.ctx.time.elapsed;
+    for (const c of this.civilians) {
+      if (!c.alive) continue;
+      c.hear(origin, radius * 0.6);
+      if (dir && this._distanceToRay(c.position, origin, dir, c.eyeHeight) < 2.6) c.suppress(0.4);
+    }
+    for (const a of this.agents) {
+      if (!a.alive || a === shooter) continue;
+      const d = a.position.distanceTo(origin);
+      if (d > radius) continue;
+      const strength = 1 - d / radius;
+      if (shooter && a.team === shooter.team) {
+        // a friend's gunfire: there is a fight over there
+        if (d < radius * 0.6) a.perception.hearFrom(null, origin, strength * 0.6, 'friendfire', now);
+        continue;
+      }
+      a.perception.hearFrom(shooter, origin, strength, 'gunshot', now);
+      if (dir) {
+        const r = this._distanceToRay(a.position, origin, dir, a.eyeHeight);
+        if (r < 2.6) a.suppress((0.45 * (1 - r / 2.6) + 0.12) * suppression);
+      }
+    }
   }
 
   _falloff(point) {
@@ -406,12 +584,25 @@ export class AiSystem {
   /* assets                                                             */
   /* ================================================================== */
 
-  variant(name) {
-    let v = this._variants.get(name);
+  variant(name, opts = {}) {
+    if (isCivLook(name)) {
+      let c = this._variants.get(name);
+      if (!c) {
+        c = buildCivilian(name, { rng: this.rng.fork(), materials: this.materials });
+        this._variants.set(name, c);
+        const r = this.ctx.peek('render');
+        if (r?.patcher) for (const m of c.materials) r.patcher.patch(m);
+      }
+      return c;
+    }
+    name = variantForTeam(name, opts.team);
+    const style = opts.weapon ?? null;
+    const key = style && style !== VARIANTS[name]?.weapon ? `${name}|${style}` : name;
+    let v = this._variants.get(key);
     if (!v) {
       const t0 = performance.now();
-      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials });
-      this._variants.set(name, v);
+      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials, weapon: style });
+      this._variants.set(key, v);
       // Hand the new materials to render immediately rather than waiting for its
       // scene walk: they are all MeshStandardMaterial, so the patcher injects the
       // CSM sun shadow, the screen-space contact shadow, GTAO and the bounce fill
@@ -460,7 +651,8 @@ export class AiSystem {
     this.stats.walkable = this.grid.walkableCount;
     this._navPending = false;
     console.info(
-      `[ai] nav ${this.grid.nx}x${this.grid.nz} cells · ${this.grid.walkableCount} walkable · ` +
+      `[ai] nav ${this.grid.nx}x${this.grid.nz} cells · ${this.grid.walkableCount} walkable ` +
+        `(${this.grid.upperCount} on lower storeys) · ` +
         `${this.cover.points.length} cover points · ${this.stats.navMs.toFixed(0)}ms`
     );
   }
@@ -504,11 +696,61 @@ export class AiSystem {
   /* spawning                                                           */
   /* ================================================================== */
 
+  /**
+   * Spawn a combatant.
+   * @param variantName  body: 'vanguard' | 'irregular' | 'breacher' (null: the
+   *                     role picks); ESF bots get the same body in ESF kit
+   * @param opts  { team: 'hostile'|'esf', role, weapon (def id), skill 0..1,
+   *                name, patrol: Vector3[], squad, holding: Civilian }
+   */
   spawn(variantName, position, yaw = 0, opts = {}) {
-    const a = new Agent(this, { variant: variantName, position, yaw, ...opts });
-    if (!a.name) a.name = this.nextCallsign();
+    const team = normTeam(opts.team ?? 'hostile');
+    const role = roleFor(opts.role);
+    let variant = variantName;
+    if (!variant || !VARIANTS[String(variant).replace(/^esf_/, '')]) {
+      const list = role.variant ?? ['vanguard'];
+      variant = list[this._roleSeq++ % list.length];
+    }
+    variant = String(variant).replace(/^esf_/, '');
+    const model = opts.model ?? (opts.role ? modelFor(role, variant) : null);
+    const a = new Agent(this, { ...opts, variant, position, yaw, team, model });
+    if (!a.name) a.name = team === 'esf' ? callsign(this._esfSeq++, ESF_CALLSIGNS) : this.nextCallsign();
+    if (opts.skill !== undefined) a.setDifficulty(opts.skill);
+    if (team === 'esf') this.iff.attach(a);
     this.agents.push(a);
+    if (opts.holding) this.takeHostage(a, opts.holding);
     return a;
+  }
+
+  /**
+   * A civilian (EXPANSION.md §7) on team 'civ'.
+   * @param opts { behavior: 'cower'|'flee'|'hostage'|'follow', to: Vector3,
+   *               target: actor|id|'player', captor: Agent, look: 'civ_a'..,
+   *               name }
+   */
+  spawnCivilian(position, yaw = 0, opts = {}) {
+    const look = isCivLook(opts.look) ? opts.look : CIV_IDS[this._civSeq++ % CIV_IDS.length];
+    const c = new Civilian(this, { ...opts, variant: look, position, yaw });
+    c.name = opts.name ?? 'CIVILIAN';
+    this.civilians.push(c);
+    if (opts.captor) this.takeHostage(opts.captor, c);
+    return c;
+  }
+
+  /** `captor` holds `civ` as a human shield (see Agent._holdHostage). */
+  takeHostage(captor, civ) {
+    if (!captor || !civ) return;
+    captor.holding = civ;
+    civ.captor = captor;
+    civ.behavior = 'hostage';
+    civ.released = false;
+  }
+
+  /** Called by Agent.die(): drop the IFF tag, free any claims. */
+  onAgentDeath(a) {
+    this.iff.detach(a);
+    // a dead hostage-taker lets go
+    if (a.holding) a.holding.release?.();
   }
 
   /**
@@ -565,9 +807,9 @@ export class AiSystem {
         const ci = this.grid.nearest(p.x, p.z, anchor.position.y, 6, 1.4);
         if (ci >= 0) {
           p.set(
-            this.grid.worldX(ci % this.grid.nx),
+            this.grid.nodeX(ci),
             this.grid.floor[ci],
-            this.grid.worldZ((ci / this.grid.nx) | 0)
+            this.grid.nodeZ(ci)
           );
         } else {
           p.y = this.groundAt(p.x, p.z, anchor.position.y + 4);
@@ -672,6 +914,37 @@ export class AiSystem {
     return n;
   }
 
+  /** Public form of _reapCorpses (modes call it on respawn). */
+  reapCorpses(keep = 14) {
+    this._reapCorpses(keep);
+  }
+
+  /**
+   * Remove every bot and civilian WITHOUT a death (no actor:death, no
+   * ragdoll): for mode/mission resets. Returns how many were removed.
+   */
+  despawnAll() {
+    let n = 0;
+    for (const list of [this.agents, this.civilians]) {
+      for (const a of list) {
+        if (a.alive) n++;
+        this.iff.detach(a);
+        this.cover?.release(a.id);
+        a.alive = false;
+        a.dispose();
+      }
+      list.length = 0;
+    }
+    for (const s of this.squads) {
+      s.members.length = 0;
+      s.flankers.length = 0;
+      s.leader = null;
+    }
+    this.squads.length = 0;
+    this.actors.length = 0;
+    return n;
+  }
+
   /** Patrol route for a squad: its anchor plus the two nearest other points. */
   _patrolRoute(anchor, ranked) {
     const route = [anchor.position.clone()];
@@ -696,9 +969,9 @@ export class AiSystem {
     const ci = this.grid.nearest(p.x, p.z, anchor.position.y, 6, 1.4);
     if (ci >= 0) {
       p.set(
-        this.grid.worldX(ci % this.grid.nx),
+        this.grid.nodeX(ci),
         this.grid.floor[ci],
-        this.grid.worldZ((ci / this.grid.nx) | 0)
+        this.grid.nodeZ(ci)
       );
     } else {
       p.y = this.groundAt(p.x, p.z, anchor.position.y + 4);
@@ -765,17 +1038,29 @@ export class AiSystem {
 
   onAgentFire(agent, origin, dir) {
     const ctx = this.ctx;
-    const phys = this.phys;
+    const W = agent.weapon;
 
-    // muzzle flash, light and smoke come from fx via the canonical event
+    // muzzle flash, light and smoke come from fx via the canonical event; the
+    // `weapon` name picks the audio profile (ai_smg -> smg, ai_lmg -> lmg ...)
     const fe = this._fireEvent;
+    fe.weapon = W?.suppressed ? { id: W.audio, audio: W.audio, suppressed: true } : W?.audio ?? 'ai_rifle';
+    fe.ai = true;
+    fe.actor = agent;
     fe.origin.copy(origin);
     fe.dir.copy(dir);
-    fe.intensity = this._flashGain();
+    fe.intensity = this._flashGain() * (W?.suppressed ? 0.25 : 1);
     fe.light = this._flashLight();
-    fe.flashScale = 0.8;
+    fe.flashScale = W?.cls === 'shotgun' || W?.cls === 'lmg' ? 1.0 : 0.8;
     fe.seed = (agent.id * 2654435761 + ctx.time.frame) >>> 0;
     ctx.events.emit('weapon:fire', fe);
+    fe.noise = W?.noise ?? 90;
+    fe.suppression = W?.suppression ?? 1;
+    this.onShot(agent, origin, dir, fe.noise, fe.suppression);
+
+    if (W?.projectile) {
+      this.launchProjectile?.(agent, origin, dir);
+      return;
+    }
 
     // ejected case
     const se = this._shellEvent;
@@ -783,57 +1068,174 @@ export class AiSystem {
     se.velocity.set(dir.z, 0.55, -dir.x).multiplyScalar(2.1).addScaledVector(dir, -0.6);
     ctx.events.emit('weapon:shell', se);
 
-    // the round itself
-    let end = null;
-    if (phys) {
-      const impacts = phys.fireBullet({
-        origin,
-        dir,
-        damage: agent.weaponDamage,
-        penetration: 0.9,
-        maxDist: 200,
-        mask: phys.MASK.BULLET,
-      });
-      if (impacts.length) end = impacts[0].point;
+    const pellets = Math.max(1, W?.pellets ?? 1);
+    const ps = W?.pelletSpread ?? 0;
+    const pd = this._pelletDir;
+    for (let i = 0; i < pellets; i++) {
+      pd.copy(dir);
+      if (pellets > 1) {
+        pd.x += agent.rng.gauss() * ps;
+        pd.y += agent.rng.gauss() * ps * 0.8;
+        pd.z += agent.rng.gauss() * ps;
+        pd.normalize();
+      }
+      this._fireOne(agent, origin, pd, i === 0);
     }
-    // physics has no player collider, so test the player capsule ourselves.
-    // Staged agents shoot for the camera, not for blood: a capture must not be
-    // graded through the player's low-health filter.
-    if (!agent.staged?.noDamage) this._testPlayerHit(agent, origin, dir, end);
-
-    this._tracerFrom.copy(origin);
-    if (end) this._tracerTo.copy(end);
-    else this._tracerTo.copy(origin).addScaledVector(dir, 120);
-    if ((agent.id + agent.ammo) % 3 === 0) ctx.events.emit('bullet:tracer', this._tracerEvent);
   }
 
-  _testPlayerHit(agent, origin, dir, end) {
-    const p = this.playerPosition(this._v);
-    if (!p) return;
-    const maxT = end ? origin.distanceTo(end) : 200;
-    const px = p.x - origin.x, py = p.y - origin.y, pz = p.z - origin.z;
-    const t = px * dir.x + py * dir.y + pz * dir.z;
-    if (t < 0.5 || t > maxT) return;
-    const miss = Math.hypot(px - dir.x * t, py - dir.y * t, pz - dir.z * t);
-    const player = this.ctx.peek('player');
-    if (miss > 0.42) {
-      if (miss < 1.6) player?.onNearMiss?.(miss); // whip-crack past the ear
-      return;
+  /**
+   * One round (or pellet) from a bot. Friendly fire is off, so a round only
+   * ever connects with the shooter's enemies (and civilians caught in it):
+   *   1. the world, traced without actor layers (walls stop the round),
+   *   2. enemy bots' hit capsules nearer than that wall (_traceActors),
+   *   3. the player's capsule, for hostile shooters (_playerHitT),
+   * and the nearest of the three takes it. Bot-on-bot hits are applied
+   * directly (never as `damage:dealt`, which the HUD reads as Doug's hit).
+   */
+  _fireOne(agent, origin, dir, primary) {
+    const phys = this.phys;
+    const W = agent.weapon;
+    const range = Math.min(W?.maxRange ?? 400, 400);
+    let wallT = range;
+    if (phys) {
+      const h = phys.raycast(origin, dir, range, this._worldBulletMask());
+      if (h.hit) wallT = h.distance;
     }
-    const amount = agent.weaponDamage * (miss < 0.16 ? 1.25 : 1);
-    this._v2.copy(origin);
-    // Damage is applied *only* through the event below. `player` listens for
-    // `damage:dealt` with itself as the target, so calling applyDamage() here as
-    // well wounded the player twice for every round that connected.
+    const hit = this._traceActors(agent, origin, dir, wallT);
+    const playerT =
+      agent.team === 'hostile' && !agent.staged?.noDamage ? this._playerHitT(origin, dir, wallT) : Infinity;
+    let endT = wallT;
+    if (hit.actor && hit.t < playerT) {
+      endT = hit.t;
+      const falloff = 1 - (1 - (W?.dropoff ?? 0.6)) * Math.min(1, hit.t / range) ** 2;
+      const amount = (W?.damage ?? 33) * BOT_DAMAGE_SCALE * hit.scale * falloff;
+      const pt = this._v3.copy(origin).addScaledVector(dir, hit.t);
+      const victim = hit.actor;
+      const part = hit.part;
+      this._emitFlesh(pt, dir, amount, victim, part);
+      victim.applyDamage(amount, part, pt, dir, null, agent);
+    } else if (playerT < Infinity) {
+      endT = playerT;
+      this._hitPlayer(agent, origin, dir, playerT);
+    } else if (phys) {
+      phys.fireBullet({
+        origin,
+        dir,
+        damage: W?.damage ?? 17,
+        penetration: W?.penetration ?? 0.9,
+        maxDist: range,
+        mask: this._worldBulletMask(),
+      });
+      // near miss on the player: the whip-crack past the ear
+      if (agent.team === 'hostile') this._nearMiss(origin, dir, wallT);
+    }
+    if (!primary) return;
+    this._tracerFrom.copy(origin);
+    this._tracerTo.copy(origin).addScaledVector(dir, Math.min(endT, 120));
+    const every = W?.tracerEvery ?? 3;
+    if ((agent.id + agent.ammo) % every === 0) this.ctx.events.emit('bullet:tracer', this._tracerEvent);
+  }
+
+  launchProjectile(agent, origin, dir) {
+    this.projectiles.launch(agent, origin, dir);
+  }
+
+  _worldBulletMask() {
+    const M = this.phys.MASK, L = this.phys.LAYER;
+    return M.BULLET & ~L.ACTOR;
+  }
+
+  /** Nearest enemy (or civilian) hit capsule along a ray, closer than maxT. */
+  _traceActors(shooter, o, d, maxT) {
+    const out = this._actorHit;
+    out.actor = null;
+    out.t = maxT;
+    const lists = this._civLists;
+    lists[0] = this.agents;
+    lists[1] = this.civilians ?? EMPTY;
+    for (let l = 0; l < 2; l++) {
+      const list = lists[l];
+      for (let i = 0; i < list.length; i++) {
+        const a = list[i];
+        if (!a.alive || a === shooter || a === shooter.holding) continue;
+        if (a.team === shooter.team) continue; // friendly fire off: passes through
+        // bounding sphere around the body before the seven capsules
+        const cx = a.position.x - o.x, cy = a.position.y + 0.9 - o.y, cz = a.position.z - o.z;
+        const tc = cx * d.x + cy * d.y + cz * d.z;
+        if (tc < -1.2 || tc - 1.2 > out.t) continue;
+        const mx = cx - d.x * tc, my = cy - d.y * tc, mz = cz - d.z * tc;
+        if (mx * mx + my * my + mz * mz > 1.44) continue;
+        for (let k = 0; k < a.colliders.length; k++) {
+          const c = a.colliders[k];
+          const t = rayCapsule(o, d, c.ax, c.ay, c.az, c.bx, c.by, c.bz, c.radius, out.t);
+          if (t < 0 || t >= out.t) continue;
+          out.t = t;
+          out.actor = a;
+          out.part = c.part;
+          out.scale = c.damageScale ?? 1;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Distance along the ray at which it passes through the player, or Infinity. */
+  _playerHitT(o, d, maxT) {
+    const pr = this.player;
+    if (!pr.alive) return Infinity;
+    const p = pr.samplePoint(0, this._v);
+    const px = p.x - o.x, py = p.y - o.y, pz = p.z - o.z;
+    const t = px * d.x + py * d.y + pz * d.z;
+    if (t < 0.5 || t > maxT) return Infinity;
+    const lx = px - d.x * t, ly = py - d.y * t, lz = pz - d.z * t;
+    const miss = Math.hypot(lx, ly * 0.45, lz);
+    if (miss > 0.42) return Infinity;
+    this._lastPlayerMiss = miss;
+    return t;
+  }
+
+  _nearMiss(o, d, maxT) {
+    const pr = this.player;
+    if (!pr.alive) return;
+    const p = pr.samplePoint(0, this._v);
+    const px = p.x - o.x, py = p.y - o.y, pz = p.z - o.z;
+    const t = px * d.x + py * d.y + pz * d.z;
+    if (t < 0.5 || t > maxT) return;
+    const miss = Math.hypot(px - d.x * t, py - d.y * t, pz - d.z * t);
+    if (miss < 1.6) this.ctx.peek('player')?.onNearMiss?.(miss);
+  }
+
+  _hitPlayer(agent, origin, dir, t) {
+    const player = this.ctx.peek('player');
+    const W = agent.weapon;
+    const p = this._v2.copy(origin).addScaledVector(dir, t);
+    const amount =
+      agent.weaponDamage * (this._lastPlayerMiss < 0.16 ? 1.25 : 1) * (W?.pellets > 1 ? 1 / Math.sqrt(W.pellets) : 1);
+    this._hitFrom.copy(origin);
+    // Damage is applied *only* through this event: `player` listens for
+    // `damage:dealt` with itself as the target, so applying it here as well
+    // would wound him twice for every round.
     this.ctx.events.emit('damage:dealt', {
       target: player ?? 'player',
       amount,
       headshot: false,
       killed: false,
       point: p,
-      from: this._v2,
+      from: this._hitFrom,
       source: agent,
     });
+  }
+
+  /** Blood and audio for a bot-on-bot hit, through the canonical impact event. */
+  _emitFlesh(point, dir, damage, actor, part) {
+    const e = this._fleshEvent;
+    e.point.copy(point);
+    e.normal.copy(dir).multiplyScalar(-1);
+    e.incident.copy(dir);
+    e.damage = damage;
+    e.actor = actor;
+    e.part = part;
+    this.ctx.events.emit('bullet:impact', e);
   }
 
   emitReload(agent) {
@@ -880,6 +1282,7 @@ export class AiSystem {
       surfaceType: 'metal',
     });
     this._grenades.push({ body, mesh, fuse: 2.35, agent });
+    this._trackThreat(from, 6.5, agent, 2.35, body);
     agent.animator.fire(0.35);
   }
 
@@ -894,11 +1297,332 @@ export class AiSystem {
         radius: 6.5,
         damage: 120,
         source: g.agent,
+        owner: g.agent,
+        kind: 'frag',
       });
       this.phys?.removeRigidBody(g.body);
       this.root.remove(g.mesh);
       this._grenades.splice(i, 1);
     }
+  }
+
+  /* ================================================================== */
+  /* orders and brain services                                          */
+  /* ================================================================== */
+
+  /**
+   * Modes direct bots through orders (EXPANSION.md §3): `fn(agent) -> order |
+   * null`, called at each bot's think rate (at most twice a second). An order is
+   * `{ kind, pos?, radius?, targetId? }`; the brain decides HOW. `owner` (the
+   * mode) is optional: its `interact(agent)` is what plant/defuse call.
+   */
+  setOrderProvider(fn, owner = null) {
+    this.orderProvider = typeof fn === 'function' ? fn : null;
+    this.orderOwner = owner;
+    for (const a of this.agents) if (a.brain) a.brain._orderT = -Infinity;
+  }
+
+  /** plant / defuse: tell the mode this bot is working the objective. */
+  interact(agent, order) {
+    const now = this.ctx.time.elapsed;
+    if (now - agent.brain.interactT < 0.25) return;
+    agent.brain.interactT = now;
+    const game = this.ctx.peek('game');
+    const target =
+      order?.interact ? order :
+        order?.mode?.interact ? order.mode :
+          this.orderOwner?.interact ? this.orderOwner :
+            game?.mode?.interact ? game.mode :
+              game?.interact ? game : null;
+    try {
+      target?.interact(agent);
+    } catch (err) {
+      if (!this._interactErr) {
+        this._interactErr = true;
+        console.warn('[ai] mode.interact threw:', err?.message ?? err);
+      }
+    }
+  }
+
+  /**
+   * Seconds until this bot thinks again. Close to the fight (a live target, or
+   * any enemy within 30 m) it is 5-10 Hz; far from everything 1-3 Hz. Better
+   * soldiers think a little faster.
+   */
+  thinkInterval(a) {
+    const T = a.perception.target;
+    const hot = T && T.conf > 0.3 && this.ctx.time.elapsed - T.updT < 6;
+    let near = hot || a.suppression > 0.2 || a.brain.state === 'evade_grenade';
+    if (!near) {
+      for (let i = 0; i < this.actors.length; i++) {
+        const o = this.actors[i];
+        if (o.team === a.team) continue;
+        const dx = o.position.x - a.position.x, dz = o.position.z - a.position.z;
+        if (dx * dx + dz * dz < 900) { near = true; break; }
+      }
+    }
+    const base = near ? 0.1 + 0.08 * (1 - a.skill) : 0.35 + 0.45 * (1 - a.skill);
+    // deterministic jitter keeps staggered bots staggered
+    const j = ((a.id * 0.37 + a.thinks * 0.618) % 1) * 0.04;
+    return base + j;
+  }
+
+  /** Spend `n` LOS rays from this frame's shared budget. */
+  takeRays(n) {
+    if (this._rays < n) {
+      this.stats.raysDenied++;
+      return false;
+    }
+    this._rays -= n;
+    this.stats.rays += n;
+    return true;
+  }
+
+  /** Live actor by id: an Agent id, a civilian id, or 0 / 'player' for Doug. */
+  getActor(id) {
+    if (id === 0 || id === 'player' || id === 'doug') return this.player;
+    if (id && typeof id === 'object') return id;
+    for (const a of this.agents) if (a.id === id || a.name === id) return a;
+    for (const c of this.civilians) if (c.id === id || c.name === id) return c;
+    return null;
+  }
+
+  /** Live combatants hostile to `team`. */
+  enemiesOf(team) {
+    let n = 0;
+    for (const o of this.actors) if (o.alive && o.team !== team && o.team !== 'civ') n++;
+    return n;
+  }
+
+  /** This bot's index among its live teammates (stable slots, spacing). */
+  teamIndex(a) {
+    let n = 0;
+    for (const o of this.agents) {
+      if (o === a) return n;
+      if (o.alive && o.team === a.team) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Nearest walkable nav cell to `p` (within `rings` cells, on roughly the
+   * storey `y`), written to `out`. Returns false when there is none.
+   */
+  snapWalkable(p, y, out, rings = 4, preferEdge = false) {
+    const g = this.grid;
+    if (!g) {
+      out.copy(p);
+      return true;
+    }
+    const ci = g.nearest(p.x, p.z, y, rings, 2.5);
+    if (ci < 0) return false;
+    out.set(g.nodeX(ci), g.floor[ci], g.nodeZ(ci));
+    if (preferEdge && g.enclosure[ci] === 0) {
+      // likely hiding spots hug walls: nudge toward an enclosed neighbour
+      for (let d = 1; d <= 2; d++) {
+        const j = g.nearest(out.x + d * g.cell, out.z, y, 1, 1);
+        if (j >= 0 && g.enclosure[j] > 0) {
+          out.set(g.nodeX(j), g.floor[j], g.nodeZ(j));
+          break;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A point for a hunting bot to sweep toward: the enemy team's spawn side if
+   * the map says where that is, otherwise the far half of the spawn points,
+   * otherwise any walkable cell, offset per bot so a team spreads out. Never an
+   * enemy's position: hunting is looking, not knowing.
+   */
+  huntPoint(a, out) {
+    const world = this.ctx.peek('world');
+    const enemy = a.team === 'esf' ? 'hostile' : 'esf';
+    let list = world?.spawns?.[enemy];
+    const pts = [];
+    if (Array.isArray(list) && list.length) for (const s of list) pts.push(s.pos ?? s.position ?? s);
+    const sp = world?.spawnPoints ?? [];
+    if (!pts.length) for (const s of sp) pts.push(s.position);
+    // also sweep objective zones: that is where the enemy has to go
+    const obj = world?.objectives;
+    if (obj) {
+      for (const k in obj) {
+        const z = obj[k];
+        if (z?.pos) pts.push(z.pos);
+        else if (z && typeof z === 'object') for (const kk in z) if (z[kk]?.pos) pts.push(z[kk].pos);
+      }
+    }
+    if (!pts.length) return false;
+    // prefer points away from where we are, rotating through them per bot
+    const k = (a.id * 3 + (a.brain.huntCount = (a.brain.huntCount ?? 0) + 1)) % pts.length;
+    let best = null, bestS = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[(i + k) % pts.length];
+      if (!p || !Number.isFinite(p.x)) continue;
+      const d = Math.hypot(p.x - a.position.x, p.z - a.position.z);
+      const s = Math.min(d, 60) - i * 4 + (d < 8 ? -100 : 0);
+      if (s > bestS) { bestS = s; best = p; }
+    }
+    if (!best) return false;
+    const ang = a.id * 2.399;
+    this._v.set(best.x + Math.sin(ang) * 4, best.y, best.z + Math.cos(ang) * 4);
+    return this.snapWalkable(this._v, best.y, out, 6);
+  }
+
+  /* ================================================================== */
+  /* grenades as threats                                                */
+  /* ================================================================== */
+
+  /**
+   * The live grenade this bot knows about and is inside the blast of, or null.
+   * A grenade is known when it lands within 9 m of the bot (it hears and sees
+   * it), when a teammate shouted "grenade" in the last 3 s, or when it is the
+   * bot's own. `{ pos, radius, fuse }`.
+   */
+  grenadeThreat(a) {
+    const now = this.ctx.time.elapsed;
+    const warned = now - a.grenadeWarnT < 3;
+    let best = null;
+    for (let i = 0; i < this._threats.length; i++) {
+      const g = this._threats[i];
+      if (!g.live) continue;
+      const p = g.pos;
+      const d = Math.hypot(p.x - a.position.x, p.z - a.position.z);
+      if (Math.abs(p.y - a.position.y) > 4) continue;
+      if (d > g.radius + 1.5) continue;
+      if (!(d < 9 || warned || g.owner === a)) continue;
+      if (now - g.t < 0.35) continue; // still in the thrower's hand, effectively
+      if (!best || d < best._d) {
+        best = g;
+        g._d = d;
+      }
+    }
+    return best;
+  }
+
+  /** Never throw where teammates are (or so close we eat it ourselves). */
+  safeToThrow(a, pos) {
+    if (a.distTo(pos) < 8) return false;
+    for (const o of this.agents) {
+      if (!o.alive || o === a) continue;
+      if (o.team === a.team && o.position.distanceTo(pos) < 8) return false;
+    }
+    for (const c of this.civilians) if (c.alive && c.position.distanceTo(pos) < 7) return false;
+    return true;
+  }
+
+  _trackThreat(pos, radius, owner, fuse, body = null) {
+    let slot = null;
+    for (const g of this._threats) if (!g.live) { slot = g; break; }
+    if (!slot) {
+      slot = { live: false, pos: new THREE.Vector3(), radius: 6, owner: null, fuseAt: 0, t: 0, body: null, _d: 0 };
+      this._threats.push(slot);
+    }
+    slot.live = true;
+    slot.pos.copy(pos);
+    slot.radius = radius;
+    slot.owner = owner;
+    slot.t = this.ctx.time.elapsed;
+    slot.fuseAt = slot.t + fuse;
+    slot.body = body;
+    return slot;
+  }
+
+  _updateThreats() {
+    const now = this.ctx.time.elapsed;
+    for (const g of this._threats) {
+      if (!g.live) continue;
+      if (g.body?.position) g.pos.copy(g.body.position);
+      if (now > g.fuseAt + 0.2) g.live = false;
+    }
+  }
+
+  /**
+   * A thrown grenade from elsewhere (the player's, via `grenade:throw`): we
+   * cannot see the physics body, so predict where it comes to rest from its
+   * launch state with a few coarse ballistic steps against the world.
+   */
+  _onGrenadeThrow(e) {
+    if (!e?.position || !e.velocity) return;
+    const phys = this.phys;
+    const p = this._v.copy(e.position);
+    const v = this._v2.copy(e.velocity);
+    const g = phys ? Math.abs(phys.gravity) : 9.81;
+    let t = 0;
+    const dt = 0.08;
+    for (let i = 0; i < 40; i++) {
+      const nx = p.x + v.x * dt, ny = p.y + v.y * dt, nz = p.z + v.z * dt;
+      if (phys) {
+        const dx = nx - p.x, dy = ny - p.y, dz = nz - p.z;
+        const L = Math.hypot(dx, dy, dz);
+        const h = phys.raycast(p.x, p.y, p.z, dx, dy, dz, L, phys.MASK.WORLD);
+        if (h.hit) {
+          p.copy(h.point);
+          break;
+        }
+      }
+      p.set(nx, ny, nz);
+      v.y -= g * dt;
+      t += dt;
+    }
+    const flash = e.kind === 'flash' || e.kind === 'flashbang';
+    this._trackThreat(p, flash ? 0 : e.radius ?? 6.5, this._resolveOwner(e.owner), e.fuse ?? 2.8, e.body ?? null);
+  }
+
+  /**
+   * `flash:detonate { position, radius, owner }`: every bot (and civilian)
+   * within the radius that has line of sight to the burst is stunned; looking
+   * at it is worse than having your back to it. Friendly flashes do not blind
+   * the thrower's team (friendly fire is off).
+   */
+  _onFlash(e) {
+    // weapons/equipment.js already calls agent.stun() on every agent in
+    // `ai.agents` it reaches (EXPANSION.md §6): never stun those twice. What
+    // is left for us is the people it does not know about (civilians, who
+    // live in `ai.civilians`), and the reaction everyone has to the bang.
+    if (!e?.position) return;
+    const radius = e.radius ?? 12;
+    const owner = this._resolveOwner(e.owner);
+    const ownerTeam = owner?.team ?? e.team ?? null;
+    const phys = this.phys;
+    const now = this.ctx.time.elapsed;
+    for (const a of this.agents) {
+      if (!a.alive || (ownerTeam && a.team === ownerTeam)) continue;
+      if (a.position.distanceTo(e.position) < radius * 2) a.perception.hearFrom(owner, e.position, 0.9, 'flash', now);
+    }
+    for (const c of this.civilians) {
+      if (!c.alive) continue;
+      const eye = c.eye;
+      const d = eye.distanceTo(e.position);
+      if (d > radius) continue;
+      if (phys && !phys.lineOfSight(e.position, eye, phys.MASK.SIGHT)) continue;
+      const dx = (e.position.x - eye.x) / (d || 1), dz = (e.position.z - eye.z) / (d || 1);
+      const facing = dx * Math.sin(c.yaw) + dz * Math.cos(c.yaw);
+      const k = (1 - d / radius) * (0.55 + 0.45 * Math.max(0, facing)) + 0.25;
+      c.stun(Math.min(1, k), 2.2 + 3.2 * Math.min(1, k));
+    }
+  }
+
+  /** True when the nav cell under `p` is hemmed in by walls (indoors-ish). */
+  enclosedAt(p) {
+    const g = this.grid;
+    if (!g) return false;
+    const i = g.layerAt(g.cellX(p.x), g.cellZ(p.z), p.y, 1.2);
+    return i >= 0 && g.enclosure[i] >= 2;
+  }
+
+  /** Rockets: only at range or into a group, never close (roles.js HEAVY). */
+  rocketWorthIt(a, p) {
+    const d = a.distTo(p);
+    if (d < 12) return false;
+    if (d > 32) return true;
+    let group = 0;
+    for (const o of this.actors) {
+      if (!o.alive || o.team === a.team) continue;
+      if (Math.hypot(o.position.x - p.x, o.position.z - p.z) < 5) group++;
+    }
+    return group >= 2;
   }
 
   /* ================================================================== */
@@ -913,6 +1637,13 @@ export class AiSystem {
       // wandering through it.
       if (!this._navPending && (!ctx.config.deterministic || this.forcePopulate)) this.populate();
     }
+
+    this._syncActors(ctx);
+    if (ctx.input?.pressed?.('F3')) this.debug.toggle();
+    this._installFlopHook();
+    this._rays = this.rayBudget;
+    this.comms.update(ctx.time.elapsed);
+    this._updateThreats();
 
     // Per-frame A* budget: see requestPath().
     this._pathBudget = this.pathsPerFrame;
@@ -940,10 +1671,36 @@ export class AiSystem {
         }
       }
     }
+    for (let i = 0; i < this.civilians.length; i++) {
+      const c = this.civilians[i];
+      if (c.alive) c.update(dt, ctx);
+      else if (c.deadTime !== undefined) c.deadTime += dt;
+    }
     this._updateGrenades(dt);
+    this.projectiles.update(dt);
+    this.projectiles.updateGlints(ctx.camera);
     if (this._flop) this._updateFlop();
     this.stats.agents = this.agents.length;
     this.stats.alive = alive;
+  }
+
+  /** `FLOP.aiDebug(on)`: the game owns window.FLOP and may replace it, so re-attach. */
+  _installFlopHook() {
+    try {
+      const F = window.FLOP;
+      if (F && !F.aiDebug) F.aiDebug = (on = true) => this.debug.setEnabled(on);
+    } catch {
+      /* no window */
+    }
+  }
+
+  /** Rebuild `actors` (no allocation): live bots plus the player proxy. */
+  _syncActors(ctx) {
+    this.player.sync(ctx.peek('player'), ctx.camera);
+    const list = this.actors;
+    list.length = 0;
+    if (this.player.alive) list.push(this.player);
+    for (let i = 0; i < this.agents.length; i++) if (this.agents[i].alive) list.push(this.agents[i]);
   }
 
   lateUpdate() {
@@ -955,7 +1712,13 @@ export class AiSystem {
       // Dead men keep their contact: a ragdoll on the floor needs it most.
       g.addActor(a);
     }
+    for (let i = 0; i < this.civilians.length; i++) {
+      const c = this.civilians[i];
+      c.syncHitboxes();
+      g.addActor(c);
+    }
     g.end();
+    this.debug.update(this.ctx);
   }
 
   /* ================================================================== */
@@ -1018,8 +1781,9 @@ export class AiSystem {
     const sunY = Math.max(0.06, sun.y);
     let irrelevant = 0;
 
-    for (let i = 0; i < this.agents.length; i++) {
-      const a = this.agents[i];
+    const nA = this.agents.length;
+    for (let i = 0; i < nA + this.civilians.length; i++) {
+      const a = i < nA ? this.agents[i] : this.civilians[i - nA];
       const geo = a.mesh.geometry;
       const bs = geo.boundingSphere;
       if (!bs) { a.lodIrrelevant = false; continue; }
@@ -1064,6 +1828,9 @@ export class AiSystem {
     a.alertness = 1;
     a.lastKnown.copy(p);
     a.lastKnownAge = 0;
+    a.fireAt.copy(p);
+    a.fireTarget = null;
+    a.face(p);
     a.crouch = !!s.crouch;
     a.aimWeight = s.aimWeight ?? 1;
     a.suppression = s.suppression ?? 0;
@@ -1422,6 +2189,9 @@ export class AiSystem {
     this._grenadeGeo?.dispose();
     this._grenadeMat?.dispose();
     this.ground?.dispose();
+    this.iff?.dispose();
+    this.projectiles?.dispose();
+    this.debug?.dispose();
     for (const v of this._variants.values()) v.geometry.dispose();
     this._variants.clear();
     this.materials?.dispose();

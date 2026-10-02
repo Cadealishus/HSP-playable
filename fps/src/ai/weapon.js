@@ -59,6 +59,11 @@ function cyl(r0, r1, z0, z1, x, y, seg = 14, cap = true) {
  * with every mesh already transformed into the actor's bind space.
  */
 export function buildWeapon(nz, style = 'carbine', rng) {
+  if (EXTRA[style]) {
+    const m = { steel: emptyMesh(), poly: emptyMesh(), rubber: emptyMesh(), glass: emptyMesh() };
+    const anchors = EXTRA[style](nz, m);
+    return bakeWeapon(m.steel, m.poly, m.rubber, m.glass, anchors, rng);
+  }
   const steel = emptyMesh();
   const poly = emptyMesh();
   const rubber = emptyMesh();
@@ -255,37 +260,169 @@ export function buildWeapon(nz, style = 'carbine', rng) {
   appendMesh(steel, box(0.005, 0.010, 0.006, -0.016, BORE_Y - 0.020, long ? -0.06 : -0.072, { n: 5, roundY: 0.3 }));
   appendMesh(steel, box(0.005, 0.008, 0.006, -0.020, BORE_Y - 0.012, long ? 0.30 : 0.26, { n: 5, roundY: 0.3 }));
 
-  /* ---- bake into the actor's bind space ---- */
+  return bakeWeapon(steel, poly, rubber, glass, {
+    muzzle: [0, BORE_Y, barrelEnd + 0.012],
+    ejection: [-0.024, BORE_Y + 0.012, 0.012],
+    stockTop: [0, BORE_Y, -0.10],
+    foregrip: [0, BORE_Y - 0.028, long ? 0.22 : 0.205],
+    magBottom: [0, BORE_Y - 0.25, 0.03],
+  }, rng);
+}
+
+/** Transform a weapon built in weapon space into the actor's bind space. */
+function bakeWeapon(steel, poly, rubber, glass, A, rng) {
   const z = new THREE.Vector3(...BORE_DIR).normalize();
   const x = new THREE.Vector3(0, 1, 0).cross(z).normalize();
   const y = new THREE.Vector3().crossVectors(z, x).normalize();
-  // a few degrees of cant so nothing is perfectly upright
   const cant = new THREE.Quaternion().setFromAxisAngle(z, (rng ? rng.range(-0.10, -0.03) : -0.06));
   x.applyQuaternion(cant);
   y.applyQuaternion(cant);
   const m = new THREE.Matrix4().makeBasis(x, y, z);
   m.setPosition(GRIP_R[0], GRIP_R[1], GRIP_R[2]);
-
   for (const mesh of [steel, poly, rubber, glass]) {
+    if (!mesh.p.length) continue;
     computeNormals(mesh);
     transformMesh(mesh, m);
   }
-
-  const toBind = (px, py, pz) =>
-    new THREE.Vector3(px, py, pz).applyMatrix4(m).toArray();
-
+  const toBind = (a) => new THREE.Vector3(a[0], a[1], a[2]).applyMatrix4(m).toArray();
   return {
     steel,
     polymer: poly,
     rubber,
     glass,
     matrix: m,
-    /** in bind space */
-    muzzle: toBind(0, BORE_Y, barrelEnd + 0.012),
-    boreOrigin: toBind(0, BORE_Y, 0),
-    ejection: toBind(-0.024, BORE_Y + 0.012, 0.012),
-    stockTop: toBind(0, BORE_Y, -0.10),
-    foregrip: toBind(0, BORE_Y - 0.028, long ? 0.22 : 0.205),
-    magBottom: toBind(0, BORE_Y - 0.25, 0.03),
+    muzzle: toBind(A.muzzle),
+    boreOrigin: toBind([0, BORE_Y, 0]),
+    ejection: toBind(A.ejection),
+    stockTop: toBind(A.stockTop),
+    foregrip: toBind(A.foregrip),
+    magBottom: toBind(A.magBottom),
+    scope: A.scope ? toBind(A.scope) : null,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* the other classes: SMG, shotgun, LMG, sniper, launcher              */
+/* ------------------------------------------------------------------ */
+
+/** Raked pistol grip + trigger guard shared by every class. */
+function gripAndGuard(nz, poly, rake = 0.030) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const t = i / 5;
+    pts.push([0, BORE_Y - 0.052 - t * 0.1, -0.028 - t * rake]);
+  }
+  const g = tube(pts, (t) => superEllipse(0.0165 - t * 0.002, 0.020 - t * 0.004, 3.4, 12), {
+    capStart: true, capEnd: true, up: [0, 0, 1],
+  });
+  computeNormals(g);
+  displace(g, (x, y, z) => Math.sin((y - BORE_Y) * 150) * 0.001 + nz.fbm3(x * 90, y * 90, z * 90, 2) * 0.001);
+  appendMesh(poly, g);
+  const gp = [];
+  for (let i = 0; i <= 8; i++) {
+    const a = (Math.PI * i) / 8;
+    gp.push([0, BORE_Y - 0.068 - Math.sin(a) * 0.020, -Math.cos(a) * 0.024]);
+  }
+  const guard = ribbon(gp, 0.013, 0.005, { seg: 5, up: [1, 0, 0] });
+  computeNormals(guard);
+  appendMesh(poly, guard);
+}
+
+const EXTRA = {
+  /** compact 9 mm SMG: boxy receiver, short barrel, stick mag, folding stock, red dot */
+  smg(nz, m) {
+    appendMesh(m.poly, box(0.021, 0.034, 0.105, 0, BORE_Y - 0.004, 0.03, { n: 4.4, roundY: 0.25 }));
+    appendMesh(m.steel, box(0.015, 0.012, 0.09, 0, BORE_Y + 0.036, 0.03, { n: 6, roundY: 0.1 }));
+    appendMesh(m.steel, cyl(0.0095, 0.0095, 0.13, 0.25, 0, BORE_Y, 12, false));
+    appendMesh(m.steel, cyl(0.0135, 0.0135, 0.23, 0.27, 0, BORE_Y, 12, true));
+    appendMesh(m.poly, box(0.0125, 0.075, 0.017, 0, BORE_Y - 0.1, 0.07, { n: 4.5, rx: 0.12, roundY: 0.2 }));
+    gripAndGuard(nz, m.poly, 0.022);
+    // folded wire stock along the left side
+    const r = ribbon([[0.024, BORE_Y, -0.06], [0.026, BORE_Y - 0.01, 0.06], [0.026, BORE_Y - 0.012, 0.12]], 0.009, 0.006, { seg: 5, up: [0, 1, 0] });
+    computeNormals(r);
+    appendMesh(m.steel, r);
+    appendMesh(m.poly, box(0.016, 0.022, 0.012, 0, BORE_Y + 0.062, 0.02, { n: 4, roundY: 0.3 }));
+    appendMesh(m.glass, cyl(0.011, 0.011, 0.028, 0.031, 0, BORE_Y + 0.066, 12, true));
+    appendMesh(m.poly, box(0.02, 0.024, 0.028, 0, BORE_Y - 0.03, 0.17, { n: 4, roundY: 0.3 }));
+    return { muzzle: [0, BORE_Y, 0.285], ejection: [-0.022, BORE_Y + 0.01, 0.04], stockTop: [0, BORE_Y, -0.06], foregrip: [0, BORE_Y - 0.03, 0.17], magBottom: [0, BORE_Y - 0.17, 0.08] };
+  },
+
+  /** pump shotgun: long barrel over a tube magazine, ribbed pump, full stock */
+  shotgun(nz, m) {
+    appendMesh(m.steel, box(0.019, 0.03, 0.08, 0, BORE_Y - 0.004, 0.0, { n: 4.6, roundY: 0.22 }));
+    appendMesh(m.steel, cyl(0.0115, 0.0112, 0.08, 0.56, 0, BORE_Y + 0.008, 12, true));
+    appendMesh(m.steel, cyl(0.0105, 0.0105, 0.08, 0.46, 0, BORE_Y - 0.022, 12, true));
+    const pump = cyl(0.021, 0.021, 0.2, 0.34, 0, BORE_Y - 0.02, 14, true);
+    displace(pump, (x, y, z) => (Math.sin(z * 420) > 0.3 ? 0.0022 : 0));
+    appendMesh(m.poly, pump);
+    appendMesh(m.steel, box(0.003, 0.005, 0.004, 0, BORE_Y + 0.023, 0.54, { n: 6 }));
+    gripAndGuard(nz, m.poly, 0.036);
+    appendMesh(m.poly, box(0.019, 0.035, 0.13, 0, BORE_Y - 0.028, -0.17, { n: 3.8, roundY: 0.3, rx: -0.1 }));
+    appendMesh(m.rubber, box(0.02, 0.04, 0.008, 0, BORE_Y - 0.04, -0.3, { n: 4, roundY: 0.4 }));
+    return { muzzle: [0, BORE_Y + 0.008, 0.575], ejection: [-0.022, BORE_Y + 0.004, 0.02], stockTop: [0, BORE_Y, -0.12], foregrip: [0, BORE_Y - 0.03, 0.27], magBottom: [0, BORE_Y - 0.05, 0.28] };
+  },
+
+  /** belt-fed LMG: big receiver, heavy barrel, carry handle, box mag, folded bipod */
+  lmg(nz, m) {
+    appendMesh(m.steel, box(0.024, 0.038, 0.13, 0, BORE_Y + 0.004, 0.02, { n: 4.4, roundY: 0.2 }));
+    appendMesh(m.steel, box(0.022, 0.012, 0.11, 0, BORE_Y + 0.05, 0.03, { n: 5, roundY: 0.2 }));
+    appendMesh(m.steel, cyl(0.014, 0.013, 0.15, 0.6, 0, BORE_Y, 14, false));
+    appendMesh(m.steel, cyl(0.018, 0.017, 0.56, 0.63, 0, BORE_Y, 14, true));
+    appendMesh(m.poly, box(0.026, 0.028, 0.12, 0, BORE_Y - 0.004, 0.26, { n: 3.2, roundY: 0.3 }));
+    const h = ribbon([[0, BORE_Y + 0.05, 0.2], [0, BORE_Y + 0.095, 0.25], [0, BORE_Y + 0.095, 0.33], [0, BORE_Y + 0.05, 0.37]], 0.012, 0.009, { seg: 6, up: [1, 0, 0] });
+    computeNormals(h);
+    appendMesh(m.poly, h);
+    appendMesh(m.poly, box(0.045, 0.06, 0.05, 0.03, BORE_Y - 0.085, 0.05, { n: 5, roundY: 0.15 }));
+    for (const sx of [-1, 1]) appendMesh(m.steel, cyl(0.005, 0.005, 0.38, 0.56, sx * 0.012, BORE_Y - 0.03, 8, true));
+    gripAndGuard(nz, m.poly, 0.03);
+    appendMesh(m.poly, box(0.022, 0.04, 0.12, 0, BORE_Y - 0.015, -0.16, { n: 3.6, roundY: 0.3 }));
+    appendMesh(m.rubber, box(0.023, 0.045, 0.008, 0, BORE_Y - 0.02, -0.285, { n: 4, roundY: 0.4 }));
+    return { muzzle: [0, BORE_Y, 0.64], ejection: [-0.026, BORE_Y, 0.04], stockTop: [0, BORE_Y, -0.12], foregrip: [0, BORE_Y - 0.03, 0.27], magBottom: [0.03, BORE_Y - 0.145, 0.05] };
+  },
+
+  /** bolt-action rifle: long barrel, big scope, bolt handle, cheek riser */
+  sniper(nz, m) {
+    appendMesh(m.steel, cyl(0.017, 0.017, -0.07, 0.12, 0, BORE_Y, 14, true));
+    appendMesh(m.steel, cyl(0.011, 0.009, 0.12, 0.7, 0, BORE_Y, 12, false));
+    appendMesh(m.steel, box(0.018, 0.014, 0.03, 0, BORE_Y, 0.7, { n: 5, roundY: 0.2 }));
+    appendMesh(m.steel, box(0.03, 0.005, 0.005, -0.03, BORE_Y + 0.005, -0.03, { n: 6 }));
+    appendMesh(m.steel, cyl(0.009, 0.009, -0.036, -0.024, -0.058, BORE_Y + 0.005, 10, true));
+    appendMesh(m.poly, box(0.024, 0.03, 0.2, 0, BORE_Y - 0.03, 0.2, { n: 3.4, roundY: 0.35 }));
+    appendMesh(m.poly, box(0.024, 0.045, 0.16, 0, BORE_Y - 0.035, -0.19, { n: 3.4, roundY: 0.3 }));
+    appendMesh(m.poly, box(0.018, 0.012, 0.09, 0, BORE_Y + 0.02, -0.18, { n: 4, roundY: 0.3 }));
+    appendMesh(m.rubber, box(0.025, 0.05, 0.008, 0, BORE_Y - 0.035, -0.355, { n: 4, roundY: 0.4 }));
+    appendMesh(m.poly, box(0.011, 0.06, 0.02, 0, BORE_Y - 0.08, 0.02, { n: 4.5, roundY: 0.2 }));
+    gripAndGuard(nz, m.poly, 0.03);
+    const sy = BORE_Y + 0.07;
+    appendMesh(m.steel, cyl(0.016, 0.016, -0.09, 0.16, 0, sy, 16, false));
+    appendMesh(m.steel, cyl(0.025, 0.019, 0.13, 0.2, 0, sy, 16, true));
+    appendMesh(m.steel, cyl(0.02, 0.018, -0.14, -0.08, 0, sy, 16, true));
+    appendMesh(m.steel, cyl(0.02, 0.02, 0.02, 0.05, 0, sy + 0.02, 10, true));
+    for (const z of [-0.03, 0.09]) appendMesh(m.steel, box(0.014, 0.03, 0.008, 0, BORE_Y + 0.04, z, { n: 5 }));
+    appendMesh(m.glass, cyl(0.022, 0.022, 0.199, 0.203, 0, sy, 16, true));
+    appendMesh(m.glass, cyl(0.017, 0.017, -0.142, -0.139, 0, sy, 16, true));
+    return { muzzle: [0, BORE_Y, 0.72], ejection: [-0.02, BORE_Y + 0.01, 0.02], stockTop: [0, BORE_Y, -0.14], foregrip: [0, BORE_Y - 0.035, 0.24], magBottom: [0, BORE_Y - 0.11, 0.02], scope: [0, sy, 0.205] };
+  },
+
+  /** shoulder-fired launcher: tube over the shoulder, grips, sight, warhead loaded */
+  rocket(nz, m) {
+    const ty = BORE_Y + 0.02;
+    appendMesh(m.poly, cyl(0.042, 0.042, -0.42, 0.46, 0, ty, 18, false));
+    appendMesh(m.steel, cyl(0.048, 0.046, -0.5, -0.4, 0, ty, 18, false));
+    appendMesh(m.steel, cyl(0.046, 0.046, 0.44, 0.5, 0, ty, 18, false));
+    const pts = [];
+    for (let i = 0; i < 5; i++) pts.push([0, ty, 0.5 + i * 0.045]);
+    const w = tube(pts, (t) => ellipseProfile(0.038 * (1 - t * 0.85) + 0.004, 0.038 * (1 - t * 0.85) + 0.004, 14), { capStart: true, capEnd: true, up: [0, 1, 0] });
+    computeNormals(w);
+    appendMesh(m.steel, w);
+    appendMesh(m.poly, box(0.016, 0.03, 0.05, -0.05, ty + 0.035, 0.08, { n: 4, roundY: 0.3 }));
+    appendMesh(m.glass, cyl(0.01, 0.01, 0.13, 0.134, -0.05, ty + 0.04, 10, true));
+    gripAndGuard(nz, m.poly, 0.02);
+    appendMesh(m.poly, box(0.013, 0.045, 0.016, 0, BORE_Y - 0.06, 0.24, { n: 4, roundY: 0.3 }));
+    appendMesh(m.rubber, box(0.03, 0.02, 0.07, 0, ty - 0.045, -0.2, { n: 4, roundY: 0.3 }));
+    return { muzzle: [0, ty, 0.5], ejection: [0, ty, -0.5], stockTop: [0, BORE_Y, -0.2], foregrip: [0, BORE_Y - 0.06, 0.24], magBottom: [0, BORE_Y - 0.1, 0.24] };
+  },
+};
+
+/** Every style buildWeapon() accepts. */
+export const WEAPON_STYLES = ['carbine', 'ak', ...Object.keys(EXTRA)];

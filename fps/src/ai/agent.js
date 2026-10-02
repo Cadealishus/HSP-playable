@@ -23,6 +23,10 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
+import { isEnemyTeam, normTeam, LAYER_ESF } from './teams.js';
+import { roleFor, resolveWeapon, weaponFor, PLAYER_DAMAGE_SCALE } from './roles.js';
+import { Perception } from './perception.js';
+import { Brain, S } from './brain.js';
 
 /**
  * FLOP OPS death tuning. Deaths are the comedy; the physics stays honest.
@@ -46,18 +50,36 @@ export const DEATH = {
   dramaticLimp: 0.55,
 };
 
-const STATE = {
-  IDLE: 'idle',
-  PATROL: 'patrol',
-  ALERT: 'alert',
-  COMBAT: 'combat',
-  SUPPRESSED: 'suppressed',
-  FLANK: 'flank',
-  RETREAT: 'retreat',
-  DEAD: 'dead',
-};
+/** Brain states (brain.js), plus the old names older callers use. */
+const STATE = { ...S, COMBAT: S.ENGAGE, ALERT: S.INVESTIGATE };
 
 export { STATE };
+
+/** Seconds between two callouts of one kind from one man. */
+const CALLOUT_GAP = { contact: 5, lastknown: 6, lost: 8, grenade: 2, help: 10 };
+/** Callout -> radio subtitle kind (radio.js). */
+const CALLOUT_RADIO = { lost: 'lost', help: 'help' };
+
+/**
+ * Called from the captor's update: hold the hostage in front of us, a little
+ * to our left, so our right shoulder and head are the only clean shot.
+ */
+function holdHostage(captor, hostage) {
+  const fx = Math.sin(captor.yaw), fz = Math.cos(captor.yaw);
+  // right of the character is -x in its frame: (−cos, +sin)
+  const x = captor.position.x + fx * 0.42 + fz * 0.14;
+  const z = captor.position.z + fz * 0.42 - fx * 0.14;
+  hostage.position.set(x, captor.position.y, z);
+  hostage.controller?.teleport(x, captor.position.y, z);
+  hostage.yaw = captor.yaw;
+  hostage.targetYaw = captor.yaw;
+}
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
 
 const HITBOXES = [
   ['head', 'Head', 'HeadTop', 0.098, 4.0],
@@ -117,13 +139,24 @@ export class Agent {
     this.ctx = ai.ctx;
     this.id = _nextId++;
     this.rng = ai.rng.fork();
+    /** 'esf' | 'hostile' | 'civ' (EXPANSION.md §2) */
+    this.team = normTeam(opts.team ?? 'hostile');
+    /** ESF bots are friendly to the player: the UI minimap reads this */
+    this.friendly = this.team === 'esf';
+    this.roleDef = roleFor(opts.role);
+    this.role = this.roleDef.id;
     this.variantName = opts.variant ?? 'vanguard';
-    const def = ai.variant(this.variantName);
+    this.weaponId = opts.weapon ?? weaponFor(this.roleDef, this.team);
+    /** AI weapon profile resolved from src/weapons/defs.js (see roles.js) */
+    this.weapon = resolveWeapon(this.weaponId, ai.ctx.peek('weapons'));
+    this.modelStyle = opts.model ?? null;
+    const def = ai.variant(this.variantName, { team: this.team, weapon: this.modelStyle });
     this.def = def;
     this.scale = def.variant.scale ?? 1;
     /** Rank shown by the UI killfeed, e.g. "RIFLEMAN". See
      *  VARIANTS[name].display in soldier.js — runtime id stays `variantName`. */
-    this.variantDisplay = def.variant.display ?? this.variantName.toUpperCase();
+    this.variantDisplay =
+      opts.display ?? (opts.role ? this.roleDef.display : def.variant.display ?? this.variantName.toUpperCase());
 
     /* ---------------- body ---------------- */
     const { bones, skeleton, root } = RIG.createSkeleton();
@@ -170,6 +203,7 @@ export class Agent {
 
     this.animator = new Animator(RIG, bones, {
       weapon: def.weapon,
+      unarmed: !def.weapon,
       rng: this.rng.fork(),
       scale: this.scale,
       probe: (x, z, fromY, out) => this.ai.probeGround(x, z, fromY, out),
@@ -194,10 +228,13 @@ export class Agent {
 
     this.colliders = [];
     if (phys) {
+      // ESF hitboxes live on a layer no physics mask includes, so the player's
+      // rounds (MASK.BULLET) pass through friendlies: see teams.js LAYER_ESF.
+      const layer = this.team === 'esf' ? LAYER_ESF : phys.LAYER.ACTOR;
       for (const [part, a, b, r, dmg] of HITBOXES) {
         const c = phys.addCollider({
           shape: 'capsule',
-          layer: phys.LAYER.ACTOR,
+          layer,
           surface: 'flesh',
           owner: this,
           part,
@@ -216,7 +253,11 @@ export class Agent {
     this.state = STATE.IDLE;
     this.stateTime = 0;
     this.squad = opts.squad ?? null;
-    this.team = opts.team ?? 1;
+    /** 0..1: decisions and reaction time, never health (see setDifficulty) */
+    this.skill = opts.skill ?? 0.5;
+    /** who last hurt us: an Agent or the PlayerProxy (kill accounting) */
+    this.lastAttacker = null;
+    this.lastHurtT = -Infinity;
 
     /* ---------------- perception ---------------- */
     this.eyeHeight = RIG.eyeHeight * this.scale;
@@ -237,8 +278,11 @@ export class Agent {
     this.reactionMult = 1;
 
     /* ---------------- combat ---------------- */
-    this.weaponRange = 60;
-    this.fireRate = this.variantName === 'irregular' ? 8.2 : 10.5;
+    const W = this.weapon;
+    this.weaponRange = Math.min(W.maxRange, this.roleDef.range[2]);
+    // bots fire a touch under the gun's cyclic rate: trigger discipline
+    this.fireRate = Math.min(W.rpm / 60, this.variantName === 'irregular' ? 8.2 : 10.5) || 1;
+    if (W.rpm < 300) this.fireRate = W.rpm / 60;
     /** 0..1 push/flank/grenade/hold-ground appetite. 0.5 is behaviour-neutral
      *  (the hand-tuned default); setDifficulty() maps wave intensity onto it. */
     this.aggression = 0.5;
@@ -247,10 +291,11 @@ export class Agent {
     this.burstLeft = 0;
     this.fireCooldown = 0;
     this.burstCooldown = this.rng.range(0.4, 1.4);
-    this.magSize = 30;
+    this.magSize = W.magSize;
     this.ammo = this.magSize;
     this.spread = 0.032;
-    this.weaponDamage = 17;
+    /** per round, against the player (see roles.js PLAYER_DAMAGE_SCALE) */
+    this.weaponDamage = W.damage * PLAYER_DAMAGE_SCALE;
     this.aimTarget = new THREE.Vector3();
     this.aimActual = new THREE.Vector3();
     this.aimWeight = 0;
@@ -305,6 +350,45 @@ export class Agent {
     this._muzzleDir = new THREE.Vector3();
 
     this.clip = 'idle';
+
+    /* ---------------- brain ---------------- */
+    this.aggression = this.roleDef.aggression;
+    this.perception = new Perception(this);
+    this.brain = new Brain(this);
+    // staggered think phase so a squad never decides on the same frame
+    this.thinkTimer = ((this.id * 0.618) % 1) * 0.2;
+    this._lastThink = -Infinity;
+    this.thinks = 0;
+    this._stun = 0;
+    this._stunRate = 0.3;
+    this._reloadPending = false;
+    this._moveDest = new THREE.Vector3(Infinity, 0, 0);
+    this.moveFailed = false;
+    this.facePoint = new THREE.Vector3();
+    this.faceMode = 0;
+    this.faceYawV = this.yaw;
+    this.scanBase = this.yaw;
+    /** where the brain wants rounds to go (a point from memory) */
+    this.fireAt = new THREE.Vector3();
+    this.fireTarget = null;
+    this.blindFire = false;
+    this._aimSigma = 0.02;
+    this._burstShots = 0;
+    this._firstShotDelay = 0.12 + (1 - this.skill) * 0.25;
+    this.shotsFired = 0;
+    this._calloutT = {};
+    this.grenadeWarnT = -Infinity;
+    this.friendBlockT = -Infinity;
+    this.holding = opts.holding ?? null;
+    this._dmgFrame = -1;
+    this._dmgMax = 0;
+    this._dmgDir = new THREE.Vector3();
+    this._impDir = new THREE.Vector3();
+    this._impFrame = -1;
+    this._progPos = new THREE.Vector3().copy(this.position);
+    this._progT = 0;
+    this._stuckLevel = 0;
+    this._resumeDest = null;
   }
 
   /**
@@ -325,11 +409,16 @@ export class Agent {
     const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
     this.intensity = t;
     this.spread = 0.055 - 0.037 * t;
+    this.skill = t;
     this.reactionMult = 0.6 + 1.05 * t;
-    const base = this.variantName === 'irregular' ? 8.2 : 10.5;
+    const W = this.weapon;
+    const base = W.rpm < 300 ? W.rpm / 60 : Math.min(W.rpm / 60, this.variantName === 'irregular' ? 8.2 : 10.5);
     this.fireRate = base * (0.82 + 0.4 * t);
-    this.weaponDamage = 12 + 9 * t;
-    this.aggression = 0.28 + 0.72 * t;
+    // the rifle's 33 x 0.52 = 17.2 at t=0.55; 12.4 .. 21 across the range,
+    // exactly the band the wave game was balanced on
+    this.weaponDamage = W.damage * PLAYER_DAMAGE_SCALE * (0.72 + 0.5 * t);
+    this.aggression = Math.min(1, this.roleDef.aggression * (0.7 + 0.6 * t));
+    this._firstShotDelay = 0.12 + (1 - t) * 0.25;
     this.grenadeCooldown = this.rng.range(8, 20) * (1.5 - 0.8 * t);
     this.viewRange = 50 + 14 * t;
     return this;
@@ -343,89 +432,215 @@ export class Agent {
     return this._eye.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
   }
 
+  /**
+   * Perception sample point `i` (0 chest, 1 head, 2 pelvis). Crouching lowers
+   * all three, so a man crouched behind a wall presents less of himself.
+   */
+  samplePoint(i, out) {
+    const h = (this.crouch ? 1.2 : 1.78) * this.scale;
+    const p = this.position;
+    if (i === 1) return out.set(p.x, p.y + h * 0.92, p.z);
+    if (i === 2) return out.set(p.x, p.y + h * 0.52, p.z);
+    return out.set(p.x, p.y + h * 0.74, p.z);
+  }
+
   update(dt, ctx) {
     if (!this.alive) return;
+    const now = ctx.time.elapsed;
     this.stateTime += dt;
     this.suppression = Math.max(0, this.suppression - dt * 0.55);
     this.fireCooldown -= dt;
     this.burstCooldown -= dt;
     this.grenadeCooldown -= dt;
-    this.peekTimer -= dt;
     this.repathTimer -= dt;
     this.vaultCooldown -= dt;
-    if (this.lastKnownAge < 1e6) this.lastKnownAge += dt;
+    if (this._stun > 0) this._stun = Math.max(0, this._stun - dt * this._stunRate);
+    if (this._reloadPending && !this.animator.reloading) {
+      this._reloadPending = false;
+      this.ammo = this.magSize;
+    }
 
     // a path the frame budget deferred: ask again before anything else does
     if (this.pathPending) this._goTo(this._pendingDest);
 
-    this._sense(dt);
-    this._think(dt);
+    this.perception.decay(now, dt);
+    this.thinkTimer -= dt;
+    if (this.thinkTimer <= 0) {
+      const since = Math.min(0.6, Math.max(dt, now - this._lastThink));
+      this._lastThink = now;
+      const interval = this.ai.thinkInterval(this);
+      this.thinkTimer = interval;
+      this.thinks++;
+      this.perception.look(now, since);
+      this._hearBots(now);
+      if (this.holding?.alive) this._holdHostage(now);
+      else this.brain.think(now);
+      this._legacy(now);
+    }
+
     this._move(dt);
+    if (this.holding?.alive) holdHostage(this, this.holding);
     this._shoot(dt);
     this._drive(dt);
   }
 
-  /* ================================================================== */
-  /* perception                                                         */
-  /* ================================================================== */
-
-  _sense(dt) {
-    const player = this.ai.playerPosition(this._v3);
-    if (!player) return;
-    const eye = this.eye;
-    const to = this._dir.copy(player).sub(eye);
-    const dist = to.length();
-    let visible = false;
-    if (dist < this.viewRange) {
-      to.multiplyScalar(1 / dist);
-      const fwd = this._v2.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-      const dot = fwd.x * to.x + fwd.z * to.z;
-      // peripheral vision widens once alerted
-      const cone = this.hasTarget ? -0.2 : this.viewCos - this.alertness * 0.25;
-      if (dot > cone || dist < 4.5) {
-        visible = this.phys ? this.phys.lineOfSight(eye, player, this.phys.MASK.SIGHT) : true;
+  /**
+   * HOSTAGE-TAKER (EXPANSION.md §7, `ai.spawn(..., { holding: civ })`): plant
+   * the feet, keep the hostage between us and the threat, and shoot over his
+   * shoulder at anything we can actually see. No cover, no flanking: the
+   * shield is the plan.
+   */
+  _holdHostage(now) {
+    const T = this.perception.target;
+    this.state = this.brain.state = 'hold_hostage';
+    this.stopMove();
+    this.crouch = false;
+    this.wantFire = false;
+    this.aimWeight = 0.9;
+    if (T && T.conf > 0.2) {
+      this.face(T.pos);
+      if (T.visible && T.acquired) {
+        T.predict(now, this.fireAt);
+        this.fireTarget = T;
+        this.blindFire = false;
+        this.wantFire = this.clearShot(this.fireAt);
       }
-    }
-    this.targetVisible = visible;
-
-    if (visible) {
-      // reaction: fast head-on and close, slow at the edge of vision
-      const rate = 1 / Math.max(0.12, 0.16 + dist * 0.0075 + (1 - this.alertness) * 0.28);
-      this.awareness = Math.min(1, this.awareness + dt * rate * this.reactionMult);
-      this.lastKnown.copy(player);
-      this.lastKnownAge = 0;
-      this.alertness = 1;
-      if (this.awareness >= 1) {
-        this.hasTarget = true;
-        this.target = player;
-      }
-    } else {
-      this.awareness = Math.max(0, this.awareness - dt * 0.35);
-      if (this.hasTarget && this.lastKnownAge > 6.5) this.hasTarget = false;
     }
   }
 
-  /** A gunshot or footstep heard from `pos` with a given loudness (metres). */
-  hear(pos, loudness) {
+  /** Mirror the brain's picture onto the fields older callers read. */
+  _legacy(now) {
+    const T = this.perception.target;
+    this.hasTarget = !!(T && T.acquired && T.conf > 0.3);
+    this.targetVisible = !!(T && T.visible);
+    this.target = T?.actor ?? null;
+    if (T) {
+      this.lastKnown.copy(T.pos);
+      this.lastKnownAge = now - T.updT;
+    } else this.lastKnownAge = Infinity;
+    this.alertness = this.perception.alert;
+    this.awareness = T?.spot ?? 0;
+  }
+
+  /* ================================================================== */
+  /* perception glue                                                    */
+  /* ================================================================== */
+
+  /**
+   * Enemy BOTS moving fast nearby are heard (the player's footsteps arrive as
+   * `player:footstep` events). Crouched or slow movement makes no sound.
+   */
+  _hearBots(now) {
+    const agents = this.ai.agents;
+    for (let i = 0; i < agents.length; i++) {
+      const o = agents[i];
+      if (!o.alive || o.team === this.team || o.team === 'civ') continue;
+      if (o.crouch || o.speed < 1.3) continue;
+      const loud = o.speed > 2.8 ? 17 : 6.5;
+      const d = this.position.distanceTo(o.position);
+      if (d > loud) continue;
+      this.perception.hearFrom(o, o.position, (1 - d / loud) * 0.7, 'footstep', now);
+    }
+  }
+
+  /** A sound heard from `pos` with `loudness` metres of reach (legacy API). */
+  hear(pos, loudness, actor = null, kind = 'noise') {
     if (!this.alive) return;
     const d = this.position.distanceTo(pos);
     if (d > loudness) return;
-    const strength = 1 - d / loudness;
-    this.alertness = Math.max(this.alertness, Math.min(1, 0.35 + strength));
-    if (this.lastKnownAge > 1.2 || strength > 0.6) {
-      this.lastKnown.copy(pos);
-      this.lastKnownAge = Math.min(this.lastKnownAge, 0.35);
-    }
-    // hearing alone never grants a target; it turns the head and the body
-    this.awareness = Math.min(0.85, this.awareness + strength * 0.5);
-    if (this.state === STATE.IDLE || this.state === STATE.PATROL) this._setState(STATE.ALERT);
+    this.perception.hearFrom(actor, pos, 1 - d / loudness, kind, this.ctx.time.elapsed);
   }
 
   /** Rounds cracking past raise suppression, which drives the flinch + duck. */
   suppress(amount) {
     if (!this.alive) return;
     this.suppression = Math.min(1.6, this.suppression + amount);
-    this.alertness = 1;
+    this.perception.alert = 1;
+  }
+
+  /**
+   * Flashbang / concussion (EXPANSION.md §6): aim wrecked, sight gone above
+   * 0.55, memory of where things were shaken loose, recovering linearly over
+   * `duration`. The brain reads `stun` (SUPPRESSED / blind-fire / cover).
+   */
+  stun(intensity = 1, duration = 3) {
+    if (!this.alive) return;
+    const k = Math.max(0, Math.min(1, intensity));
+    if (k <= 0) return;
+    if (k >= this._stun) {
+      this._stun = k;
+      this._stunRate = k / Math.max(0.3, duration);
+    }
+    // blinded: nothing is "in view" any more and what was is less certain
+    for (const r of this.perception.mem.recs) {
+      if (!r.actor) continue;
+      r.visible = false;
+      r.conf *= 1 - 0.45 * k;
+      r.spot *= 1 - k;
+    }
+    this.suppression = Math.min(1.6, this.suppression + k * 0.6);
+    this.animator.hit('head', 1, 0.6 + k * 0.6);
+    this.bark('hurt', 1);
+  }
+
+  /** Current stun 0..1 (0 = clear). */
+  get stunLevel() {
+    return this._stun;
+  }
+
+  wasHurtRecently(s) {
+    return this.ctx.time.elapsed - this.lastHurtT < s;
+  }
+
+  /** First sighting of a target: shout it, and put it on the net. */
+  onAcquire(rec) {
+    this.bark('spot');
+    if (!this._spotted) this.radio('spot');
+    this._spotted = true;
+    this.callout('contact', rec.actor, rec.pos, 1);
+  }
+
+  /**
+   * Put a callout on the team net (comms.js), rate-limited per kind, with the
+   * matching radio subtitle.
+   */
+  callout(kind, actor = null, pos = null, conf = null) {
+    if (this.team === 'civ') return false;
+    const now = this.ctx.time.elapsed;
+    const gap = CALLOUT_GAP[kind] ?? 4;
+    if (now - (this._calloutT[kind] ?? -Infinity) < gap) return false;
+    this._calloutT[kind] = now;
+    const T = this.perception.target;
+    const who = actor ?? T?.actor ?? null;
+    const where = pos ?? T?.pos ?? this.position;
+    this.ai.comms.post(this, kind, who, where, conf ?? T?.conf ?? 1);
+    const line = CALLOUT_RADIO[kind];
+    if (line) this.radio(line);
+    return true;
+  }
+
+  /** A teammate's callout reached us (after its delay, in range). */
+  onCallout(c, now) {
+    const P = this.perception;
+    switch (c.kind) {
+      case 'contact':
+      case 'lastknown':
+        if (c.actor) P.fromCallout(c.actor, c.pos, c.conf, now);
+        else P.hearFrom(null, c.pos, 0.5, 'callout', now);
+        break;
+      case 'lost': {
+        const r = c.actor ? P.mem.find(c.actor) : null;
+        if (r && !r.visible) r.conf *= 0.7;
+        break;
+      }
+      case 'grenade':
+        this.grenadeWarnT = now;
+        break;
+      case 'help':
+        P.hearFrom(null, c.origin, 0.55, 'help', now);
+        break;
+    }
+    if (c.kind !== 'lost') this.bark('copy', 6);
   }
 
   /**
@@ -440,250 +655,119 @@ export class Agent {
     const now = this.ctx.time.elapsed;
     if (now - this._lastBark < cooldown) return;
     this._lastBark = now;
-    this.ctx.events.emit('ai:bark', { kind, agent: this, position: this.position, voice: this.id });
+    this.ctx.events.emit('ai:bark', { kind, agent: this, position: this.position, voice: this.id, team: this.team });
   }
 
-  /** Say a subtitle line on the enemy radio net (`ai:radio`, see radio.js). */
+  /** Say a subtitle line on the team's radio net (`ai:radio`, see radio.js). */
   radio(kind, about = null) {
     return this.ai.radio?.say(this, kind, about) ?? null;
   }
 
   /* ================================================================== */
-  /* behaviour                                                          */
+  /* the brain's hands and feet                                         */
   /* ================================================================== */
 
+  /** Legacy state setter (staged tableaux, old callers). */
   _setState(s) {
     if (this.state === s) return;
     this.state = s;
     this.stateTime = 0;
-    if (s !== STATE.COMBAT && s !== STATE.SUPPRESSED) this.peeking = false;
   }
 
-  _think(dt) {
-    const sq = this.squad;
-    switch (this.state) {
-      case STATE.IDLE:
-        this.desiredSpeed = 0;
-        this.crouch = false;
-        if (this.hasTarget) this._enterCombat();
-        else if (this.patrolPoints && this.stateTime > 2.5) this._setState(STATE.PATROL);
-        break;
-
-      case STATE.PATROL: {
-        this.crouch = false;
-        this.desiredSpeed = 1.35;
-        if (this.hasTarget) {
-          this._enterCombat();
-          break;
-        }
-        // a route point whose path is still queued is not a route point reached:
-        // taking the next one here would walk the patrol index forward for free
-        if (this.pathPending) break;
-        if (!this.hasMoveTarget || this.position.distanceTo(this.moveTarget) < 1.1) {
-          const p = this.patrolPoints?.[this.patrolIndex % this.patrolPoints.length];
-          if (p) {
-            this.patrolIndex++;
-            this._goTo(p);
-          } else this._setState(STATE.IDLE);
-        }
-        break;
-      }
-
-      case STATE.ALERT: {
-        this.crouch = false;
-        this.desiredSpeed = 1.5;
-        if (this.hasTarget) {
-          this._enterCombat();
-          break;
-        }
-        // move to the last known position, then look around
-        if (this.lastKnownAge < 8 && !this.hasMoveTarget) this._goTo(this.lastKnown);
-        if (this.stateTime > 12) this._setState(this.patrolPoints ? STATE.PATROL : STATE.IDLE);
-        break;
-      }
-
-      case STATE.COMBAT:
-        this._combat(dt);
-        break;
-
-      case STATE.SUPPRESSED:
-        this.crouch = true;
-        this.desiredSpeed = 0;
-        this.wantFire = false;
-        this.peeking = false;
-        if (this.suppression < 0.45) this._setState(STATE.COMBAT);
-        break;
-
-      case STATE.FLANK: {
-        this.crouch = false;
-        this.desiredSpeed = 4.4;
-        this.wantFire = false;
-        if (!this.hasMoveTarget || this.position.distanceTo(this.moveTarget) < 1.2 || this.stateTime > 7) {
-          this._setState(STATE.COMBAT);
-          this.cover = null;
-        }
-        if (this.suppression > 1.0) this._setState(STATE.COMBAT);
-        break;
-      }
-
-      case STATE.RETREAT: {
-        this.crouch = false;
-        this.desiredSpeed = 4.6;
-        this.wantFire = false;
-        if (!this.hasMoveTarget || this.position.distanceTo(this.moveTarget) < 1.2) {
-          this._setState(STATE.COMBAT);
-        }
-        if (this.health > 45 && this.stateTime > 4) this._setState(STATE.COMBAT);
-        break;
-      }
-    }
-
-    if (this.suppression > 1.15 && this.state === STATE.COMBAT && this.cover) {
-      this._setState(STATE.SUPPRESSED);
-    }
+  /** Horizontal distance to a point. */
+  distTo(p) {
+    return Math.hypot(p.x - this.position.x, p.z - this.position.z);
   }
 
-  _enterCombat() {
-    this._setState(STATE.COMBAT);
-    this.cover = null;
-    this.repathTimer = 0;
-    // Fresh acquisition only: the cooldown in bark() absorbs the case where
-    // this fires again a moment later from a COMBAT -> ALERT -> COMBAT flicker
-    // (target briefly lost then reacquired), so it never repeats within a few
-    // seconds of the first shout.
-    this.bark('spot');
-    this.radio('spot');
+  inCover() {
+    return !!this.cover && this.distTo(this.coverPos) < 0.9 && Math.abs(this.coverPos.y - this.position.y) < 1.2;
   }
 
-  _combat(dt) {
-    const target = this.hasTarget ? this.lastKnown : this.lastKnownAge < 5 ? this.lastKnown : null;
-    if (!target) {
-      this._setState(STATE.ALERT);
-      return;
+  isMoving() {
+    return this.hasMoveTarget || this.pathPending;
+  }
+
+  /**
+   * Walk/run to `dest` at `speed`. Re-plans only when the destination moved
+   * by more than 0.8 m, so calling it every think is cheap. Sets `moveFailed`
+   * when no route exists (the brain gives up on that destination).
+   */
+  moveTo(dest, speed) {
+    this.desiredSpeed = speed;
+    const d2 = this._moveDest.distanceToSquared(dest);
+    if (d2 < 0.64) {
+      if (this.hasMoveTarget || this.pathPending) return true;
+      if (this.moveFailed) return false;
+      if (this.distTo(dest) < 0.7) return true;
     }
-    const sq = this.squad;
-    const dist = this.position.distanceTo(target);
+    this._moveDest.copy(dest);
+    this.moveFailed = false;
+    const ok = this._goTo(dest);
+    if (!ok && !this.pathPending) this.moveFailed = true;
+    return ok;
+  }
 
-    // wounded and outgunned: fall back (more aggressive enemies retreat less)
-    if (this.health < 34 && this.stateTime > 1.5 && this.rng.float() < dt * 0.5 * (1.3 - 0.6 * this.aggression)) {
-      const away = this._v
-        .copy(this.position)
-        .sub(target)
-        .setY(0)
-        .normalize()
-        .multiplyScalar(9)
-        .add(this.position);
-      if (this._goTo(away)) {
-        this._setState(STATE.RETREAT);
-        return;
-      }
-    }
+  stopMove() {
+    this.hasMoveTarget = false;
+    this.pathPending = false;
+    this.desiredSpeed = 0;
+  }
 
-    // no cover yet, or the current one no longer protects: find one
-    if (!this.cover || this.repathTimer <= 0) {
-      const pick = this.ai.cover?.pick(this.position, target, {
-        id: this.id,
-        squad: sq?.members,
-        minRange: 7,
-        maxRange: 30,
-        maxTravel: this.cover ? 12 : 26,
-      });
-      this.repathTimer = this.rng.range(2.2, 4.5);
-      if (pick && pick !== this.cover) {
-        this.cover = pick;
-        this.coverPos.set(pick.x, pick.y, pick.z);
-        this._goTo(this.coverPos);
-      }
-    }
+  face(p) {
+    this.faceMode = 1;
+    this.facePoint.copy(p);
+  }
 
-    // A cover point we cannot actually reach must not mute the agent for ever.
-    // `_goTo` fails outright when A* finds no route (which happens for a cover
-    // point across an unwalkable seam), and a path can also run out short of the
-    // point. The branch below reads "has cover, not standing in it" as "walk,
-    // weapon down, hold fire", so without this the agent stands in the open with
-    // the player in plain sight and never pulls the trigger.
-    if (
-      this.cover &&
-      !this.hasMoveTarget &&
-      !this.pathPending && // still queued behind the frame's A* budget
-      this.position.distanceTo(this.coverPos) > 0.85
-    ) {
-      this.cover = null;
-      this.ai.cover?.release(this.id);
-      this.repathTimer = Math.min(this.repathTimer, 0.6);
-    }
+  faceYaw(y) {
+    this.faceMode = 2;
+    this.faceYawV = y;
+  }
 
-    const atCover = this.cover
-      ? this.position.distanceTo(this.coverPos) < 0.85
-      : false;
-    // arriving in cover (not every peek shuffle inside it) is the radio beat
-    if (atCover && !this._inCover) this.radio('cover');
-    this._inCover = atCover;
+  get reloading() {
+    return this.animator.reloading;
+  }
 
-    if (this.cover && !atCover) {
-      // moving into position: run, weapon down, no shooting
-      this.desiredSpeed = 4.3;
-      this.crouch = false;
-      this.wantFire = false;
-      this.aimWeight = 0.35;
-    } else {
-      this.desiredSpeed = 0;
-      this.hasMoveTarget = false;
-      // peek-and-shoot, gated by the squad so they alternate
-      const allowed = !sq || sq.requestPeek(this, dt);
-      if (this.peekTimer <= 0) {
-        this.peeking = allowed && this.targetVisible !== false;
-        this.peekTimer = this.peeking ? this.rng.range(1.1, 2.4) : this.rng.range(0.7, 1.8);
-        if (this.peeking && this.cover) {
-          this.peekSide = this.ai.cover.peekOffset(this.cover, target, this.eyeHeight, this._v2);
-          this.coverPos.copy(this._v2);
+  startReload() {
+    if (this.animator.reloading || this.ammo >= this.magSize) return false;
+    this.animator.reload(this.weapon.reload ?? 2.35);
+    this.ai.emitReload(this);
+    this._reloadPending = true;
+    this.burstLeft = 0;
+    return true;
+  }
+
+  throwGrenadeAt(p) {
+    this._throwGrenade(p);
+  }
+
+  /**
+   * Friendly fire avoidance: false when a teammate stands in the line of fire
+   * to `p` (then step aside instead of shooting through him).
+   */
+  clearShot(p) {
+    const eye = this.eye;
+    const dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const ux = dx / len, uy = dy / len, uz = dz / len;
+    const lists = this.ai._civLists;
+    lists[0] = this.ai.agents;
+    lists[1] = this.ai.civilians;
+    for (let l = 0; l < 2; l++) {
+      const list = lists[l];
+      for (let i = 0; i < list.length; i++) {
+        const o = list[i];
+        if (o === this || o === this.holding || !o.alive || (o.team !== this.team && o.team !== 'civ')) continue;
+        const ox = o.position.x - eye.x, oy = o.position.y + 1.1 - eye.y, oz = o.position.z - eye.z;
+        const t = ox * ux + oy * uy + oz * uz;
+        if (t < 0.4 || t > len - 0.5) continue;
+        const mx = ox - ux * t, my = oy - uy * t, mz = oz - uz * t;
+        if (mx * mx + mz * mz < 0.36 && Math.abs(my) < 1.0) {
+          this.friendBlockT = this.ctx.time.elapsed;
+          return false;
         }
       }
-      this.crouch = this.cover ? !this.cover.high || !this.peeking : false;
-      this.aimWeight = this.peeking ? 1 : 0.55;
-      this.wantFire = this.peeking && this.targetVisible && this.hasTarget && dist < this.weaponRange;
-      // suppressing fire at the last known spot even without a clean shot
-      if (!this.wantFire && this.hasTarget && this.lastKnownAge < 2.2 && this.peeking) {
-        this.wantFire = this.rng.float() < 0.35;
-        if (this.wantFire) this.bark('suppress');
-      }
     }
-
-    // flank when the player has been static and we have friends shooting
-    if (
-      sq &&
-      this.stateTime > 4 &&
-      this.grenadeCooldown < 0 === false &&
-      sq.canFlank(this) &&
-      this.rng.float() < dt * 0.25 * (0.5 + this.aggression)
-    ) {
-      const side = this.rng.float() < 0.5 ? 1 : -1;
-      const perp = this._v.copy(target).sub(this.position).setY(0).normalize();
-      const flank = this._v2
-        .set(-perp.z * side, 0, perp.x * side)
-        .multiplyScalar(this.rng.range(8, 15))
-        .add(this.position)
-        .addScaledVector(perp, 4);
-      if (this._goTo(flank)) {
-        this.cover = null;
-        this.ai.cover?.release(this.id);
-        this._setState(STATE.FLANK);
-        sq.claimFlank(this);
-        return;
-      }
-    }
-
-    // grenade when the player is pinned and we have line of fire
-    if (
-      this.hasGrenade &&
-      this.grenadeCooldown <= 0 &&
-      dist > 8 &&
-      dist < 26 &&
-      this.lastKnownAge < 1.5 &&
-      (!sq || sq.requestGrenade(this))
-    ) {
-      this._throwGrenade(target);
-    }
+    return true;
   }
 
   /* ================================================================== */
@@ -764,13 +848,16 @@ export class Agent {
     this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 7);
     if (this.speed < 0.05) this.speed = 0;
 
-    // facing: look where we are going, or at the threat when engaged
-    const engaged =
-      this.state === STATE.COMBAT || this.state === STATE.SUPPRESSED || this.hasTarget;
-    if (engaged && this.lastKnownAge < 8) {
-      this.targetYaw = Math.atan2(this.lastKnown.x - this.position.x, this.lastKnown.z - this.position.z);
+    // facing: the brain's point or heading; otherwise where we are going. A
+    // running man faces his run unless the point is within 70 degrees of it.
+    const moveYaw = Math.atan2(this._steer.x, this._steer.z);
+    if (this.faceMode === 1) {
+      const fy = Math.atan2(this.facePoint.x - this.position.x, this.facePoint.z - this.position.z);
+      this.targetYaw = this.speed > 3.2 && !this.staged && Math.abs(wrapAngle(fy - moveYaw)) > 1.2 ? moveYaw : fy;
+    } else if (this.faceMode === 2) {
+      this.targetYaw = this.speed > 3.2 ? moveYaw : this.faceYawV;
     } else if (this.speed > 0.2) {
-      this.targetYaw = Math.atan2(this._steer.x, this._steer.z);
+      this.targetYaw = moveYaw;
     }
     let dy = this.targetYaw - this.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
@@ -797,18 +884,79 @@ export class Agent {
       if (c.lastMoveBlocked && this.speed > 1.5 && this.vaultCooldown <= 0 && this.grounded) {
         this._tryVault();
       }
-      if (c.lastMoveBlocked && this.speed > 0.5) {
-        this.stuckTimer += dt;
-        if (this.stuckTimer > 1.1) {
-          this.stuckTimer = 0;
-          this.repathTimer = 0;
-          if (this.hasMoveTarget) this._goTo(this.moveTarget);
-        }
-      } else this.stuckTimer = 0;
+      this._unstick(dt);
     } else {
       this.position.x += this._steer.x * this.speed * dt;
       this.position.z += this._steer.z * this.speed * dt;
     }
+  }
+
+  /**
+   * STUCK DETECTION + RECOVERY. Progress, not collision, is what counts: a bot
+   * that wants to move but has not covered 0.35 m escalates
+   *   1.0 s  re-plan the route from where it actually is
+   *   1.8 s  walk to a free cell 2-4 m to one side (unwedge from a corner,
+   *          a doorway jam, another bot)
+   *   2.6 s  snap to the nearest walkable cell centre toward its next
+   *          waypoint (the guarantee: nobody stays stuck for 3 s)
+   * and anyone who has fallen out of the level is put back on the grid.
+   */
+  _unstick(dt) {
+    const now = this.ctx.time.elapsed;
+    const ai = this.ai;
+    const g = ai.grid;
+    if (g && this.position.y < g.minY - 6) {
+      this._snapToGrid(this.position);
+      return;
+    }
+    const wants = (this.hasMoveTarget || this.pathPending) && this.desiredSpeed > 0.4 && !this.animator.vaulting;
+    if (!wants || this.position.distanceToSquared(this._progPos) > 0.1225) {
+      this._progPos.copy(this.position);
+      this._progT = now;
+      this._stuckLevel = 0;
+      return;
+    }
+    const t = now - this._progT;
+    if (t > 0.8 && this._stuckLevel < 1) {
+      this._stuckLevel = 1;
+      ai.stats.unstick1++;
+      if (this.hasMoveTarget) this._goTo(this._moveDest.x < Infinity ? this._moveDest : this.moveTarget);
+    } else if (t > 1.5 && this._stuckLevel < 2) {
+      this._stuckLevel = 2;
+      ai.stats.unstick2++;
+      const side = (this.id + Math.floor(now)) % 2 ? 1 : -1;
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      this._v.set(this.position.x + (fz * side - fx) * 2.5, this.position.y, this.position.z + (-fx * side - fz) * 2.5);
+      if (ai.snapWalkable(this._v, this.position.y, this._v2, 3)) {
+        // the detour keeps _moveDest, so the brain's next moveTo re-plans the
+        // real route once the bot has stepped clear
+        this._goTo(this._v2);
+      }
+    } else if (t > 2.2) {
+      ai.stats.unstick3++;
+      const wp = this.hasMoveTarget && this.pathIndex < this.pathLen ? this.path[this.pathIndex] : null;
+      const toward = this._v.copy(this.position);
+      if (wp) {
+        const d = this.distTo(wp);
+        if (d < 3) toward.copy(wp);
+        else toward.lerp(wp, Math.min(1, 1.2 / d));
+      }
+      this._snapToGrid(toward);
+      this._progPos.copy(this.position);
+      this._progT = now;
+      this._stuckLevel = 0;
+      this.moveFailed = false;
+      if (this._moveDest.x < Infinity) this._goTo(this._moveDest);
+    }
+  }
+
+  _snapToGrid(p) {
+    const out = this._v3;
+    if (!this.ai.snapWalkable(p, p.y, out, 6)) return false;
+    this.position.copy(out);
+    this.velocity.set(0, 0, 0);
+    this.controller?.teleport(out.x, out.y, out.z);
+    return true;
   }
 
   _tryVault() {
@@ -840,58 +988,115 @@ export class Agent {
   /* shooting                                                           */
   /* ================================================================== */
 
+  /**
+   * AIM, NOT AIMBOT. The gun points at the brain's `fireAt` (a point from
+   * MEMORY: the last observed position, extrapolated along the observed
+   * velocity by as much as this man's skill lets him lead), and each round
+   * leaves with an angular error built from the things that make real shooters
+   * miss (see _aimError). Rounds then fly through physics, so a target that
+   * moved since the last look is simply missed.
+   */
   _shoot(dt) {
-    // where the gun is pointing: lead toward the target with human error
-    const t = this.hasTarget || this.lastKnownAge < 3 ? this.lastKnown : null;
-    if (t) {
-      // aim at the chest, not the feet
-      this._v.set(t.x, t.y + 0.05, t.z);
-      const dist = this.position.distanceTo(this._v);
-      const wobbleT = this.ctx.time.elapsed * 1.7 + this.id;
-      const wob = 0.012 + this.suppression * 0.05;
-      this._v.x += Math.sin(wobbleT) * wob * dist * 0.12;
-      this._v.y += Math.sin(wobbleT * 1.7 + 1.1) * wob * dist * 0.08;
-      this._v.z += Math.cos(wobbleT * 0.8) * wob * dist * 0.12;
-      this.aimTarget.lerp(this._v, Math.min(1, dt * 6));
+    const now = this.ctx.time.elapsed;
+    const T = this.fireTarget;
+    const aimAt = this._v;
+    if (this.wantFire || (T && T.actor?.alive && now - T.updT < 3 && this.aimWeight > 0.6)) {
+      aimAt.copy(this.fireAt);
+      // slow sway around the point: the human part of holding a rifle
+      const err = this._aimSigma * 0.7;
+      const w = now * 1.3 + this.id * 1.7;
+      const dist = this.position.distanceTo(aimAt);
+      aimAt.x += Math.sin(w) * err * dist;
+      aimAt.y += Math.sin(w * 1.63 + 1.1) * err * dist * 0.6;
+      aimAt.z += Math.cos(w * 0.77) * err * dist;
+      this.aimTarget.lerp(aimAt, Math.min(1, dt * (5 + 5 * this.skill)));
     } else {
-      const fwd = this._v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
-      this._v2
-        .copy(this.position)
-        .addScaledVector(fwd, 12)
-        .setY(this.position.y + this.eyeHeight - 0.1);
+      let fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      if (this.faceMode === 1) {
+        const dx = this.facePoint.x - this.position.x, dz = this.facePoint.z - this.position.z;
+        const l = Math.hypot(dx, dz);
+        if (l > 0.5) { fx = dx / l; fz = dz / l; }
+      }
+      this._v2.set(this.position.x + fx * 12, this.position.y + this.eyeHeight - 0.1, this.position.z + fz * 12);
       this.aimTarget.lerp(this._v2, Math.min(1, dt * 3));
     }
 
-    if (!this.wantFire || this.animator.reloading || this.animator.vaulting) return;
-    if (this.ammo <= 0) {
-      this.animator.reload(this.variantName === 'irregular' ? 2.9 : 2.35);
-      this.ai.emitReload(this);
-      this.ammo = this.magSize;
+    if (!this.wantFire || this.animator.reloading || this.animator.vaulting) {
+      if (!this.wantFire) this._burstShots = 0;
       return;
     }
+    if (this.ammo <= 0) {
+      this.startReload();
+      return;
+    }
+    // first-sighting reaction: nobody fires on the frame he sees you
+    if (T && now - T.acquiredT < this._firstShotDelay) return;
+    // barrel roughly on target before the trigger
+    const W = this.weapon;
+    const R = this.roleDef;
     if (this.burstLeft <= 0) {
       if (this.burstCooldown > 0) return;
-      this.burstLeft = this.rng.int(3, 7);
-      this.burstCooldown = this.rng.range(0.45, 1.35) + this.suppression * 0.5;
+      this.burstLeft = this.rng.int(R.burst[0], R.burst[1]);
+      this.burstCooldown = this.rng.range(R.burstGap[0], R.burstGap[1]) * (1.2 - 0.4 * this.skill) + this.suppression * 0.5;
+      this._burstShots = 0;
+      // rockets: rate-limited, only worth it at range or into a group
+      if (W.projectile && !this.ai.rocketWorthIt(this, this.fireAt)) {
+        this.burstLeft = 0;
+        this.burstCooldown = 1.5;
+        return;
+      }
     }
     if (this.fireCooldown > 0) return;
     this.fireCooldown = 1 / this.fireRate;
     this.burstLeft--;
     this.ammo--;
-    this._fireRound();
+    this._fireRound(now);
+    this._burstShots++;
   }
 
-  _fireRound() {
+  /** Angular error (radians, 1 sigma) for the next round. */
+  _aimError(now) {
+    const T = this.fireTarget;
+    const W = this.weapon;
+    let s = 0.011 * (1.75 - 1.15 * this.skill); // 0.019 raw .. 0.0066 elite
+    if (T) {
+      const d = Math.max(2, this.position.distanceTo(T.pos));
+      // tracking: how fast he crosses our view, and how well we follow it
+      const vx = T.vel.x, vz = T.vel.z;
+      const tx = (T.pos.x - this.position.x) / d, tz = (T.pos.z - this.position.z) / d;
+      const lateral = Math.abs(vx * tz - vz * tx);
+      s += (lateral / d) * 0.35 * (1 - 0.5 * this.skill);
+      // reaction: the first rounds after acquisition go wide
+      s += 0.045 * Math.exp(-(now - T.acquiredT) / (0.45 + 0.4 * (1 - this.skill)));
+      // partly hidden target
+      s += (1 - T.visFrac) * 0.012;
+    }
+    s += this.speed * 0.009; // shooting on the move
+    s += this.suppression * 0.022;
+    s += this._burstShots * (W.bloom ?? 0.004); // bloom through the burst
+    if (this.crouch) s *= 0.85;
+    if (W.cls === 'sniper') s *= 0.35;
+    s *= 1 + this._stun * 7;
+    if (this.blindFire) s = Math.max(s, 0.09);
+    return s;
+  }
+
+  _fireRound(now = this.ctx.time.elapsed) {
     const an = this.animator;
     const origin = an.muzzleWorld;
-    const dir = this._muzzleDir.copy(an.muzzleDir);
-    // cone of fire: worse when suppressed, better the longer we have been aiming
-    const spread = this.spread * (1 + this.suppression * 1.5);
-    dir.x += this.rng.gauss() * spread;
-    dir.y += this.rng.gauss() * spread * 0.8;
-    dir.z += this.rng.gauss() * spread;
+    // straight from the muzzle to the aim point, not down the animated bore:
+    // IK is for the picture, the round goes where the man is aiming
+    const dir = this._muzzleDir.copy(this.aimTarget).sub(origin);
+    if (dir.lengthSq() < 1e-6) dir.copy(an.muzzleDir);
     dir.normalize();
-    an.fire(1);
+    const s = this._aimError(now);
+    this._aimSigma = s;
+    dir.x += this.rng.gauss() * s;
+    dir.y += this.rng.gauss() * s * 0.7;
+    dir.z += this.rng.gauss() * s;
+    dir.normalize();
+    an.fire(this.weapon.cls === 'shotgun' || this.weapon.cls === 'sniper' || this.weapon.projectile ? 1.6 : 1);
+    this.shotsFired++;
     this.ai.onAgentFire(this, origin, dir);
   }
 
@@ -915,23 +1120,19 @@ export class Agent {
    * @param point   world impact point
    * @param dir     incident direction (unit)
    */
-  applyDamage(amount, part, point, dir, blast = null) {
+  applyDamage(amount, part, point, dir, blast = null, source = null) {
     if (!this.alive) return;
+    if (source) this.lastAttacker = source;
+    this.lastHurtT = this.ctx.time.elapsed;
     this.health -= amount;
     this.alertness = 1;
     this.suppression = Math.min(1.6, this.suppression + 0.35);
-    // knowing where it came from
-    if (dir) {
-      this._v.copy(point).addScaledVector(dir, -14);
-      if (this.lastKnownAge > 0.5) {
-        this.lastKnown.copy(this._v);
-        this.lastKnownAge = 0.4;
-      }
-    }
-    if (this.state === STATE.IDLE || this.state === STATE.PATROL) this._setState(STATE.ALERT);
+    // knowing roughly where it came from (a direction, not a position)
+    if (dir && point && !blast) this.perception.fromDamage(source, point, dir, this.ctx.time.elapsed);
+    if (this.health < this.maxHealth * 0.4 && this.health > 0) this.callout('help');
 
     if (this.health <= 0) {
-      this.die(point, dir, amount, part, blast);
+      this.die(point, dir, amount, part, blast, source);
       return;
     }
     this.bark('hurt');
@@ -961,10 +1162,13 @@ export class Agent {
    * @param blast   `{ position, radius, strength }` when an explosion did it:
    *                the doll is launched from the blast centre (see _launch)
    */
-  die(point, dir, amount = 30, part = 'torso', blast = null) {
+  die(point, dir, amount = 30, part = 'torso', blast = null, source = null) {
     if (!this.alive) return;
+    if (source) this.lastAttacker = source;
     this.alive = false;
     this.state = STATE.DEAD;
+    this.squad?.releaseFlank?.(this);
+    this.squad?.releasePeek?.(this);
     this.wantFire = false;
     this.animator.enabled = false;
     this.ai.cover?.release(this.id);
@@ -997,8 +1201,19 @@ export class Agent {
       if (blast) this._launch(rd, blast);
       else this._maybeDramatic(rd, impulse);
     }
+    // Kill accounting for modes (EXPANSION.md §2): who, which side, by whom.
+    // `killer` is the Agent, or the player system when Doug did it (the same
+    // object `damage:dealt` names as its target when he is hit).
+    const k = this.lastAttacker;
+    const killerIsPlayer = !!k?.isPlayer;
     this.ctx.events.emit('actor:death', {
       actor: this,
+      team: this.team,
+      role: this.role,
+      killer: killerIsPlayer ? k.system ?? this.ctx.peek('player') ?? 'player' : k ?? null,
+      killerTeam: k?.team ?? null,
+      killerName: k?.name ?? null,
+      killerIsPlayer,
       point: hitPoint,
       impulse,
       headshot,
@@ -1006,6 +1221,7 @@ export class Agent {
       dramatic: !!this.dramaticDeath,
     });
     this.deadTime = 0;
+    this.ai.onAgentDeath?.(this);
     this._squadReport();
   }
 
@@ -1140,7 +1356,7 @@ export class Agent {
       speed: this.speed,
       crouch: this.crouch,
       aimTarget: this.aimTarget,
-      lookTarget: this.hasTarget || this.lastKnownAge < 4 ? this.lastKnown : this.aimTarget,
+      lookTarget: this.faceMode === 1 ? this.facePoint : this.aimTarget,
       aimWeight: this.aimWeight,
       suppress: Math.min(1, this.suppression * 0.8),
     });
