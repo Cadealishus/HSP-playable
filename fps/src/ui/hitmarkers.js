@@ -10,6 +10,8 @@ const KINDS = {
   armour: { c: '#b9ccda', w: 2.0, s: 1.03, life: 0.28, ring: 0.5, spin: 0 },
   head: { c: '#edb54c', w: 2.2, s: 1.08, life: 0.32, ring: 0.3, spin: 0 },
   kill: { c: '#e4412e', w: 2.7, s: 1.18, life: 0.42, ring: 1, spin: 9 },
+  /** Headshot kill: the kill X in red, the ring in the headshot gold. */
+  headkill: { c: '#e4412e', w: 2.9, s: 1.24, life: 0.5, ring: 1, spin: 12, rc: '#edb54c' },
 };
 
 /**
@@ -67,7 +69,7 @@ export class Hitmarkers {
     );
   }
 
-  /** @param {'hit'|'armour'|'head'|'kill'} kind */
+  /** @param {'hit'|'armour'|'head'|'kill'|'headkill'} kind */
   spawn(kind = 'hit') {
     const k = KINDS[kind] ?? KINDS.hit;
     const it = this.pool.acquire();
@@ -77,7 +79,7 @@ export class Hitmarkers {
     it.c = k.spin;
     it.node._main.setAttribute('stroke', k.c);
     it.node._main.setAttribute('stroke-width', k.w);
-    it.node._ring.setAttribute('stroke', k.c);
+    it.node._ring.setAttribute('stroke', k.rc ?? k.c);
     if (k.ring <= 0) setStyle(it.node._ring, 'opacity', '0');
     return it;
   }

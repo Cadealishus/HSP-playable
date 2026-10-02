@@ -1022,6 +1022,146 @@ const CSS = `
 .ow-report::-webkit-scrollbar { width: calc(4px * var(--k)); }
 .ow-report::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); }
 
+/* ============================================================ main menu
+   The title's look (wordmark, amber rule, briefing grid, map plans) as a real
+   front end: an entry list on the left, the focused entry's card on the right. */
+.ow-mm-left {
+  position:absolute; left: calc(var(--u) * 18); top: 11%;
+  width: calc(560px * var(--k));
+}
+.ow-mm .ow-att-rule { margin: calc(var(--u) * 6) 0 calc(var(--u) * 4); }
+.ow-mm-crumb { font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--ink-3);
+  margin-bottom: calc(var(--u) * 4); white-space:pre; }
+.ow-mm-list { display:grid; gap: calc(var(--u) * .6); }
+.ow-mm-row {
+  position:relative; display:flex; align-items:baseline; gap: calc(var(--u) * 3);
+  padding: calc(var(--u) * 1.6) calc(var(--u) * 4) calc(var(--u) * 1.6) calc(var(--u) * 4.5);
+  cursor:pointer; color: var(--ink-2);
+  border-left: calc(2px * var(--k)) solid transparent;
+}
+.ow-mm-row.on { color: var(--ink); background: linear-gradient(90deg, rgba(237,181,76,.14), rgba(237,181,76,0) 85%);
+  border-left-color: var(--acc); }
+.ow-mm-idx { font-family: var(--fd); font-weight:600; font-size: calc(15px * var(--k)); color: var(--ink-3);
+  min-width: calc(22px * var(--k)); }
+.ow-mm-row.on .ow-mm-idx { color: var(--acc); }
+.ow-mm-label { font-family: var(--fd); font-weight:600; font-size: calc(32px * var(--k)); letter-spacing:.05em; line-height:1.05; }
+.ow-mm-row.back .ow-mm-label, .ow-mm-row.value .ow-mm-label { font-size: calc(22px * var(--k)); letter-spacing:.12em; }
+.ow-mm-row.back { margin-top: calc(var(--u) * 2); }
+.ow-mm-row.deploy .ow-mm-label { color: var(--acc); font-size: calc(40px * var(--k)); }
+.ow-mm-tag { margin-left:auto; font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.24em; color: var(--ink-3); }
+.ow-mm-row.on .ow-mm-tag { color: var(--acc); }
+.ow-mm-val { margin-left:auto; display:flex; align-items:baseline; gap: calc(var(--u) * 2.4);
+  font-size: max(10px, calc(15px * var(--k))); font-weight:600; letter-spacing:.2em; }
+.ow-mm-val b { color: var(--ink); min-width: calc(150px * var(--k)); text-align:center; font-weight:600; }
+.ow-mm-row.on .ow-mm-val b { color: var(--acc); }
+.ow-mm-arr { font-style:normal; color: var(--ink-3); }
+.ow-mm-row.on .ow-mm-arr { color: var(--ink); }
+
+.ow-mm-panel {
+  position:absolute; right: calc(var(--u) * 18); top: 13%;
+  width: min(calc(600px * var(--k)), calc(100vw - var(--u) * 36 - 560px * var(--k)));
+  max-height: 74%; overflow:hidden;
+}
+.ow-mm-card { padding: calc(var(--u) * 6) calc(var(--u) * 7); background: rgba(14,14,13,.84);
+  border: 1px solid rgba(255,255,255,.08); position:relative; }
+.ow-mm-card::before { content:''; position:absolute; left:-1px; right:-1px; top:-1px; height: calc(3px * var(--k)); background: var(--acc); }
+.ow-mm-card .ow-ms-name { margin-bottom: calc(var(--u) * 3); }
+.ow-mm-sub, .ow-mm-text { font-family: var(--fs); text-transform:none; letter-spacing:0; font-weight:400;
+  font-size: calc(16px * var(--k)); line-height:1.45; color: var(--ink-2); margin-bottom: calc(var(--u) * 4); }
+.ow-mm-plan { margin-bottom: calc(var(--u) * 4); }
+.ow-mm-plan .ow-mp-plan { height: calc(150px * var(--k)); color: var(--acc); }
+.ow-mm-card .ow-ms-grid .v { font-size: calc(15.5px * var(--k)); }
+.ow-mm-go { margin-top: calc(var(--u) * 5); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--hair-2);
+  font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc); }
+.ow-mm-hint { color: var(--ink-3); }
+.ow-mm-keys { display:grid; grid-template-columns: 1fr 1fr; column-gap: calc(var(--u) * 8); row-gap: calc(var(--u) * 5); }
+.ow-mm-khead { font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc);
+  margin-bottom: calc(var(--u) * 2); }
+.ow-mm-krow { display:flex; align-items:center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * .7) 0;
+  border-bottom: 1px solid var(--hair-2); }
+.ow-mm-kk { display:flex; gap: calc(var(--u) * 1); min-width: calc(96px * var(--k)); }
+.ow-mm-kk .ow-key { position:static; transform:none; min-width: calc(22px * var(--k)); height: calc(20px * var(--k));
+  padding: 0 calc(5px * var(--k)); display:inline-flex; align-items:center; justify-content:center;
+  font-size: max(10px, calc(11.5px * var(--k))); }
+.ow-mm-kl { font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.14em; color: var(--ink-2); }
+
+/* ============================================================== mode HUD
+   Bot-match score bar under the compass (the survival run bar's slot). */
+.ow-mh {
+  position:absolute; left:50%; top:calc(var(--pad) * .7 + 44px * var(--k));
+  transform: translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap: calc(var(--u) * 1.4);
+  text-shadow: var(--sh-o1);
+}
+.ow-mh-bar { display:flex; align-items:flex-end; gap: calc(var(--u) * 5);
+  padding: calc(var(--u) * 1.2) calc(var(--u) * 6); background: radial-gradient(ellipse 60% 100% at 50% 50%, rgba(9,10,11,.55), rgba(9,10,11,0)); }
+.ow-mh-side { width: calc(150px * var(--k)); }
+.ow-mh-top { display:flex; align-items:baseline; gap: calc(var(--u) * 2); }
+.ow-mh-side.hos .ow-mh-top { justify-content:flex-end; }
+.ow-mh-team { font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.24em; }
+.ow-mh-side.esf .ow-mh-team { color: var(--friend); }
+.ow-mh-side.hos .ow-mh-team { color: var(--enemy); }
+.ow-mh-score { font-family: var(--fd); font-weight:600; font-size: calc(30px * var(--k)); line-height:1; }
+.ow-mh-side.esf .ow-mh-score { margin-left:auto; }
+.ow-mh-side.hos .ow-mh-score { margin-right:auto; }
+.ow-mh-prog { margin-top: calc(var(--u) * 1); height: calc(3px * var(--k)); background: rgba(255,255,255,.14); position:relative; }
+.ow-mh-prog i { position:absolute; inset:0; transform:scaleX(0); }
+.ow-mh-side.esf .ow-mh-prog i { background: var(--friend); transform-origin:right center; }
+.ow-mh-side.hos .ow-mh-prog i { background: var(--enemy); transform-origin:left center; }
+.ow-mh-mid { text-align:center; min-width: calc(110px * var(--k)); }
+.ow-mh-clock { font-family: var(--fd); font-weight:600; font-size: calc(24px * var(--k)); line-height:1; }
+.ow-mh-clock.hot { color: var(--red); }
+.ow-mh-label { margin-top: calc(var(--u) * 1); font-size: max(10px, calc(10.5px * var(--k))); font-weight:600;
+  letter-spacing:.22em; color: var(--ink-2); white-space:nowrap; }
+.ow-mh-pips { display:flex; align-items:center; gap: calc(var(--u) * 3); }
+.ow-mh-pipset { display:flex; gap: calc(var(--u) * .8); }
+.ow-mh-pipset b { width: calc(9px * var(--k)); height: calc(9px * var(--k)); display:block; }
+.ow-mh-pipset.esf b { background: var(--friend); }
+.ow-mh-pipset.hos b { background: var(--enemy); }
+.ow-mh-pipset b.dead { background: rgba(255,255,255,.14); }
+.ow-mh-vs { font-size: max(10px, calc(10px * var(--k))); font-weight:600; letter-spacing:.24em; color: var(--ink-3); }
+.ow-mh-chips { display:flex; gap: calc(var(--u) * 3); }
+.ow-mh-chip { position:relative; width: calc(34px * var(--k)); height: calc(34px * var(--k)); }
+.ow-mh-chip svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.ow-mh-chip .bg { fill: rgba(9,10,11,.6); stroke: rgba(255,255,255,.22); stroke-width: 2; }
+.ow-mh-chip .ring { fill:none; stroke-width: 3.2; }
+.ow-mh-chip.esf .bg { fill: rgba(169,198,220,.34); stroke: var(--friend); }
+.ow-mh-chip.hos .bg { fill: rgba(242,101,79,.3); stroke: var(--enemy); }
+.ow-mh-chip.contested .bg { stroke: var(--acc); }
+.ow-mh-chip.planted .bg { fill: rgba(228,65,46,.42); stroke: var(--red); }
+.ow-mh-chip span { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family: var(--fd); font-weight:700; font-size: calc(17px * var(--k)); }
+.ow-mh-chip.inside::after { content:''; position:absolute; left:25%; right:25%; bottom: calc(-6px * var(--k));
+  height: calc(2px * var(--k)); background: var(--acc); }
+.ow-mh-status { font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.22em; color: var(--ink-2); white-space:nowrap; }
+.ow-mh-status.hot { color: var(--enemy); }
+
+.ow-mh-respawn { position:absolute; left:50%; top:38%; transform: translate(-50%,-50%); text-align:center;
+  padding: calc(var(--u) * 5) calc(var(--u) * 24);
+  background: linear-gradient(90deg, rgba(8,6,6,0), rgba(8,6,6,.7) 22%, rgba(8,6,6,.7) 78%, rgba(8,6,6,0)); }
+.ow-mh-kia { font-family: var(--fd); font-weight:700; font-size: calc(54px * var(--k)); letter-spacing:.12em; color: var(--ink); line-height:1; }
+.ow-mh-killer { margin-top: calc(var(--u) * 2.5); font-size: max(10px, calc(14px * var(--k))); font-weight:600; letter-spacing:.22em; color: var(--enemy); }
+.ow-mh-redeploy { margin-top: calc(var(--u) * 2); font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc); }
+.ow-mh-spec { position:absolute; left:50%; bottom: 26%; transform: translateX(-50%);
+  display:flex; align-items:baseline; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.6) calc(var(--u) * 5);
+  background: rgba(0,0,0,.7); text-shadow: var(--sh-o1); white-space:nowrap; }
+.ow-mh-spec-k { font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--ink-3); }
+.ow-mh-spec b { font-family: var(--fd); font-weight:600; font-size: calc(22px * var(--k)); letter-spacing:.08em; color: var(--friend); }
+.ow-mh-spec-h { font-size: max(10px, calc(11px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
+.ow-mh-confirm { position:absolute; left:50%; top: calc(50% + 46px * var(--k)); transform: translate(-50%,0);
+  display:flex; align-items:center; gap: calc(var(--u) * 1.6);
+  font-size: max(10px, calc(13px * var(--k))); font-weight:700; letter-spacing:.2em; color: var(--ink); text-shadow: var(--sh-o1); }
+.ow-mh-confirm i { font-style:normal; color: var(--red); }
+.ow-mh-confirm.head i { color: var(--acc); }
+
+/* match report: team scores */
+.ow-mr-score { align-items:baseline; }
+.ow-mr-score .ow-sc-score.esf { color: var(--friend); }
+.ow-mr-score .ow-sc-score.hos { color: var(--enemy); }
+.ow-mr-dash { font-family: var(--fd); font-size: calc(40px * var(--k)); color: var(--ink-3); }
+.ow-screen.match.won .ow-sc-title { color: var(--acc); }
+.ow-screen.match.lost .ow-sc-title { color: var(--enemy); }
+
 /* ============================================================== fadeouts */
 .ow-hidden { display:none !important; }
 `;

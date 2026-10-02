@@ -96,6 +96,9 @@ Emit and listen via `ctx.events`. Payloads are plain objects. The canonical set:
 | `boot:done` | `{ totalMs }` | engine |
 | `ui:attract` | `{}` — return to attract state (cabinet idle reset) | ui |
 | `game:multiKill` | `{ count }` — kills inside the 1.2s combo window (killfeed `BATCH PROCESSED`) | game |
+| `ui:launch` | `{ session }` — the menu launched a session (src/game/session.js shape); the game starts it in place or reloads onto its map via localStorage | ui |
+| `mode:announce` | `{ text, kind, reply?, banner?: {title, sub, kind} }` — Command on the net for a mode; the UI subtitles it on the radio (and banners it) | game |
+| `game:over` | survival: `{ mode:'survival', score, wave, kills, accuracy, best, … }`; bot match / mission: `{ mode, label, winner, reason, scoreEsf, scoreHostile, limit, kills, deaths, accuracy, map }` | game |
 
 If you need an event that is not listed, add a row here in the same commit.
 

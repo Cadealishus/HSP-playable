@@ -60,10 +60,10 @@ export class AmmoPanel {
     this.equip = el('div', 'ow-equip', this.root);
     this.slotL = el('div', 'ow-slot', this.equip);
     fragIcon(this.slotL);
-    this.slotLn = el('span', null, this.slotL, '2');
+    this.slotLn = el('span', null, this.slotL, '0');
     this.slotT = el('div', 'ow-slot', this.equip);
     flashIcon(this.slotT);
-    this.slotTn = el('span', null, this.slotT, '1');
+    this.slotTn = el('span', null, this.slotT, '0');
 
     const head = el('div', 'ow-ammo-head', this.root);
     this.mode = el('div', 'ow-ammo-mode', head, 'AUTO');
@@ -168,6 +168,9 @@ export class AmmoPanel {
     if (reloading) setStyle(this.reloadFill, 'transform', `scaleX(${reloadP.toFixed(3)})`);
 
     // --- equipment --------------------------------------------------------
+    // No equipment system (counts null) → no equipment row, never a made-up number.
+    const hasEq = s.lethalCount != null || s.tacticalCount != null;
+    setStyle(this.equip, 'display', hasEq ? '' : 'none');
     const lc = s.lethalCount ?? 0;
     const tc = s.tacticalCount ?? 0;
     setText(this.slotLn, lc);

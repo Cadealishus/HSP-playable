@@ -1,53 +1,45 @@
 /**
- * GAME — OPERATION TOTAL CONFIDENCE, the wave-holdout loop that turns the
- * sandbox into a game. Subsystem id `game`. Doug and the Extra Special Forces
- * hold the town square "for as long as it takes" (Command's estimate: about a
- * wave). Talks to every other subsystem strictly through ctx.get / peek and
- * ctx.events (never an import).
+ * GAME — the session host. Subsystem id `game`. Runs whatever the player
+ * launched (src/game/session.js): SURVIVAL (OPERATION TOTAL CONFIDENCE, the
+ * original wave holdout), the bot-match modes (TEAM DEATHMATCH, DOMINATION,
+ * HARDPOINT, SEARCH & DESTROY) and, when their modules are in the build, the
+ * SPECIAL OPERATIONS missions. Talks to every other subsystem strictly through
+ * ctx.get / peek and ctx.events (never an import).
  *
  * STATE MACHINE            attract → play → down → over   (see _setState)
- *   attract  before the first ui:startRun. No waves spawn; the loop is inert so
- *            the title screen and the capture harness are undisturbed.
- *   play     a wave is being fought.
- *   down     Doug is down and a continue is on offer (once per run).
- *   over     operation concluded; game:over carries the after-action numbers.
+ *   attract  the main menu. Nothing spawns; the capture harness is undisturbed.
+ *   play     a mode is running (in a bot match this includes respawn waits and
+ *            spectating: those are mode sub-states, see hudState()).
+ *   down     SURVIVAL only: Doug is down and a continue is on offer.
+ *   over     the run or match is concluded; game:over carries the numbers.
+ *
+ * MODES (src/game/modes, docs/EXPANSION.md §4) implement init/start/update/
+ * orderFor/hudState/onDeath/interact/isOver. The host owns everything they
+ * share: the state machine, clearing the AI, placing and reviving Doug,
+ * loadouts and resupply, the order provider, the spectator camera, the
+ * announcer bus and the debug API.
  *
  * EVENTS EMITTED
- *   game:state {state} · game:wave {wave,count} · game:waveClear {wave,bonus}
- *   game:score {score,delta,mult} · game:mult {mult} · game:continueOffer {}
- *   game:multiKill {count}
- *   game:over {score,wave,kills,accuracy,best,bestWave,newBest,job,durationS,continued}
- * EVENTS CONSUMED:
- *   ui:startRun {job} · ui:continue · ui:restart · ui:accept · ui:attract
+ *   game:state {state} · game:over {mode, winner, …} · mode:announce {text, kind, reply, banner}
+ *   survival: game:wave · game:waveClear · game:score · game:mult · game:multiKill · game:continueOffer
+ * EVENTS CONSUMED
+ *   ui:launch {session} · ui:startRun {job} · ui:continue · ui:restart · ui:accept · ui:attract
  *   player:death · actor:death · bullet:impact · damage:dealt
  *
- * INTEGRATION NOTES
- *   - Kills / wave progress are counted from `actor:death` (fires for every enemy
- *     death, all causes). Headshots are read from the `bullet:impact` that lands
- *     immediately before the fatal `damage:dealt` (actor:death carries a
- *     hard-coded headshot:false, so it can't tell us). Accuracy = enemy hits
- *     (damage:dealt to an enemy) / rounds fired (weapons.stats.fired).
- *   - Spawning calls `ai.spawnWave({count,intensity,waveIndex})` and trusts its
- *     return count. If that method does not exist yet it falls back to
- *     `ai.populate({squads,perSquad})`. Clearing enemies prefers
- *     `ai.despawnAll/clearAgents/killAll`, else emits lethal damage:dealt.
- *   - Loadouts set the weapon via `weapons.setWeaponImmediate(id)` and, for
- *     CHARLIE's double plating, raise the live `player.health.max` (there is no
- *     armour subsystem to hook).
- *
- * OFFLINE BY DESIGN
- *   There is no leaderboard, token, beacon or share-card traffic: the game makes
- *   no network requests at all. Persistence is the local best score and best
- *   wave in localStorage, every access try/catch wrapped.
+ * OFFLINE BY DESIGN: persistence is the local best score / best wave and the
+ * session in localStorage, every access try/catch wrapped.
  */
 
+import * as THREE from 'three';
 import { Scoring } from './scoring.js';
-import { CONCURRENT_CAP, BREATHER_S, waveGoal, waveIntensity, waveBonus } from './waves.js';
+import { MODES, MODE_INFO, modeAvailable } from './modes/index.js';
+import { aiCaps } from './modes/team.js';
+import { availableMissions, loadMission } from './missions.js';
+import { DEFAULT_SESSION, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
 
 /**
- * ESF loadout id → { weapon id, armour multiplier on base max health }.
- * ALPHA "STANDARD ISSUE" rifle · BRAVO "ROOM SERVICE" SMG ·
- * CHARLIE "CONTINGENCY" sidearm with double plating.
+ * Legacy ESF loadout id → { weapon id, armour multiplier on base max health }.
+ * Still honoured by `ui:startRun {job}` and FLOP.start(job).
  */
 const LOADOUTS = {
   alpha: { weapon: 'rifle', primary: 'rifle', secondary: 'pistol', armour: 1 },
@@ -60,36 +52,16 @@ const LOADOUTS = {
   hotel: { weapon: 'marksman', primary: 'marksman', secondary: 'pistol', armour: 1 },
   india: { weapon: 'carbine', primary: 'carbine', secondary: 'rocket', armour: 1 },
 };
-const DEFAULT_JOB = 'alpha';
 /** Weapon-class shorthands accepted by FLOP.start() from the console. */
 const LOADOUT_ALIASES = { rifle: 'alpha', smg: 'bravo', pistol: 'charlie', sniper: 'delta', shotgun: 'echo', lmg: 'foxtrot', carbine_sd: 'golf', marksman: 'hotel', carbine: 'india', rocket: 'india' };
 
 const BEST_KEY = 'flopops.best';
 const BEST_WAVE_KEY = 'flopops.bestWave';
 
-/** Scoring's internal channel names → the bus event names. */
-const SCORING_EVENTS = {
-  score: 'game:score',
-  mult: 'game:mult',
-  // Two or more kills inside the 1.2 s window. src/ui renders it into the
-  // killfeed and hands it to Command's radio as a streak.
-  multiKill: 'game:multiKill',
-};
+const SCORING_EVENTS = { score: 'game:score', mult: 'game:mult', multiKill: 'game:multiKill' };
 
-/* ==================================================================== */
-/* THE WAVE-CLEAR BEAT                                                  */
-/* ==================================================================== */
-
-/**
- * The town square, in level coordinates: the plaza centre the mission is named
- * after. Converted to world space through the world's own public
- * `levelToWorld()` so the level transform stays owned by src/world.
- */
-const SQUARE_LEVEL_X = -1.7;
-const SQUARE_LEVEL_Z = 8.6;
-
-/** Signal-flare amber in rough linear space. */
-const FLARE = { r: 1.0, g: 0.46, b: 0.16 };
+/** Player eye height above the feet, standing (src/core/config UNITS). */
+const EYE = 1.66;
 
 export class GameSystem {
   static id = 'game';
@@ -99,44 +71,45 @@ export class GameSystem {
   async init(ctx) {
     this.ctx = ctx;
     this.state = 'attract';
-    this.wave = 0;
+    this.session = { ...DEFAULT_SESSION, ...(ctx.config?.session ?? {}), map: ctx.config?.map ?? 'town' };
+    /** The running mode instance (null on the menu). */
+    this.mode = null;
+    this.modeId = null;
     this.job = null;
-    this._lastJob = DEFAULT_JOB;
+    this._lastJob = null;
 
-    this._continueUsed = false;
-    this._waveActive = false;
-    this._waveGoal = 0;
-    this._waveSpawned = 0;
-    this._aliveInWave = 0;
-    this._breather = 0;
-
-    this._ignoreDeaths = false;   // set while we clear enemies ourselves
-    this._synthDamage = false;    // set while we emit our own lethal damage
+    this._ignoreDeaths = false;
+    this._synthDamage = false;
     this._god = false;
     this._announced = false;
+    this._autostarted = false;
 
-    // per-run accuracy bookkeeping
     this._shotsAtRunStart = 0;
     this._hits = 0;
-
-    // headshot stash: agent -> was the last non-exit impact a head hit?
     this._pendingHead = new Map();
-
-    // slow-mo death beat (raw-time deadline; never runs in capture)
     this._deathBeatUntil = 0;
-
-    // run clock (wall time, for the plausibility check server-side)
     this._runStartedMs = 0;
     this._runDuration = 0;
 
-    /** Last concluded run, for the after-action report. Null until the first game over. */
-    this.lastRun = null;
+    this._lastAttacker = null;
+    this._lastAttackerAt = -1e9;
+    this._inputHeld = false;
 
+    /** Spectator camera (S&D). `cameraOverride` is non-null while it owns the camera. */
+    this.cameraOverride = null;
+    this._spec = {
+      team: 'esf',
+      target: null,
+      pos: new THREE.Vector3(),
+      look: new THREE.Vector3(),
+      want: new THREE.Vector3(),
+      wantLook: new THREE.Vector3(),
+      snap: true,
+    };
+
+    this.lastRun = null;
     this.scoring = new Scoring((type, data) => ctx.events.emit(SCORING_EVENTS[type] ?? 'game:score', data));
 
-    this._squarePos = null; // resolved once, on the first wave clear
-
-    // Base player max health, captured before any armour override.
     const p = ctx.peek('player');
     this._baseMaxHealth = p?.health?.max ?? p?.maxHealth ?? 100;
 
@@ -145,16 +118,9 @@ export class GameSystem {
     this._installDebugApi();
 
     this._setState('attract');
-    console.info('[game] OPERATION TOTAL CONFIDENCE ready — state=attract');
-  }
-
-  /** URLSearchParams, or an empty stand-in in a non-browser build step. */
-  _params() {
-    try {
-      return new URLSearchParams(location.search);
-    } catch {
-      return new URLSearchParams('');
-    }
+    // Nobody walks around under the main menu (capture poses the player itself).
+    if (!ctx.config?.deterministic) p?.setControlEnabled?.(false);
+    console.info(`[game] session ${this.session.kind}/${this.session.mode ?? this.session.mission} on ${this.session.map} — state=attract`);
   }
 
   /* ================================================================== */
@@ -165,146 +131,236 @@ export class GameSystem {
     this._off = [];
     const on = (t, fn) => this._off.push(ctx.events.on(t, fn));
 
+    on('ui:launch', (e) => this.launch(e?.session ?? e));
     on('ui:startRun', (e) => this.startRun(e?.job));
     on('ui:continue', () => this.continueRun());
     on('ui:restart', () => this.restart());
-    on('ui:accept', () => this.accept()); // "ACCEPT THE OUTCOME" → over
-    on('ui:attract', () => this.attract()); // "RETURN TO BASE" from the report
+    on('ui:accept', () => this.accept());
+    on('ui:attract', () => this.attract());
 
-    on('player:death', () => this._onPlayerDeath());
+    on('player:death', (e) => this._onPlayerDeath(e));
     on('actor:death', (e) => this._onActorDeath(e));
     on('bullet:impact', (e) => this._onBulletImpact(e));
     on('damage:dealt', (e) => this._onDamageDealt(e));
   }
 
   _onBulletImpact(e) {
-    // Stash the region of the last real hit on an enemy so the fatal shot's
-    // headshot flag survives to actor:death (which is emitted from inside the
-    // AI's damage:dealt handler, before ours runs).
+    // The region of the last real hit on an agent, so the fatal shot's headshot
+    // flag survives to actor:death (older AI builds send headshot:false there).
     if (!e || !e.actor || e.exit) return;
     this._pendingHead.set(e.actor, e.part === 'head');
   }
 
   _onDamageDealt(e) {
-    if (this._synthDamage || !e || this.state !== 'play') return;
-    if (this._isPlayerTarget(e.target)) return;
-    if (!e.target) return;
-    this._hits += 1; // a round connected with an enemy — for accuracy
+    if (!e || !e.target) return;
+    if (this._isPlayer(e.target)) {
+      if (e.source) {
+        this._lastAttacker = e.source;
+        this._lastAttackerAt = this.ctx.time.elapsed;
+      }
+      return;
+    }
+    if (this._synthDamage || this.state !== 'play') return;
+    // Accuracy counts Doug's rounds only (bots now shoot bots too).
+    if (e.source && !this._isPlayer(e.source)) return;
+    this._hits += 1;
+  }
+
+  _headshotOf(e) {
+    const actor = e?.actor;
+    const stash = actor ? this._pendingHead.get(actor) : undefined;
+    if (actor) this._pendingHead.delete(actor);
+    return e?.headshot === true || stash === true;
   }
 
   _onActorDeath(e) {
     const actor = e?.actor;
-    if (this._ignoreDeaths) {
+    if (this._ignoreDeaths || !this.mode || this.state !== 'play') {
       if (actor) this._pendingHead.delete(actor);
       return;
     }
-    // Only count deaths that belong to a live wave we are fighting. Stray
-    // garrison kills (attract) and deaths during the death screen are ignored.
-    if (this.state !== 'play' || !this._waveActive) {
-      if (actor) this._pendingHead.delete(actor);
-      return;
-    }
-    const headshot = actor ? this._pendingHead.get(actor) === true : false;
-    if (actor) this._pendingHead.delete(actor);
-
-    this._aliveInWave = Math.max(0, this._aliveInWave - 1);
-    this.scoring.kill(headshot);
-
-    this._refillWave();
-    this._checkWaveClear();
+    const headshot = this._headshotOf(e);
+    if (this.modeId === 'survival') this.mode.onDeath(e, headshot);
+    else this.mode.onDeath?.(e, headshot);
   }
 
-  _isPlayerTarget(t) {
+  _isPlayer(t) {
     if (!t) return false;
     return t === 'player' || t.isPlayer === true || t === this.ctx.peek('player');
   }
 
+  /** Freshest agent that put a round in Doug (≤ 6 s old), for kill credit. */
+  lastAttacker() {
+    return this.ctx.time.elapsed - this._lastAttackerAt < 6 ? this._lastAttacker : null;
+  }
+
   /* ================================================================== */
-  /* run lifecycle                                                      */
+  /* launching                                                          */
   /* ================================================================== */
 
-  /** ui:startRun / FLOP.start — begin a fresh run with the given loadout. */
-  startRun(job) {
-    const norm = this._normaliseJob(job);
-    this.job = norm;
-    this._lastJob = norm;
+  _maps() {
+    try {
+      return globalThis.__FLOP_MAPS__?.list ?? [];
+    } catch {
+      return [];
+    }
+  }
 
+  _currentMap() {
+    return this.ctx.peek('world')?.mapId ?? this.ctx.config?.map ?? this.session.map;
+  }
+
+  /**
+   * The menu launched something. Same map: start it in place (no reload, the
+   * level is already built). Different map: store it and reload WITHOUT a
+   * query string (src/game/session.js); the next boot shows the deploy card.
+   */
+  launch(req) {
+    const s = normaliseSession({ ...this.session, ...(req ?? {}) }, this._maps());
+    this.job = null; // menu launches use the LOADOUT screen, not a legacy kit
+    if (s.map !== this._currentMap()) {
+      const ok = launchSession(s);
+      if (!ok) console.warn('[game] launch: storage unavailable, cannot switch map');
+      return ok ? 'reload' : false;
+    }
+    saveSession({ ...s, pending: false });
+    this.startSession(s);
+    return 'started';
+  }
+
+  /** Start a session on the current map. */
+  startSession(s) {
+    this.session = { ...this.session, ...s };
+    if (s.kind === 'mission') {
+      loadMission(s.mission).then((Cls) => {
+        if (!Cls) {
+          console.warn(`[game] mission "${s.mission}" is not in this build`);
+          return;
+        }
+        this._begin(Cls, s);
+      });
+      return;
+    }
+    const id = s.mode ?? 'survival';
+    const Cls = MODES[id];
+    if (!Cls) return;
+    const av = modeAvailable(id, this.ctx);
+    if (!av.ok) console.warn(`[game] ${id}: ${av.why} (dev launch; not offered in the menu)`);
+    this._begin(Cls, s);
+  }
+
+  _begin(Cls, s) {
+    this._teardown();
     this._endDeathBeat();
-    this._continueUsed = false;
-    this.wave = 0;
-    this._waveActive = false;
-    this._breather = 0;
-    this._aliveInWave = 0;
     this._pendingHead.clear();
-    this.scoring.reset();
-    this.scoring.announce();
-
-    this._clearAI(); // wipe any boot garrison / previous run (deaths ignored)
-    this._applyLoadout(norm);
+    this._lastAttacker = null;
+    this.modeId = Cls.id ?? s.mode;
+    const mode = new Cls();
+    mode.init(this.ctx, s, this);
+    this.mode = mode;
 
     this._hits = 0;
     this._shotsAtRunStart = this.ctx.peek('weapons')?.stats?.fired ?? 0;
     this._runStartedMs = Date.now();
     this._runDuration = 0;
+    this._releaseInput();
+    this.ctx.peek('player')?.setControlEnabled?.(true);
 
-    this._markSquare(true);
+    if (this.modeId === 'survival') {
+      this._continueUsed = false;
+      this._clearAI();
+      this._applyLoadout(s.loadout, this.job);
+      this._setState('play');
+      mode.start();
+      console.info(`[game] deploy — survival wave 1 (${s.difficulty})`);
+      return;
+    }
+    const ai = this.ctx.peek('ai');
+    if (typeof ai?.setOrderProvider === 'function') {
+      ai.setOrderProvider((agent) => this.mode?.orderFor?.(agent) ?? null);
+    }
     this._setState('play');
-    this._startWave(1);
-    console.info(`[game] deploy — loadout=${norm} wave 1`);
+    mode.start();
+    this.ctx.peek('ui')?.setObjectives?.([]);
+    console.info(`[game] deploy — ${this.modeId} on ${this._currentMap()} (${s.difficulty})`);
   }
 
-  /** ui:continue / FLOP.continueRun — REQUEST ONE (1) MORE CHANCE. Restarts the wave. */
+  _teardown() {
+    const m = this.mode;
+    this.mode = null;
+    this.endSpectate();
+    try {
+      m?.dispose?.();
+    } catch (err) {
+      console.warn('[game] mode dispose failed', err);
+    }
+    this.ctx.peek('ai')?.setOrderProvider?.(null);
+    this._clearAI();
+    this.ctx.peek('ui')?.clearPrompt?.();
+  }
+
+  /* ================================================================== */
+  /* run lifecycle (survival API kept verbatim for ui + FLOP)            */
+  /* ================================================================== */
+
+  /** ui:startRun / FLOP.start — a fresh survival run, optionally with a legacy kit. */
+  startRun(job) {
+    this.job = this._normaliseJob(job);
+    if (this.job) this._lastJob = this.job;
+    this.startSession({ ...this.session, kind: 'survival', mode: 'survival', mission: null });
+  }
+
+  /** ui:continue / FLOP.continueRun — REQUEST ONE (1) MORE CHANCE. */
   continueRun() {
-    if (this.state !== 'down') return;
-    if (this._continueUsed) {
+    if (this.state !== 'down' || this.modeId !== 'survival') return;
+    const m = this.mode;
+    if (m.continueUsed) {
       this._gameOver();
       return;
     }
-    this._continueUsed = true;
     this._endDeathBeat();
-
     const p = this.ctx.peek('player');
-    if (p?.respawn) p.respawn(this._plazaSpawnIndex()); // heal + move to plaza
+    if (p?.respawn) p.respawn(this._plazaSpawnIndex());
     if (p?.health) {
       p.health.value = p.health.max;
       p.health.dead = false;
     }
     p?.setControlEnabled?.(true);
-
-    this._clearAI();          // sweep the wave's survivors (not counted)
-    this._aliveInWave = 0;
+    this._clearAI();
     this._setState('play');
-    this._startWave(this.wave); // same wave index, score kept, mult already ×1
-    console.info(`[game] continue — wave ${this.wave} restarts`);
+    m.continueRun();
+    console.info(`[game] continue — wave ${m.wave} restarts`);
   }
 
-  /** ui:restart / FLOP.restart — "REDEPLOY". From the death screen it means accept. */
+  /** ui:restart — REDEPLOY / REMATCH. From the death screen it means accept. */
   restart() {
     if (this.state === 'down') {
-      this._gameOver(); // a restart from the death screen = accept the outcome
+      this._gameOver();
       return;
     }
-    this.startRun(this._lastJob);
+    this.startSession(this.session);
   }
 
-  /** ui:accept — "ACCEPT THE OUTCOME" ghost button on the death screen. */
+  /** ui:accept — "ACCEPT THE OUTCOME" on the death screen. */
   accept() {
     if (this.state === 'down') this._gameOver();
   }
 
-  _onPlayerDeath() {
+  _onPlayerDeath(e) {
     const p = this.ctx.peek('player');
     if (this._god) {
       p?.health?.reset?.(true);
       return;
     }
-    if (this.state !== 'play') return;
-
-    this.scoring.resetMult(); // streak collapses on death, score survives
+    if (this.state !== 'play' || !this.mode) return;
+    if (this.modeId !== 'survival') {
+      this.mode.onPlayerDeath?.({ ...(e ?? {}), killer: this.lastAttacker() });
+      return;
+    }
+    const next = this.mode.onPlayerDeath();
     this._beginDeathBeat();
     p?.setControlEnabled?.(false);
-
-    if (this._continueUsed) {
+    if (next === 'over') {
       this._gameOver();
     } else {
       this._setState('down');
@@ -312,9 +368,11 @@ export class GameSystem {
     }
   }
 
+  /** Survival run over: best score, after-action numbers, game:over. */
   _gameOver() {
-    this._waveActive = false;
-    this._breather = 0;
+    const m = this.mode;
+    if (!m || this.modeId !== 'survival') return;
+    m.stop();
     this._endDeathBeat();
     this.ctx.peek('player')?.setControlEnabled?.(false);
 
@@ -322,204 +380,328 @@ export class GameSystem {
     const score = this.scoring.score;
     const newBest = score > this._best;
     if (newBest) this._best = score;
-    if (this.wave > this._bestWave) this._bestWave = this.wave;
+    if (m.wave > this._bestWave) this._bestWave = m.wave;
     this._saveBest();
-
     this._runDuration = this._runStartedMs ? Math.max(0, Math.round((Date.now() - this._runStartedMs) / 1000)) : 0;
 
     this.lastRun = {
-      job: this.job ?? this._lastJob ?? DEFAULT_JOB,
+      mode: 'survival',
+      job: this.job ?? null,
       score,
-      wave: Math.max(1, this.wave),
+      wave: Math.max(1, m.wave),
       kills: this.scoring.kills,
       accuracy,
       duration_s: this._runDuration,
-      continued: this._continueUsed,
+      continued: m.continueUsed,
     };
-
     this._setState('over');
     this.ctx.events.emit('game:over', {
+      mode: 'survival',
       score,
-      wave: this.wave,
+      wave: m.wave,
       kills: this.scoring.kills,
       accuracy,
       best: this._best,
       bestWave: this._bestWave,
       newBest,
-      // additive — the after-action report reads these off the same event
       job: this.lastRun.job,
       durationS: this._runDuration,
-      continued: this._continueUsed,
+      continued: m.continueUsed,
+      map: this._currentMap(),
+      difficulty: this.session.difficulty,
     });
-    console.info(`[game] operation concluded — score=${score} wave=${this.wave} kills=${this.scoring.kills}`);
+    console.info(`[game] operation concluded — score=${score} wave=${m.wave} kills=${this.scoring.kills}`);
   }
 
-  /**
-   * ui:attract / FLOP.attract — drop everything and go back to the title.
-   * "RETURN TO BASE" on the after-action report is the only UI caller.
-   */
+  /** A bot match or mission decided itself. */
+  _finishMatch(result) {
+    const m = this.mode;
+    this.endSpectate();
+    this._releaseInput();
+    this.ctx.peek('player')?.setControlEnabled?.(false);
+    this.ctx.peek('ui')?.clearPrompt?.();
+    this.ctx.peek('ai')?.setOrderProvider?.(null);
+    const sum = { ...(m?.summary?.() ?? {}), ...(result ?? {}) };
+    sum.mode = sum.mode ?? this.modeId;
+    sum.accuracy = this._accuracy();
+    sum.map = sum.map ?? this._currentMap();
+    this.lastRun = sum;
+    this._setState('over');
+    this.ctx.events.emit('game:over', sum);
+    console.info(`[game] match over — ${sum.mode} winner=${sum.winner} ${sum.scoreEsf ?? ''}-${sum.scoreHostile ?? ''}`);
+  }
+
+  /** ui:attract / FLOP.attract — drop everything and go back to the menu. */
   attract() {
     this._endDeathBeat();
-    this._waveActive = false;
-    this._breather = 0;
-    this.wave = 0;
-    this._clearAI();
+    this._teardown();
+    this.modeId = null;
+    this._releaseInput();
     this.scoring.reset();
     this.scoring.announce();
     this.ctx.peek('player')?.setControlEnabled?.(false);
-    this._markSquare(false);
+    this.ctx.peek('ui')?.setObjectives?.([]);
     this._setState('attract');
     console.info('[game] return to base → attract');
   }
 
   /* ================================================================== */
-  /* waves                                                              */
+  /* services for modes                                                  */
   /* ================================================================== */
 
-  _startWave(n) {
-    this.wave = n;
-    this._waveActive = true;
-    this._breather = 0;
-    this._waveSpawned = 0;
-    this._aliveInWave = 0;
-    this._waveGoal = waveGoal(n);
-    this.ctx.events.emit('game:wave', { wave: n, count: this._waveGoal });
-    this._refillWave();
+  aiCaps() {
+    return aiCaps(this.ctx);
   }
 
-  /** Keep the fight topped up to the concurrent cap, up to the wave's total. */
-  _refillWave() {
-    if (!this._waveActive || this._breather > 0) return;
-    const ai = this.ctx.peek('ai');
-    if (!ai) return;
-
-    if (typeof ai.spawnWave === 'function') {
-      const remaining = this._waveGoal - this._waveSpawned;
-      const room = CONCURRENT_CAP - this._aliveInWave;
-      const want = Math.min(remaining, room);
-      if (want <= 0) return;
-      const r = ai.spawnWave({ count: want, intensity: waveIntensity(this.wave), waveIndex: this.wave });
-      const spawned = Number.isFinite(r) ? r : want;
-      this._waveSpawned += spawned;
-      this._aliveInWave += spawned;
-    } else if (typeof ai.populate === 'function') {
-      // No trickle API yet — spawn the wave in one go, retrying until it takes.
-      if (this._waveSpawned > 0) return;
-      const before = ai.agents?.length ?? 0;
-      const made = ai.populate({ squads: Math.max(1, Math.ceil(this._waveGoal / 3)), perSquad: 3 });
-      const after = ai.agents?.length ?? 0;
-      const spawned = Number.isFinite(made) ? made : Math.max(0, after - before);
-      if (spawned > 0) {
-        this._waveSpawned += spawned;
-        this._aliveInWave += spawned;
-        this._waveGoal = this._waveSpawned; // this wave clears when these are dead
-      }
-    }
+  /** Command on the net: `mode:announce { text, kind, reply, banner }`. */
+  announce(text, opts = {}) {
+    this.ctx.events.emit('mode:announce', { text, ...opts });
   }
-
-  _checkWaveClear() {
-    if (!this._waveActive || this._waveGoal <= 0) return;
-    if (this._waveSpawned >= this._waveGoal && this._aliveInWave <= 0) {
-      this._onWaveCleared();
-    }
-  }
-
-  _onWaveCleared() {
-    this._waveActive = false;
-    const bonus = waveBonus(this.wave) * this.scoring.mult;
-    this.scoring.addBonus(bonus);
-    // NOT resetCombo() here: the kill that cleared the wave may still have a
-    // multi-kill notice parked on it. tickCombo runs through the breather, so
-    // the notice lands and then the window expires on its own.
-    this.ctx.events.emit('game:waveClear', { wave: this.wave, bonus });
-    this._breather = BREATHER_S; // update() counts this down and starts the next
-    this._startClearBeat();
-    console.info(`[game] wave ${this.wave} held +${bonus} — breather ${BREATHER_S}s`);
-  }
-
-  /* ================================================================== */
-  /* the wave-clear beat                                                */
-  /* ================================================================== */
 
   /**
-   * The four-second breather needs a physical moment at the front of it, or the
-   * wave clear is a banner and a number and nothing else. Two cues, both
-   * through other subsystems' PUBLIC APIs:
-   *
-   *   a short amber pulse high over the square (fx.lights.flash): a signal
-   *   flare popping overhead. Priority 3 so a stray impact flash can not evict
-   *   it; short decay so it is a pulse, not a lamp.
-   *   player.addCameraShake(0.30): roughly a distant explosion. Felt, not thrown.
-   *
-   * Restraint is the spec: no screen flash, no particles, nothing that competes
-   * with the wave banner or Command's radio line for the eye.
+   * Put Doug at `pos` (feet, world) facing `yaw` (player convention), full
+   * health, full ammo, controls live. `pos` null = the map's first spawn.
    */
-  _startClearBeat() {
-    if (this.ctx.config?.deterministic) return; // never perturb a capture
-    const fx = this.ctx.peek('fx');
+  respawnPlayer(pos, yaw = 0, eye = EYE) {
     const p = this.ctx.peek('player');
-    const pos = this._squareWorldPos();
-
-    if (fx?.lights?.flash && pos) {
-      // (x,y,z, r,g,b, peak, duration, decay, distance, priority)
-      fx.lights.flash(pos.x, pos.y + 9, pos.z, FLARE.r, FLARE.g, FLARE.b, 150, 0.7, 3.8, 26, 3);
+    if (!p) return;
+    this.endSpectate();
+    if (pos) {
+      const phys = this.ctx.peek('physics');
+      const gy = phys?.groundHeight?.(pos.x, pos.z, pos.y + 4);
+      const feet = Number.isFinite(gy) && Math.abs(gy - pos.y) < 4 ? gy + 0.03 : pos.y;
+      if (typeof p.respawnAt === 'function') p.respawnAt(pos, yaw);
+      else {
+        p.health?.reset?.(true);
+        p.teleport?.({ x: pos.x, y: feet + eye, z: pos.z }, yaw);
+      }
+    } else {
+      p.respawn?.(0);
     }
-    p?.addCameraShake?.(0.3);
+    if (p.health) {
+      p.health.value = p.health.max;
+      p.health.dead = false;
+    }
+    this._releaseInput();
+    p.setControlEnabled?.(true);
+    this.refill();
   }
 
-  /**
-   * Put (or take down) the objective marker on the square: compass pip,
-   * minimap square and the world-space DEFEND marker, all through ui's public
-   * setObjectives(). Called on deploy and on return to the title.
-   */
-  _markSquare(on) {
-    const ui = this.ctx.peek('ui');
-    if (typeof ui?.setObjectives !== 'function') return;
-    const pos = on ? this._squareWorldPos() : null;
-    if (!pos) {
-      ui.setObjectives([]);
+  /** Doug is down in a bot match: no input (the gun would still fire), no control. */
+  playerDown({ respawn } = {}) {
+    const inp = this.ctx.input;
+    if (inp && inp.enabled !== false && !this.ctx.config?.deterministic) {
+      inp._onBlur?.(); // release held keys so nothing is stuck on respawn
+      inp.enabled = false;
+      this._inputHeld = true;
+    }
+    this.ctx.peek('player')?.setControlEnabled?.(false);
+    this.ctx.peek('ui')?.clearPrompt?.();
+    this._downRespawn = !!respawn;
+  }
+
+  _releaseInput() {
+    if (this._inputHeld) {
+      this.ctx.input.enabled = true;
+      this._inputHeld = false;
+    }
+  }
+
+  /** Top up ammo and equipment. Returns true when something was refilled. */
+  refill() {
+    const w = this.ctx.peek('weapons');
+    if (!w) return false;
+    if (typeof w.resupply === 'function') {
+      w.resupply();
+      return true;
+    }
+    if (typeof w.selectLoadout === 'function' && w.states instanceof Map) {
+      const active = w.activeId;
+      for (const id of w.states.keys()) {
+        const s = w.states.get(id);
+        if (!s?.def) continue;
+        s.mag = s.def.magSize;
+        s.chambered = true;
+        s.reserve = s.def.reserve;
+      }
+      if (active) w.selectLoadout(active);
+      return true;
+    }
+    return false;
+  }
+
+  /** Apply the session loadout (EXPANSION §6), or a legacy kit id. */
+  applyLoadout(loadout) {
+    this._applyLoadout(loadout, null);
+  }
+
+  _applyLoadout(loadout, job) {
+    const L = normaliseLoadout(loadout);
+    const kit = job ? LOADOUTS[job] : null;
+    const wp = this.ctx.peek('weapons');
+    if (wp) {
+      if (kit) {
+        if (typeof wp.setLoadout === 'function') wp.setLoadout({ ...L, primary: kit.weapon });
+        else wp.selectLoadout?.(kit.weapon, { refill: true }) || wp.setWeaponImmediate?.(kit.weapon);
+      } else if (typeof wp.setLoadout === 'function') {
+        wp.setLoadout(L);
+      } else if (typeof wp.selectLoadout === 'function') {
+        if (!wp.selectLoadout(L.primary, { refill: true })) wp.selectLoadout(wp.primaryId ?? 'carbine', { refill: true });
+      }
+      // Equipment (src/weapons/equipment.js) takes the lethal / tactical ids.
+      if (typeof wp.setLoadout !== 'function') wp.equipment?.setLoadout?.(L.lethal, L.tactical);
+    }
+    this.refill();
+    const p = this.ctx.peek('player');
+    if (p?.respawn && this.modeId === 'survival') p.respawn(this._plazaSpawnIndex());
+    if (p?.health) {
+      p.health.max = this._baseMaxHealth * (kit?.armour ?? 1);
+      p.health.value = p.health.max;
+      p.health.dead = false;
+    }
+    p?.setControlEnabled?.(true);
+  }
+
+  /* ----------------------------------------------------------- spectate */
+
+  /** Doug is out for the round: watch living teammates (click / space cycles). */
+  beginSpectate(team = 'esf') {
+    this._spec.team = team;
+    this._spec.target = null;
+    this._spec.snap = true;
+    this.cameraOverride = this._spec;
+    this._pickSpectate(0);
+  }
+
+  endSpectate() {
+    this.cameraOverride = null;
+    this._spec.target = null;
+  }
+
+  /** Next (dir=1) / previous living teammate. */
+  spectateNext(dir = 1) {
+    if (!this.cameraOverride) return null;
+    this._pickSpectate(dir);
+    return this._spec.target?.name ?? null;
+  }
+
+  _spectateList() {
+    const out = this._specList ?? (this._specList = []);
+    out.length = 0;
+    const slots = this.mode?.slots ?? [];
+    for (const s of slots) if (s.team === this._spec.team && s.alive && s.agent?.alive !== false) out.push(s.agent);
+    return out;
+  }
+
+  _pickSpectate(dir) {
+    const list = this._spectateList();
+    if (!list.length) {
+      this._spec.target = null;
       return;
     }
-    if (!this._squareObj) {
-      // Head height over the square, allocated once per session.
-      this._squareObj = { position: pos.clone(), label: 'A', name: 'DEFEND' };
-      this._squareObj.position.y += 1.6;
-    }
-    ui.setObjectives([this._squareObj]);
+    let i = list.indexOf(this._spec.target);
+    i = i < 0 ? 0 : (i + dir + list.length) % list.length;
+    if (list[i] !== this._spec.target) this._spec.snap = true;
+    this._spec.target = list[i];
   }
 
-  /** The town square in world space. Resolved once, from world's public transform. */
-  _squareWorldPos() {
-    if (this._squarePos) return this._squarePos;
-    const world = this.ctx.peek('world');
-    // Any map but the town publishes its own objective (src/world/maps): hold
-    // that instead of the town square.
-    if (world?.mapId && world.mapId !== 'town' && world.objective?.position) {
-      this._squarePos = world.objective.position.clone();
-      return this._squarePos;
+  spectateName() {
+    return this.cameraOverride ? this._spec.target?.name ?? null : null;
+  }
+
+  /** Chase camera over the watched teammate's shoulder. */
+  _spectateCamera(dt) {
+    const sp = this._spec;
+    if (sp.target && (sp.target.alive === false || !sp.target.position)) this._pickSpectate(1);
+    const cam = this.ctx.camera;
+    const t = sp.target;
+    if (t) {
+      const y = t.yaw ?? 0;
+      const fx = Math.sin(y);
+      const fz = Math.cos(y);
+      const p = t.position;
+      sp.want.set(p.x - fx * 2.7 + fz * 0.65, p.y + 2.05, p.z - fz * 2.7 - fx * 0.65);
+      sp.wantLook.set(p.x + fx * 6, p.y + 1.35, p.z + fz * 6);
+    } else {
+      // Nobody left: a high, still view over the objective / the map centre.
+      const c = this.mode?.bomb?.state === 'planted' ? this.mode.bomb.pos : this.mode?.data?.centroids?.esf;
+      if (c) {
+        sp.wantLook.copy(c);
+        sp.want.set(c.x + 9, c.y + 14, c.z + 9);
+      } else {
+        sp.want.copy(cam.position);
+        sp.wantLook.set(cam.position.x, cam.position.y, cam.position.z - 1);
+      }
     }
-    if (typeof world?.levelToWorld !== 'function') return null;
-    // One allocation, once per session — not a per-frame path.
-    const v = world.levelToWorld(SQUARE_LEVEL_X, 0, SQUARE_LEVEL_Z);
-    const gy = world.groundHeight?.(v.x, v.z);
-    if (Number.isFinite(gy)) v.y = gy;
-    this._squarePos = v;
-    return v;
+    const k = sp.snap ? 1 : 1 - Math.exp(-7 * dt);
+    sp.snap = false;
+    sp.pos.lerp(sp.want, k);
+    sp.look.lerp(sp.wantLook, k);
+    if (k === 1) {
+      sp.pos.copy(sp.want);
+      sp.look.copy(sp.wantLook);
+    }
+    cam.position.copy(sp.pos);
+    cam.lookAt(sp.look);
+    cam.updateMatrixWorld();
   }
 
   /* ================================================================== */
-  /* frame                                                              */
+  /* menu data                                                           */
+  /* ================================================================== */
+
+  /** Every mode with its menu copy, playability and the maps that host it. */
+  availableModes() {
+    const maps = this._maps();
+    return ['tdm', 'dom', 'hp', 'sd', 'survival'].map((id) => {
+      const av = modeAvailable(id, this.ctx);
+      return {
+        ...MODE_INFO[id],
+        available: av.ok,
+        why: av.why ?? null,
+        maps: maps.filter((m) => mapSupports(m, id)).map((m) => m.id),
+      };
+    });
+  }
+
+  availableMissions() {
+    return availableMissions(this._maps());
+  }
+
+  /** The running mode's HUD snapshot (preallocated; read, never keep). */
+  hudState() {
+    if (!this.mode || this.state === 'attract') return null;
+    const h = this.mode.hudState?.() ?? null;
+    if (h) {
+      h.spectating = !!this.cameraOverride;
+      h.spectateName = this.spectateName();
+      h.over = this.state === 'over';
+    }
+    return h;
+  }
+
+  /** Plant/defuse ticks from the AI (EXPANSION §3), routed to the mode. */
+  interact(actor) {
+    return this.mode?.interact?.(actor) ?? false;
+  }
+
+  /* ================================================================== */
+  /* frame                                                               */
   /* ================================================================== */
 
   update(dt, ctx) {
     if (!this._announced) {
-      // Re-broadcast once so a UI that subscribed after our init still syncs.
       this._announced = true;
       ctx.events.emit('game:state', { state: this.state });
     }
+    // URL-launched sessions (dev/capture) start straight away.
+    if (!this._autostarted) {
+      this._autostarted = true;
+      if (this.session.autostart && this.state === 'attract') this.startSession(this.session);
+    }
 
     if (this._deathBeatUntil && ctx.time.raw >= this._deathBeatUntil) this._endDeathBeat();
-    this.scoring.tickCombo(dt); // outside every state gate — see Scoring.tickCombo
+    this.scoring.tickCombo(dt);
 
     if (this._god) {
       const p = ctx.peek('player');
@@ -529,25 +711,23 @@ export class GameSystem {
       }
     }
 
-    if (this.state !== 'play') return;
-
-    if (this._breather > 0) {
-      this._breather -= dt;
-      if (this._breather <= 0) {
-        this._breather = 0;
-        this._startWave(this.wave + 1);
-      }
-      return;
-    }
-    if (this._waveActive) {
-      this.scoring.update(dt); // multiplier decay
-      this._refillWave();
-      this._checkWaveClear();
+    if (this.state !== 'play' || !this.mode) return;
+    this.mode.update(dt);
+    if (this.modeId !== 'survival') {
+      // The pause menu hands control back on close; a dead Doug stays dead.
+      const p = ctx.peek('player');
+      if (this.mode.player && !this.mode.player.alive && p?.controlEnabled) p.setControlEnabled(false);
+      const over = this.mode.isOver?.();
+      if (over) this._finishMatch(over);
     }
   }
 
+  lateUpdate(dt) {
+    if (this.cameraOverride && this.mode) this._spectateCamera(dt);
+  }
+
   /* ================================================================== */
-  /* enemy clearing / loadout / helpers                                 */
+  /* helpers                                                             */
   /* ================================================================== */
 
   /** Remove every live enemy WITHOUT it counting as kills (deaths ignored). */
@@ -564,19 +744,22 @@ export class GameSystem {
       this._ignoreDeaths = false;
     }
     this._pendingHead.clear();
-    this._aliveInWave = 0;
+  }
+
+  clearAI() {
+    this._clearAI();
   }
 
   /** Kill every live enemy so it DOES count (debug: advance a wave hands-free). */
-  _killAllLive() {
+  _killAllLive(team = null) {
     const ai = this.ctx.peek('ai');
     if (!ai || !Array.isArray(ai.agents)) return 0;
     let n = 0;
     for (const a of [...ai.agents]) {
-      if (a?.alive) {
-        n += 1;
-        this._emitLethal(a);
-      }
+      if (!a?.alive) continue;
+      if (team && (this.mode?.slotOf?.(a)?.team ?? 'hostile') !== team) continue;
+      n += 1;
+      this._emitLethal(a);
     }
     return n;
   }
@@ -586,9 +769,8 @@ export class GameSystem {
     for (const a of [...ai.agents]) if (a?.alive) this._emitLethal(a);
   }
 
-  /** Sanctioned enemy removal: hand the AI a fatal damage:dealt for one agent. */
   _emitLethal(a) {
-    this._synthDamage = true; // keep this off the accuracy tally
+    this._synthDamage = true;
     try {
       this.ctx.events.emit('damage:dealt', {
         target: a,
@@ -600,34 +782,6 @@ export class GameSystem {
     } finally {
       this._synthDamage = false;
     }
-  }
-
-  _applyLoadout(job) {
-    const kit = LOADOUTS[job] ?? LOADOUTS[DEFAULT_JOB];
-    const wp = this.ctx.peek('weapons');
-    if (wp) {
-      // A session loadout (EXPANSION §1, written by a loadout screen) overrides
-      // the job's weapons; the job still decides the armour.
-      const lo = this.ctx.config?.session?.loadout ?? null;
-      if (typeof wp.setLoadout === 'function') {
-        wp.setLoadout({
-          primary: lo?.primary ?? kit.primary,
-          secondary: lo?.secondary ?? kit.secondary,
-          lethal: lo?.lethal ?? 'frag',
-          tactical: lo?.tactical ?? 'flash',
-        }, { refill: true });
-        if (!lo?.primary) wp.setWeaponImmediate?.(kit.weapon);
-      } else if (typeof wp.setWeaponImmediate === 'function') wp.setWeaponImmediate(kit.weapon);
-      else if (typeof wp.setWeapon === 'function') wp.setWeapon(kit.weapon);
-    }
-    const p = this.ctx.peek('player');
-    if (p?.respawn) p.respawn(0); // fresh spawn + full heal to base
-    if (p?.health) {
-      p.health.max = this._baseMaxHealth * kit.armour; // CHARLIE: double plating
-      p.health.value = p.health.max;
-      p.health.dead = false;
-    }
-    p?.setControlEnabled?.(true);
   }
 
   _plazaSpawnIndex() {
@@ -648,10 +802,10 @@ export class GameSystem {
   }
 
   _normaliseJob(job) {
-    if (!job) return this._lastJob ?? DEFAULT_JOB;
+    if (!job) return null;
     let key = String(job).trim().toLowerCase().replace(/[\s_]+/g, '-');
     key = LOADOUT_ALIASES[key] ?? key;
-    return LOADOUTS[key] ? key : DEFAULT_JOB;
+    return LOADOUTS[key] ? key : null;
   }
 
   _setState(state) {
@@ -662,7 +816,7 @@ export class GameSystem {
   }
 
   _beginDeathBeat() {
-    if (this.ctx.config?.deterministic) return; // never touch capture timing
+    if (this.ctx.config?.deterministic) return;
     const t = this.ctx.time;
     if (!t) return;
     t.scale = 0.35;
@@ -675,7 +829,7 @@ export class GameSystem {
   }
 
   /* ================================================================== */
-  /* persistence                                                        */
+  /* persistence                                                         */
   /* ================================================================== */
 
   _loadBest() {
@@ -700,26 +854,43 @@ export class GameSystem {
     }
   }
 
+  /** Remember the loadout the LOADOUT screen chose (also rides in every launch). */
+  saveLoadout(loadout) {
+    this.session.loadout = normaliseLoadout(loadout);
+    saveSession({ ...this.session, pending: false });
+    return this.session.loadout;
+  }
+
+  setDifficulty(d) {
+    this.session = normaliseSession({ ...this.session, difficulty: d }, this._maps());
+    return this.session.difficulty;
+  }
+
   /* ================================================================== */
-  /* debug API (window.FLOP)                                      */
+  /* debug API (window.FLOP)                                             */
   /* ================================================================== */
 
+  get wave() {
+    return this.modeId === 'survival' ? this.mode?.wave ?? 0 : 0;
+  }
+
   _snapshot() {
+    const m = this.modeId === 'survival' ? this.mode : null;
     return {
       mode: this.state,
-      wave: this.wave,
+      gameMode: this.modeId,
+      wave: m?.wave ?? 0,
       score: this.scoring.score,
       mult: this.scoring.mult,
-      kills: this.scoring.kills,
+      kills: m ? this.scoring.kills : this.mode?.player?.kills ?? 0,
       accuracy: this._accuracy(),
       best: this._best,
-      aliveEnemies: this._aliveInWave,
+      aliveEnemies: m?.aliveInWave ?? this.mode?.aliveCount?.('hostile') ?? 0,
       job: this.job,
       durationS: this._runStartedMs ? Math.round((Date.now() - this._runStartedMs) / 1000) : 0,
     };
   }
 
-  /** Local best, for the title screen footer. */
   bestRecord() {
     return { score: this._best, wave: this._bestWave };
   }
@@ -738,28 +909,29 @@ export class GameSystem {
 
   skipToWave(n) {
     const target = Math.max(1, Math.floor(Number(n)) || 1);
-    if (this.state !== 'play' && this.state !== 'down') this.startRun(this._lastJob);
+    if (this.modeId !== 'survival' || (this.state !== 'play' && this.state !== 'down')) this.startRun(this._lastJob);
     this._clearAI();
-    this._breather = 0;
+    this.mode.breather = 0;
     this.ctx.peek('player')?.setControlEnabled?.(true);
     this._setState('play');
-    this._startWave(target);
-    return this.wave;
+    this.mode.startWave(target);
+    return this.mode.wave;
   }
 
   _installDebugApi() {
     const self = this;
     try {
-      const api = {
+      window.FLOP = {
         get state() {
           return self._snapshot();
         },
         start: (job) => self.startRun(job),
+        launch: (s) => self.launch(s),
         continueRun: () => self.continueRun(),
         restart: () => self.restart(),
         skipToWave: (n) => self.skipToWave(n),
         god: (b) => self.god(b),
-        killAll: () => self._killAllLive(),
+        killAll: (team) => self._killAllLive(team),
         attract: () => self.attract(),
         /** Equip any weapon id (or +1 'frag' / 'flash') for testing. */
         give: (id) => self.ctx.peek('weapons')?.give?.(id) ?? null,
@@ -767,24 +939,30 @@ export class GameSystem {
         get weapons() {
           return self.ctx.peek('weapons')?.allWeaponIds ?? [];
         },
+        spectateNext: () => self.spectateNext(1),
+        get hud() {
+          return self.hudState();
+        },
+        get modes() {
+          return self.availableModes();
+        },
         get lastRun() {
           return self.lastRun;
         },
       };
-      window.FLOP = api;
     } catch {
-      /* no window (headless build step) — the loop still runs */
+      /* no window (headless build step) */
     }
   }
 
   dispose() {
     for (const off of this._off ?? []) off();
     this._off = [];
+    this._teardown();
     this._endDeathBeat();
     this._pendingHead.clear();
     try {
       if (window.FLOP) delete window.FLOP;
-
     } catch {
       /* ignore */
     }

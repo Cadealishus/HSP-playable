@@ -3,6 +3,12 @@ import { el, setText, setStyle, clamp, damp, ease } from './util.js';
 const PRESETS = ['low', 'medium', 'high', 'ultra'];
 
 /**
+ * Settings survive the launch reload: src/main.js reads this key back through
+ * src/game/session.js resolveSettings() before the engine is built.
+ */
+const SETTINGS_KEY = 'flopops.settings';
+
+/**
  * Pause / settings menu.
  *
  * Wired straight into `ctx.config`: the quality segments call
@@ -19,9 +25,8 @@ export class PauseMenu {
     this.root = el('div', 'ow-menu', parent);
     const inner = el('div', 'ow-menu-inner', this.root);
 
-    const h = el('h1', null, inner, 'Paused');
-    h.textContent = 'PAUSED';
-    el('div', 'sub', inner, 'OPERATION TOTAL CONFIDENCE · FLOP OPS');
+    this.title = el('h1', null, inner, 'PAUSED');
+    this.sub = el('div', 'sub', inner, 'FLOP OPS');
     el('div', 'rule', inner);
 
     this.rows = el('div', null, inner);
@@ -69,6 +74,7 @@ export class PauseMenu {
       b.addEventListener('click', () => {
         this.ctx.config.invertY = val;
         this.ctx.events.emit('ui:setting', { key: 'invertY', value: val });
+        this.save();
         this.syncFromConfig();
       });
       this.invBtns.push([b, val]);
@@ -79,6 +85,10 @@ export class PauseMenu {
     this.resumeBtn = el('button', 'ow-btn primary', btns, 'Resume');
     this.resumeBtn.type = 'button';
     this.resumeBtn.addEventListener('click', () => this.close());
+    // Abandon the match / run and go back to the main menu (in-game only).
+    this.quitBtn = el('button', 'ow-btn', btns, 'Quit To Menu');
+    this.quitBtn.type = 'button';
+    this.quitBtn.addEventListener('click', () => this.quit());
     const reset = el('button', 'ow-btn', btns, 'Defaults');
     reset.type = 'button';
     reset.addEventListener('click', () => {
@@ -87,7 +97,7 @@ export class PauseMenu {
       this.ctx.config.invertY = false;
       this.setQuality('ultra');
     });
-    el('div', 'hint', inner, 'ESC RESUME · WASD MOVE · SHIFT SPRINT · R RELOAD · F USE · G FRAG · Q FLASH · ALT+Q/E LEAN · 1/2/WHEEL WEAPONS');
+    this.hint = el('div', 'hint', inner, 'ESC RESUME · FULL BINDINGS UNDER MAIN MENU › CONTROLS');
 
     this.open = false;
     this.shown = 0;
@@ -121,7 +131,10 @@ export class PauseMenu {
       setStyle(knob, 'left', (t * 100).toFixed(2) + '%');
       setText(val, apply(v) ?? String(v));
     };
-    input.addEventListener('input', () => paint(parseFloat(input.value)));
+    input.addEventListener('input', () => {
+      paint(parseFloat(input.value));
+      this.save();
+    });
     const api = {
       set: (v) => {
         const c = clamp(v, min, max);
@@ -130,6 +143,19 @@ export class PauseMenu {
       },
     };
     return api;
+  }
+
+  /** Persist the four settings (menu time only). */
+  save() {
+    const c = this.ctx.config;
+    try {
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({ quality: c.quality, sensitivity: c.sensitivity, fov: c.fov, invertY: !!c.invertY })
+      );
+    } catch {
+      /* storage blocked: settings last until reload */
+    }
   }
 
   setQuality(name) {
@@ -147,8 +173,38 @@ export class PauseMenu {
     for (let i = 0; i < this.qBtns.length; i++)
       this.qBtns[i].classList.toggle('on', PRESETS[i] === cfg.quality);
     for (const [b, v] of this.invBtns) b.classList.toggle('on', !!cfg.invertY === v);
+    this._syncing = true;
     this.sens?.set((cfg.sensitivity ?? 0.0022) / 0.0022);
     this.fov?.set(cfg.fov ?? 80);
+    this._syncing = false;
+    this.save();
+  }
+
+  /**
+   * The same panel as SETTINGS from the main menu: no pause, no pointer lock,
+   * no player control changes; BACK returns to the menu.
+   */
+  openSettings(onBack) {
+    this._settingsOnly = true;
+    this._onBack = onBack ?? null;
+    setText(this.title, 'SETTINGS');
+    setText(this.sub, 'FLOP OPS · SAVED ON THIS MACHINE');
+    setText(this.resumeBtn, 'Back');
+    setStyle(this.quitBtn, 'display', 'none');
+    setText(this.hint, 'ESC BACK');
+    this.open = true;
+    this.syncFromConfig();
+    setStyle(this.root, 'display', '');
+  }
+
+  /** Pause menu → QUIT TO MENU: unpause, then hand the game `ui:attract`. */
+  quit() {
+    if (!this.open || this._settingsOnly) return;
+    this.open = false;
+    const t = this.ctx.time;
+    if (t) t.scale = this._prevScale ?? 1;
+    this.ctx.events.emit('ui:pause', { paused: false });
+    this.ctx.events.emit('ui:attract', {});
   }
 
   toggle() {
@@ -158,6 +214,13 @@ export class PauseMenu {
   show() {
     if (this.open) return;
     this.open = true;
+    this._settingsOnly = false;
+    setText(this.title, 'PAUSED');
+    setText(this.sub, 'FLOP OPS');
+    setText(this.resumeBtn, 'Resume');
+    setText(this.hint, 'ESC RESUME · FULL BINDINGS UNDER MAIN MENU › CONTROLS');
+    const gs = this.ctx.peek('game')?.state;
+    setStyle(this.quitBtn, 'display', gs === 'play' || gs === 'down' ? '' : 'none');
     this.syncFromConfig();
     setStyle(this.root, 'display', '');
     document.exitPointerLock?.();
@@ -173,6 +236,13 @@ export class PauseMenu {
   close() {
     if (!this.open) return;
     this.open = false;
+    if (this._settingsOnly) {
+      this._settingsOnly = false;
+      const cb = this._onBack;
+      this._onBack = null;
+      cb?.();
+      return;
+    }
     const t = this.ctx.time;
     if (t) t.scale = this._prevScale ?? 1;
     this.ctx.peek('player')?.setControlEnabled?.(true);
