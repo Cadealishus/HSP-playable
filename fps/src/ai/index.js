@@ -651,7 +651,8 @@ export class AiSystem {
     this.stats.walkable = this.grid.walkableCount;
     this._navPending = false;
     console.info(
-      `[ai] nav ${this.grid.nx}x${this.grid.nz} cells · ${this.grid.walkableCount} walkable · ` +
+      `[ai] nav ${this.grid.nx}x${this.grid.nz} cells · ${this.grid.walkableCount} walkable ` +
+        `(${this.grid.upperCount} on lower storeys) · ` +
         `${this.cover.points.length} cover points · ${this.stats.navMs.toFixed(0)}ms`
     );
   }
@@ -806,9 +807,9 @@ export class AiSystem {
         const ci = this.grid.nearest(p.x, p.z, anchor.position.y, 6, 1.4);
         if (ci >= 0) {
           p.set(
-            this.grid.worldX(ci % this.grid.nx),
+            this.grid.nodeX(ci),
             this.grid.floor[ci],
-            this.grid.worldZ((ci / this.grid.nx) | 0)
+            this.grid.nodeZ(ci)
           );
         } else {
           p.y = this.groundAt(p.x, p.z, anchor.position.y + 4);
@@ -968,9 +969,9 @@ export class AiSystem {
     const ci = this.grid.nearest(p.x, p.z, anchor.position.y, 6, 1.4);
     if (ci >= 0) {
       p.set(
-        this.grid.worldX(ci % this.grid.nx),
+        this.grid.nodeX(ci),
         this.grid.floor[ci],
-        this.grid.worldZ((ci / this.grid.nx) | 0)
+        this.grid.nodeZ(ci)
       );
     } else {
       p.y = this.groundAt(p.x, p.z, anchor.position.y + 4);
@@ -1415,13 +1416,13 @@ export class AiSystem {
     }
     const ci = g.nearest(p.x, p.z, y, rings, 2.5);
     if (ci < 0) return false;
-    out.set(g.worldX(ci % g.nx), g.floor[ci], g.worldZ((ci / g.nx) | 0));
+    out.set(g.nodeX(ci), g.floor[ci], g.nodeZ(ci));
     if (preferEdge && g.enclosure[ci] === 0) {
       // likely hiding spots hug walls: nudge toward an enclosed neighbour
       for (let d = 1; d <= 2; d++) {
         const j = g.nearest(out.x + d * g.cell, out.z, y, 1, 1);
         if (j >= 0 && g.enclosure[j] > 0) {
-          out.set(g.worldX(j % g.nx), g.floor[j], g.worldZ((j / g.nx) | 0));
+          out.set(g.nodeX(j), g.floor[j], g.nodeZ(j));
           break;
         }
       }
@@ -1607,9 +1608,8 @@ export class AiSystem {
   enclosedAt(p) {
     const g = this.grid;
     if (!g) return false;
-    const ix = g.cellX(p.x), iz = g.cellZ(p.z);
-    if (!g.inside(ix, iz)) return false;
-    return g.enclosure[g.index(ix, iz)] >= 2;
+    const i = g.layerAt(g.cellX(p.x), g.cellZ(p.z), p.y, 1.2);
+    return i >= 0 && g.enclosure[i] >= 2;
   }
 
   /** Rockets: only at range or into a group, never close (roles.js HEAVY). */

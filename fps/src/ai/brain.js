@@ -225,7 +225,9 @@ export class Brain {
       const ordered = now - this.flankOrder < 3;
       if (sq && T.acquired && dist > 9 && dist < 55 && (ordered || sq.canFlank(a)) && !leashed) {
         const staticT = Math.hypot(T.vel.x, T.vel.z) < 0.6;
-        sc.flank = (ordered ? 0.95 : 0.2 + aggr * 0.35 + (staticT ? 0.1 : 0) + role.decision * 0.3) *
+        // a dug-in target (known, not in our view) is what flanks are for
+        const dugIn = !vis && T.conf > 0.5 ? 0.22 : 0;
+        sc.flank = (ordered ? 0.95 : 0.36 + aggr * 0.35 + (staticT ? 0.12 : 0) + dugIn + role.decision * 0.3) *
           (this.state === S.FLANK ? 1 : this._flankRoll(now));
       }
       if (this.state === S.FLANK && this.hasDest) sc.flank = Math.max(sc.flank, 0.8);

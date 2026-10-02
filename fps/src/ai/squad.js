@@ -140,7 +140,7 @@ export class Squad {
     const rec = L.perception?.target;
     if (!rec || !rec.acquired || rec.conf < 0.5) return;
     // target gone static (dug in) for a while -> flank him and flush him out
-    const static_ = now - rec.acquiredT > 4 && Math.hypot(rec.vel.x, rec.vel.z) < 0.4;
+    const static_ = now - rec.acquiredT > 3 && Math.hypot(rec.vel.x, rec.vel.z) < 0.8;
     if (static_ && this.flankers.length < this.maxFlankers && this.flankCooldown <= 0) {
       // the man whose own position makes the widest angle on the target, not
       // already busy flanking, not the one holding his attention
