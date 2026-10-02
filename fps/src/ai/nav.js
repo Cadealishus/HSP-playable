@@ -96,6 +96,7 @@ export class NavGrid {
     this.nx = Math.max(1, Math.ceil((b.max.x - this.minX) / this.cell));
     this.nz = Math.max(1, Math.ceil((b.max.z - this.minZ) / this.cell));
     this.topY = b.max.y + 4;
+    this.minY = b.min.y;
 
     const n = this.nx * this.nz;
     /** 0 = blocked, 1 = walkable standing, 2 = walkable crouched only */

@@ -17,7 +17,25 @@
  *   squad.js      peek rotation, contact sharing, flank and grenade rationing
  *
  * PUBLIC API — `const ai = ctx.get('ai')`
- *   ai.spawn(variant, position, yaw, opts) -> Agent
+ *   ai.spawn(variant|null, position, yaw, opts) -> Agent
+ *        opts { team: 'hostile'|'esf', role: rifleman|smg|shotgun|lmg|sniper|
+ *               rocket|commander, weapon: defs.js id, skill 0..1, name,
+ *               patrol: Vector3[], holding: Civilian }
+ *   ai.spawnCivilian(position, yaw, { behavior: 'cower'|'flee'|'hostage'|
+ *               'follow', to, target, captor, look, name }) -> Civilian
+ *   ai.setOrderProvider(fn(agent) -> order|null, owner?)   EXPANSION.md §3
+ *        order { kind: hunt|capture|defend|attack|plant|defuse|escort|hold|
+ *                patrol, pos?, radius?, targetId? }
+ *   ai.actors                              live combatants + the player proxy
+ *   ai.civilians                           civilians (never in `agents`)
+ *   ai.getActor(id)                        agent / civilian by id or name,
+ *                                          0 | 'player' for Doug
+ *   ai.despawnAll() / ai.reapCorpses(n) / ai.killAll()
+ *   agent.stun(intensity, duration)        flash / concussion
+ *   agent.team .role .alive .position .brain.state .perception
+ *   events: actor:death { actor, team, killer, killerTeam, killerName,
+ *           killerIsPlayer, headshot, ... }, civilian:hit { civ, killer,
+ *           killerTeam, amount, killed }, civilian:released { civ }
  *   ai.agents                              live Agent list
  *   ai.debugStage('firefight')             staged combat tableau for captures
  *   ai.debugStage('closeup' | 'flop')      one man at 4 m / a blast mid-launch
@@ -51,6 +69,7 @@ import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
 import { Civilian } from './civilian.js';
+import { AiDebug } from './debug.js';
 import { buildCivilian, isCivLook, CIV_IDS } from './civbody.js';
 
 const EMPTY = Object.freeze([]);
@@ -149,6 +168,13 @@ export class AiSystem {
     this._rays = this.rayBudget;
     /** live grenades bots may need to run from */
     this._threats = [];
+    /** F3 / ?aidebug=1 / FLOP.aiDebug(true): see debug.js */
+    this.debug = new AiDebug(this);
+    try {
+      if (new URLSearchParams(location.search).get('aidebug') === '1') this.debug.setEnabled(true);
+    } catch {
+      /* no location (headless) */
+    }
     /** IFF chevrons over friendly bots */
     this.iff = new IffTags(this.root);
     /** The opposing force, for UI copy: `{ name, short }`. */
@@ -159,7 +185,7 @@ export class AiSystem {
      *  blow the frame budget. The game self-limits waves well under this. */
     this.maxAlive = 20;
     this._navPending = true;
-    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0, rays: 0, raysDenied: 0 };
+    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0, rays: 0, raysDenied: 0, unstick1: 0, unstick2: 0, unstick3: 0 };
 
     /* scratch */
     this._v = new THREE.Vector3();
@@ -1613,6 +1639,8 @@ export class AiSystem {
     }
 
     this._syncActors(ctx);
+    if (ctx.input?.pressed?.('F3')) this.debug.toggle();
+    this._installFlopHook();
     this._rays = this.rayBudget;
     this.comms.update(ctx.time.elapsed);
     this._updateThreats();
@@ -1656,6 +1684,16 @@ export class AiSystem {
     this.stats.alive = alive;
   }
 
+  /** `FLOP.aiDebug(on)`: the game owns window.FLOP and may replace it, so re-attach. */
+  _installFlopHook() {
+    try {
+      const F = window.FLOP;
+      if (F && !F.aiDebug) F.aiDebug = (on = true) => this.debug.setEnabled(on);
+    } catch {
+      /* no window */
+    }
+  }
+
   /** Rebuild `actors` (no allocation): live bots plus the player proxy. */
   _syncActors(ctx) {
     this.player.sync(ctx.peek('player'), ctx.camera);
@@ -1680,6 +1718,7 @@ export class AiSystem {
       g.addActor(c);
     }
     g.end();
+    this.debug.update(this.ctx);
   }
 
   /* ================================================================== */
@@ -2152,6 +2191,7 @@ export class AiSystem {
     this.ground?.dispose();
     this.iff?.dispose();
     this.projectiles?.dispose();
+    this.debug?.dispose();
     for (const v of this._variants.values()) v.geometry.dispose();
     this._variants.clear();
     this.materials?.dispose();

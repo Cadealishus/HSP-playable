@@ -385,6 +385,10 @@ export class Agent {
     this._dmgDir = new THREE.Vector3();
     this._impDir = new THREE.Vector3();
     this._impFrame = -1;
+    this._progPos = new THREE.Vector3().copy(this.position);
+    this._progT = 0;
+    this._stuckLevel = 0;
+    this._resumeDest = null;
   }
 
   /**
@@ -880,18 +884,79 @@ export class Agent {
       if (c.lastMoveBlocked && this.speed > 1.5 && this.vaultCooldown <= 0 && this.grounded) {
         this._tryVault();
       }
-      if (c.lastMoveBlocked && this.speed > 0.5) {
-        this.stuckTimer += dt;
-        if (this.stuckTimer > 1.1) {
-          this.stuckTimer = 0;
-          this.repathTimer = 0;
-          if (this.hasMoveTarget) this._goTo(this.moveTarget);
-        }
-      } else this.stuckTimer = 0;
+      this._unstick(dt);
     } else {
       this.position.x += this._steer.x * this.speed * dt;
       this.position.z += this._steer.z * this.speed * dt;
     }
+  }
+
+  /**
+   * STUCK DETECTION + RECOVERY. Progress, not collision, is what counts: a bot
+   * that wants to move but has not covered 0.35 m escalates
+   *   1.0 s  re-plan the route from where it actually is
+   *   1.8 s  walk to a free cell 2-4 m to one side (unwedge from a corner,
+   *          a doorway jam, another bot)
+   *   2.6 s  snap to the nearest walkable cell centre toward its next
+   *          waypoint (the guarantee: nobody stays stuck for 3 s)
+   * and anyone who has fallen out of the level is put back on the grid.
+   */
+  _unstick(dt) {
+    const now = this.ctx.time.elapsed;
+    const ai = this.ai;
+    const g = ai.grid;
+    if (g && this.position.y < g.minY - 6) {
+      this._snapToGrid(this.position);
+      return;
+    }
+    const wants = (this.hasMoveTarget || this.pathPending) && this.desiredSpeed > 0.4 && !this.animator.vaulting;
+    if (!wants || this.position.distanceToSquared(this._progPos) > 0.1225) {
+      this._progPos.copy(this.position);
+      this._progT = now;
+      this._stuckLevel = 0;
+      return;
+    }
+    const t = now - this._progT;
+    if (t > 0.8 && this._stuckLevel < 1) {
+      this._stuckLevel = 1;
+      ai.stats.unstick1++;
+      if (this.hasMoveTarget) this._goTo(this._moveDest.x < Infinity ? this._moveDest : this.moveTarget);
+    } else if (t > 1.5 && this._stuckLevel < 2) {
+      this._stuckLevel = 2;
+      ai.stats.unstick2++;
+      const side = (this.id + Math.floor(now)) % 2 ? 1 : -1;
+      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+      this._v.set(this.position.x + (fz * side - fx) * 2.5, this.position.y, this.position.z + (-fx * side - fz) * 2.5);
+      if (ai.snapWalkable(this._v, this.position.y, this._v2, 3)) {
+        // the detour keeps _moveDest, so the brain's next moveTo re-plans the
+        // real route once the bot has stepped clear
+        this._goTo(this._v2);
+      }
+    } else if (t > 2.2) {
+      ai.stats.unstick3++;
+      const wp = this.hasMoveTarget && this.pathIndex < this.pathLen ? this.path[this.pathIndex] : null;
+      const toward = this._v.copy(this.position);
+      if (wp) {
+        const d = this.distTo(wp);
+        if (d < 3) toward.copy(wp);
+        else toward.lerp(wp, Math.min(1, 1.2 / d));
+      }
+      this._snapToGrid(toward);
+      this._progPos.copy(this.position);
+      this._progT = now;
+      this._stuckLevel = 0;
+      this.moveFailed = false;
+      if (this._moveDest.x < Infinity) this._goTo(this._moveDest);
+    }
+  }
+
+  _snapToGrid(p) {
+    const out = this._v3;
+    if (!this.ai.snapWalkable(p, p.y, out, 6)) return false;
+    this.position.copy(out);
+    this.velocity.set(0, 0, 0);
+    this.controller?.teleport(out.x, out.y, out.z);
+    return true;
   }
 
   _tryVault() {
