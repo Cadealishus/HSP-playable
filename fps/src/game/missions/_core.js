@@ -670,6 +670,14 @@ export class MissionMode {
   /** Change a civilian's behaviour (follow for the escort). */
   setCivBehavior(civ, behavior, opts = {}) {
     if (!civ) return false;
+    if (civ.isCivilian && typeof civ.behavior === 'string' && typeof civ.setBehavior !== 'function') {
+      // src/ai/civilian.js: behaviour and its parameters are plain fields
+      if (behavior !== 'hostage' && civ.captor) civ.release?.();
+      civ.behavior = behavior;
+      if (opts.target !== undefined) civ.followTarget = opts.target;
+      if (opts.to) civ.to = opts.to.clone?.() ?? opts.to;
+      return true;
+    }
     if (typeof civ.setBehavior === 'function') {
       civ.setBehavior(behavior, opts);
       return true;
@@ -683,11 +691,12 @@ export class MissionMode {
   }
 
   _despawnCivs() {
+    // ai.despawnAll (the host's clearAI) takes the civilians with it; an AI
+    // with a per-civilian despawn gets asked directly.
     const ai = this.ctx.peek('ai');
     for (const c of this.civs.values()) {
       try {
         if (typeof ai?.despawnCivilian === 'function') ai.despawnCivilian(c);
-        else c.dispose?.();
       } catch {
         /* already gone */
       }
@@ -1050,8 +1059,8 @@ export class MissionMode {
       queue: this._queue.length,
       prompt: this._promptOn ? this._prompt.text : null,
       caps: this.caps,
-      power: this.world?.power ?? null,
-      alarm: this.world?.alarm ?? null,
+      power: this.power ?? null,
+      alarm: this.alarm ?? null,
     };
   }
 }

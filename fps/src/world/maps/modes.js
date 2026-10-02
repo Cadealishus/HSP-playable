@@ -21,7 +21,7 @@ import * as THREE from 'three';
  *   hp:       [[x, z, radius, name, y?], ...]           (4-5, in rotation order)
  *   sd:       { A: [...], B: [...], attackers: 'esf' | 'hostile' }
  *   survival: [x, z, radius, name, y?]
- *   anchors:  { name: [x, y, z] | [x, y, z, faceX, faceZ] }
+ *   anchors:  { name: [x, y, z] | [x, y, z, faceX, faceZ] | [[x, y, z, ...], ...] }
  *
  * `face` is a level-space direction the spawn looks along; the yaw follows the
  * player/camera convention (yaw 0 looks down -Z) plus the level's own yaw.
@@ -55,9 +55,13 @@ export function publishModeData(A, levelYaw, data, groundY = () => 0) {
   if (data.hp) o.hp = data.hp.map(zone);
   if (data.sd) o.sd = { A: zone(data.sd.A), B: zone(data.sd.B), attackers: data.sd.attackers ?? 'hostile' };
   if (data.survival) o.survival = zone(data.survival);
-  for (const [name, v] of Object.entries(data.anchors ?? {})) {
+  const anchor = (v) => {
     const pos = A.toWorld(v[0], v[1], v[2], new THREE.Vector3());
-    out.anchors[name] = v.length >= 5 ? { pos, yaw: yawOf(v[3], v[4]) } : pos;
+    return v.length >= 5 ? { pos, yaw: yawOf(v[3], v[4]) } : pos;
+  };
+  for (const [name, v] of Object.entries(data.anchors ?? {})) {
+    // a list of points ([[x, y, z, fx?, fz?], ...]) publishes as an array
+    out.anchors[name] = Array.isArray(v[0]) ? v.map(anchor) : anchor(v);
   }
   return out;
 }

@@ -296,7 +296,9 @@ export class WorldSystem {
     // Mission-map hooks (EXPANSION.md §5): lighting preset, named anchors, and
     // the maps' own lighting switches (UNDERGROUND setPower, ESTATE setAlarm).
     this.lighting = map.lighting ?? 'day';
-    this.anchors = map.anchors ?? {};
+    // (a map that authors level-space modeData has had its anchors published
+    // by _publishModes above; keep them)
+    this.anchors = map.anchors ?? this.anchors ?? {};
     if (map.setPower) this.setPower = (mode) => map.setPower(mode);
     if (map.setAlarm) this.setAlarm = (on) => map.setAlarm(on);
     if (this.lighting !== 'day') ctx.peek('sky')?.setLightingPreset?.(this.lighting);

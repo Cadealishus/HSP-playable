@@ -101,7 +101,7 @@ export async function teleport(t, to) {
  * player), check the failed debrief offers the checkpoint, retry, check the
  * mission resumed there.
  */
-export async function failAndRetry(t, { skipTo, expectCheckpoint }) {
+export async function failAndRetry(t, { skipTo, expectCheckpoint, fail = null, reason = 'kia', label = 'Doug down' }) {
   console.log(' -- fail + checkpoint retry');
   await t.eval(() => window.FLOP.restart());
   await t.until('FLOP.mission.state.started && FLOP.mission.state.index === 0 && !FLOP.mission.state.result', 'REPLAY: fresh run at objective 1', 300);
@@ -112,13 +112,16 @@ export async function failAndRetry(t, { skipTo, expectCheckpoint }) {
   await t.until(`FLOP.mission.state.index === ${skipTo}`, `skipped to objective ${skipTo + 1}`, 100);
   const cp = (await t.state()).checkpoint;
   t.check(cp === expectCheckpoint, `checkpoint reached: objective ${cp + 1}`);
-  await t.eval(() => {
-    window.FLOP.god(false);
-    const p = window.__ENGINE__.ctx.peek('player');
-    p.applyDamage(100000, null);
-  });
-  await t.until('FLOP.mission.state.result?.reason === "kia"', 'Doug down -> mission failed (kia)', 120);
-  await t.until('FLOP.lastRun?.reason === "kia"', 'failed debrief issued', 300);
+  if (fail) await fail(t);
+  else {
+    await t.eval(() => {
+      window.FLOP.god(false);
+      const p = window.__ENGINE__.ctx.peek('player');
+      p.applyDamage(100000, null);
+    });
+  }
+  await t.until(`FLOP.mission.state.result?.reason === "${reason}"`, `${label} -> mission failed (${reason})`, 400);
+  await t.until(`FLOP.lastRun?.reason === "${reason}"`, 'failed debrief issued', 300);
   const run = await t.eval(() => window.FLOP.lastRun);
   t.check(run.result === 'failed' && run.retryLabel === 'RETRY FROM CHECKPOINT' && run.checkpoint === expectCheckpoint, `failed debrief offers RETRY FROM CHECKPOINT (objective ${run.checkpoint + 1})`);
   const dom = await t.eval(() => document.querySelector('.ow-screen.report.match')?.innerText ?? '');

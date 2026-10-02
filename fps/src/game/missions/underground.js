@@ -138,16 +138,16 @@ export class UndergroundMission extends MissionMode {
         spawn: ['platforms'],
         start: (m) => m.say('Platform A is down the stair. Mind the gap. There is no train, so the gap is quite large.', 'Noted.'),
         complete: (m) => m._cutPower(),
-        restore: (m) => m.world?.setPower?.('emergency'),
+        restore: (m) => m.setPower('emergency'),
       }),
       obj.interact('power', 'RESTORE POWER AT THE SWITCHBOARD', 'powerSwitch', 3, 'RESTORE MAINS POWER', {
         spawn: ['platforms'],
         complete: (m) => {
-          m.world?.setPower?.('normal');
+          m.setPower('normal');
           m.say("Power restored. The station's electricity bill is now technically ESF's problem.", 'Not mine.');
         },
-        skip: (m) => m.world?.setPower?.('normal'),
-        restore: (m) => m.world?.setPower?.('normal'),
+        skip: (m) => m.setPower('normal'),
+        restore: (m) => m.setPower('normal'),
       }),
       obj.clear('platforms', 'CLEAR THE PLATFORMS', 'platforms', {
         checkpoint: pts.platformCheckpoint,
@@ -197,8 +197,15 @@ export class UndergroundMission extends MissionMode {
     return { encounters, objectives, intro };
   }
 
+  /** world.setPower through one door, so the state is known (debug/tests read it). */
+  setPower(mode) {
+    const r = this.world?.setPower?.(mode);
+    this.power = typeof r === 'string' ? r : mode;
+    return this.power;
+  }
+
   _cutPower() {
-    this.world?.setPower?.('emergency');
+    this.setPower('emergency');
     this.say('Someone has turned the station off.', 'Noticed.');
     this.say('The mains switchboard is in the south electrical room, through the maintenance corridor. Command has been told it is the big one.', 'Copy.');
   }
@@ -223,7 +230,7 @@ export class UndergroundMission extends MissionMode {
   dispose() {
     // Leave the station as the map builds it.
     try {
-      if (this.world?.power === 'emergency') this.world.setPower?.('normal');
+      if (this.power === 'emergency') this.world?.setPower?.('normal');
     } catch {
       /* world gone */
     }
