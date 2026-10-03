@@ -65,27 +65,32 @@ export class HostageMission extends MissionMode {
       // The court: the guard post, two behind the hedges, one on the terrace,
       // one walking the court loop. Doug is outside a 3 m wall.
       court: {
+        // Doug starts on the road looking through an open gate, so the court
+        // itself is in view: only the guard post spawns in place (behind the
+        // wall); the rest come out of the yards behind the house and walk to
+        // their posts.
         members: [
-          { at: A.guardPost ? { pos: A.guardPost, yaw: yawOf(-1, 0) } : at(10.5, 0, 42.3, -1, 0), role: 'smg', order: hold(10.5, 0, 42.3, 1.5), alert: 'attack' },
-          { at: at(-12, 0, 27, 1, 0), role: 'rifleman', order: hold(-9, 0, 27) },
-          { at: at(12, 0, 25, -1, 0), role: 'rifleman', order: hold(9, 0, 26) },
-          { at: at(-12, G, 5, 0, 1), role: 'sniper', weapon: 'marksman', order: hold(-10, G, 6, 1.5), alert: 'stay' },
-          { at: at(-20, 0, 13, 1, 0), role: 'rifleman', order: routes.court ? { kind: 'patrol', pos: routes.court } : hold(-8, 0, 26) },
+          { at: at(12.2, 0, 43.4, -1, 0), role: 'smg', order: hold(10.5, 0, 42.3, 1.5), alert: 'attack' },
+          { at: at(-30, 0, -34, 0, 1), role: 'rifleman', order: hold(-9, 0, 27) },
+          { at: at(36, 0, -20, -1, 0), role: 'rifleman', order: hold(9, 0, 26) },
+          { at: at(20, G, -3, 0, 1), role: 'sniper', weapon: 'marksman', order: hold(-10, G, 6, 1.5), alert: 'stay' },
+          { at: at(36, 0, -12, -1, 0), role: 'rifleman', order: routes.court ? { kind: 'patrol', pos: routes.court } : hold(-8, 0, 26) },
         ],
       },
-      // Inside: corridors, the office, the kitchen, the security room.
+      // Inside: corridors, the lounge, the kitchen, the security room. Spawn
+      // spots are out of line with the south windows (Doug is in the court).
       house: {
         members: [
           { at: at(-14, G, -7.5, 1, 0), role: 'smg', order: hold(-12, G, -7.5, 1.5) },
           { at: at(14, G, -7.5, -1, 0), role: 'rifleman', order: hold(12, G, -7.5, 1.5) },
-          { at: at(-11, G, -3, 1, 0), role: 'shotgun', weapon: 'shotgun', order: hold(-11, G, -3, 1.5), alert: 'attack' },
+          { at: at(-10, G, -13, 0, 1), role: 'shotgun', weapon: 'shotgun', order: hold(-11, G, -3, 1.5), alert: 'attack' },
           { at: at(17, G, -3, -1, 0), role: 'rifleman', order: hold(16.5, G, -3, 1.5) },
-          { at: at(8, G, -3, 0, -1), role: 'smg', order: hold(8, G, -3, 1), tag: 'security', name: 'NIGHT SECURITY' },
+          { at: at(8.5, G, -7.5, 0, 1), role: 'smg', order: hold(8, G, -3, 1), tag: 'security', name: 'NIGHT SECURITY' },
         ],
       },
       // The library: the hostage-taker and his shield.
       library: {
-        members: [{ at: at(-21, G, -1.6, 0, -1), role: 'commander', weapon: 'pistol', tag: 'taker', name: 'THE HOSTAGE TAKER', holding: 'vip', order: hold(-21, G, -1.6, 0.6), alert: 'stay', snap: false }],
+        members: [{ at: at(-19, G, -1.8, 0, -1), role: 'commander', weapon: 'pistol', tag: 'taker', name: 'THE HOSTAGE TAKER', holding: 'vip', order: hold(-19, G, -1.8, 0.6), alert: 'stay', snap: false }],
         onEnsure: (m) => m._placeVip(),
       },
       // The response team, from the back of the estate once the alarm goes.
@@ -161,7 +166,7 @@ export class HostageMission extends MissionMode {
   /** The VIP stands where the taker will hold him (spawned before the taker). */
   _placeVip() {
     if (this.civs.has('vip')) return;
-    this.spawnCivilian('vip', at(-21, G, -2.5, 0, -1), { behavior: 'hostage', vip: true, name: 'THE VIP' });
+    this.spawnCivilian('vip', at(-19, G, -2.7, 0, -1), { behavior: 'hostage', vip: true, name: 'THE VIP' });
   }
 
   _tickRescue(dt) {
