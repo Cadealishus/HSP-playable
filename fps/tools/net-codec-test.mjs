@@ -103,8 +103,10 @@ const pres = (nBots) => {
   };
 };
 const b16 = jsonBytes(pres(16));
-const b24 = jsonBytes(pres(MAX_BOTS));
-console.log(`host presence: 16 bots ${b16} B, ${MAX_BOTS} bots ${b24} B (limit 4096)`);
+const b24 = jsonBytes(pres(24));
+const strs = pres(MAX_BOTS);
+for (const k of ['b', 'r', 'p', 'g']) ok(strs[k].length <= 1024, `presence string ${k} is ${strs[k].length} B (<= 1 KiB)`);
+console.log(`host presence: 16 bots ${b16} B, 24 bots (truncated roster) ${b24} B (limit 4096)`);
 ok(b16 < 4096 && b24 < 4096, 'host presence under 4 KiB');
 const client = { v: 1, st: 'game', c: 0, uid: null, p: ps, w: 'carbine', rt: null };
 console.log(`client presence: ${jsonBytes(client)} B`);

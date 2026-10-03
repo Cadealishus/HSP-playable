@@ -66,6 +66,7 @@ export class MySystem {
 | `ai` | `src/ai/` | enemy characters, navigation, perception, cover selection, combat behaviour |
 | `ui` | `src/ui/` | HUD, crosshair, hitmarkers, damage indicators, ammo, killfeed, menus |
 | `audio` | `src/audio/` | synthesized weapon/foley audio, spatialisation, reverb, occlusion, mix |
+| `net` | `src/net/` | online co-op: room transports (claude.ai room, BroadcastChannel `?net=local`), snapshot codec, host election/migration, bot and teammate puppets, downed/revive, party HUD. Inert without a party |
 
 Shared, owned by the lead (do not edit): `src/core/`, `src/main.js`,
 `src/dev/`, `tools/`, `vite.config.js`.

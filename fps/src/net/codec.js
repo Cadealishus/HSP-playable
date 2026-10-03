@@ -16,7 +16,7 @@
  *   counters     1      shots / hits mod 64 (receivers diff them)
  *   health       1      0 .. 63 of 63
  *
- *   BOT record     21 chars → 16 bots = 336 B
+ *   BOT record     21 chars → 16 bots = 336 B (MAX_BOTS)
  *   PLAYER record  21 chars
  *   GAME record    24 chars
  *
@@ -38,7 +38,10 @@ const TAU = Math.PI * 2;
 export const BOT_LEN = 21;
 export const PLAYER_LEN = 21;
 export const GAME_LEN = 24;
-export const MAX_BOTS = 24;
+/** Bots per snapshot. 16 keeps every presence string under 1 KiB (the room
+ *  hands presence to a viewer's Claude only when each string is ≤ 1 KiB). */
+export const MAX_BOTS = 16;
+export const ROSTER_MAX = 1000;
 
 /** Fixed-capacity writer: one string allocation per `toString()`, nothing else. */
 export class Writer {
@@ -243,8 +246,9 @@ export function writeRoster(list) {
   let out = '';
   for (let i = 0; i < list.length; i++) {
     const e = list[i];
-    if (i) out += '|';
-    out += `${e.id | 0}~${cleanToken(e.variant, 12)}~${cleanToken(e.role, 12)}~${cleanToken(e.weapon, 16)}~${e.team === 'esf' ? 'e' : 'h'}~${cleanToken(e.name, 20)}`;
+    const rec = `${e.id | 0}~${cleanToken(e.variant, 10)}~${cleanToken(e.role, 10)}~${cleanToken(e.weapon, 14)}~${e.team === 'esf' ? 'e' : 'h'}~${cleanToken(e.name, 14)}`;
+    if (out.length + rec.length + 1 > ROSTER_MAX) break;
+    out += (out ? '|' : '') + rec;
   }
   return out;
 }
@@ -261,11 +265,11 @@ export function readRoster(str, max = MAX_BOTS) {
     if (!Number.isInteger(id) || id < 0 || id > 4095) continue;
     out.set(id, {
       id,
-      variant: cleanToken(f[1], 12),
-      role: cleanToken(f[2], 12),
-      weapon: cleanToken(f[3], 16),
+      variant: cleanToken(f[1], 10),
+      role: cleanToken(f[2], 10),
+      weapon: cleanToken(f[3], 14),
       team: f[4] === 'e' ? 'esf' : 'hostile',
-      name: cleanToken(f[5], 20).toUpperCase(),
+      name: cleanToken(f[5], 14).toUpperCase(),
     });
   }
   return out;

@@ -362,10 +362,9 @@ export class NetSystem {
   onGameBegin(role) {
     this.inGame = true;
     this._resetLocal();
-    if (role === 'host') {
-      this.run = (this.run | 0) + 1;
-      this.puppets.clearBots();
-    }
+    if (role === 'host') this.run = (this.run | 0) + 1;
+    // A fresh run cleared the AI (despawnAll): forget the old bot puppets.
+    this.puppets.clearBots();
     this._seenPres.clear();
     this._gsRun = -1;
     this._offsetSpawn();
@@ -435,6 +434,13 @@ export class NetSystem {
       if (!game?.mode || game.modeId !== 'survival') this.onGameEnd();
       else {
         this._updateLocal(dt);
+        // A run restart (ai.despawnAll) disposed a teammate's soldier: rebuild it
+        // from that teammate's presence, even if it has not changed since.
+        for (const [id, e] of this.puppets.players) {
+          if (e.agent.group.parent) continue;
+          this.puppets.players.delete(id);
+          this._seenPres.delete(id);
+        }
         this.puppets.update(dt);
         if (this.role === 'host') this._checkAllDown(game);
       }
@@ -503,6 +509,7 @@ export class NetSystem {
     const prevHost = this.hostId;
     this.hostId = id;
     this._seenPres.clear();
+    this._hostWasIn = false;
     this.version++;
     if (id === null) return;
     const role = id === this.t.selfId ? 'host' : 'client';
@@ -583,6 +590,14 @@ export class NetSystem {
       }
       this.lobby.hostInGame = l.ig === 1;
     }
+    // The host went back to base mid-operation: so does the squad.
+    const hostIn = pr.st === 'game';
+    if (this.inGame && this._hostWasIn && !hostIn) {
+      this._hostWasIn = false;
+      this.ctx.peek('game')?.attract?.();
+      return;
+    }
+    this._hostWasIn = hostIn;
     if (!this.inGame) return;
     if (typeof pr.r === 'string') this.puppets.applyRoster(pr.r);
     if (typeof pr.g === 'string') this._applyGame(pr.g);
