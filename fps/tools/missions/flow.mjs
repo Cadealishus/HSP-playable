@@ -9,7 +9,8 @@
  *   kill: 'group'                kill the squad through the damage path
  *   killTag: 'tag'               kill one tagged hostile (e.g. a leader)
  *   hold: true                   hold the real F key until the step completes
- *   wait: async (t) => {}        custom driving
+ *   before: async (t) => {}      checks/driving before anything else in the step
+ *   wait: async (t) => {}        custom driving after the kills / holds
  *   after: async () => {}        extra checks once the step completed
  */
 export async function walkThrough(t, steps, opts = {}) {
@@ -38,6 +39,7 @@ export async function walkThrough(t, steps, opts = {}) {
     for (const g of st.groups ?? []) {
       await t.until(`(FLOP.mission.state.groups['${g}']?.spawned ?? 0) > 0 && FLOP.mission.state.groups['${g}'].queued === 0`, `squad '${g}' spawned (out of view)`, 400);
     }
+    if (st.before) await st.before(t);
     if (st.go) await teleport(t, st.go);
     if (st.waitGroup) {
       await t.until(`(FLOP.mission.state.groups['${st.waitGroup}']?.spawned ?? 0) > 0`, `trigger sprang squad '${st.waitGroup}'`, 300);

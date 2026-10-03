@@ -19,7 +19,7 @@ await walkThrough(t, [
   { id: 'ground', kill: 'house' },
   {
     id: 'rescue',
-    wait: async () => {
+    before: async () => {
       const vip = await t.eval(() => window.FLOP.mission.civ('vip'));
       const taker = await t.eval(() => window.FLOP.mission.agent('taker'));
       t.check(vip?.alive && taker?.alive, 'the hostage-taker holds the VIP in the library');

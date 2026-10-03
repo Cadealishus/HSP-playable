@@ -31,7 +31,7 @@ await walkThrough(t, [
   },
   {
     id: 'cabin',
-    wait: async () => {
+    before: async () => {
       await t.eval(() => window.FLOP.mission.hitCivilian('pax3'));
       await t.frames(2);
       const s = await t.state();
