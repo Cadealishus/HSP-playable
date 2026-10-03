@@ -703,7 +703,14 @@ export class UiSystem {
     const mode = modes.find((m) => m.id === session.mode);
     const mission = missions.find((m) => m.id === session.mission);
     const title = mission?.label ?? mode?.label ?? 'SURVIVAL';
-    const L = session.loadout ?? {};
+    // A mission deploys with its issued kit unless the menu's MISSION KIT says otherwise.
+    let ownKit = false;
+    try {
+      ownKit = localStorage.getItem('flopops.missionKit') === 'own';
+    } catch {
+      /* storage blocked: issued */
+    }
+    const L = (mission && !ownKit ? mission.loadout : null) ?? session.loadout ?? {};
     const wname = (id) => this._weaponName(id) ?? String(id ?? '').toUpperCase();
     const rows = [
       ['MAP', map?.name ?? session.map],

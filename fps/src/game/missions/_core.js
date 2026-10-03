@@ -438,7 +438,9 @@ export class MissionMode {
   }
 
   _tickQueue() {
-    if (!this._queue.length) return;
+    // The camera follows Doug a frame late after the deploy teleport: judge
+    // sightlines from where he actually is.
+    if (!this._queue.length || this.t < 0.35) return;
     const ai = this.ctx.peek('ai');
     if (!ai?.spawn) return;
     // One spawn per frame, first spot that is out of view.
@@ -505,6 +507,8 @@ export class MissionMode {
       const civ = this.civs.get(def.holding);
       if (civ) opts.holding = civ;
     }
+    // Long missions: retire settled ragdolls so the agent list stays bounded.
+    if (typeof ai.reapCorpses === 'function') ai.reapCorpses(10);
     let a = null;
     try {
       // Agents face (sin, cos); authored yaws are the camera convention.

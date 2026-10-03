@@ -41,12 +41,16 @@ export async function openPage(url, { width = 480, height = 270, timeout = 900_0
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
   const errors = [];
   const logs = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('pageerror', (e) => {
+    errors.push(e.message);
+    console.log('   PAGE ERROR', e.message);
+  });
   page.on('console', (m) => {
     const t = `[${m.type()}] ${m.text()}`;
     logs.push(t);
     if (m.type() === 'error') errors.push(m.text());
-    if (log) console.log('   page', t.slice(0, 300));
+    // mission + game lines and every warning/error, live
+    if (log || m.type() === 'error' || m.type() === 'warning' || /^\[(mission|game)/.test(m.text())) console.log('   page', t.slice(0, 300));
   });
   page.setDefaultTimeout(timeout);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
