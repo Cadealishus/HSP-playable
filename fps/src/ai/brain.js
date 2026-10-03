@@ -546,8 +546,11 @@ export class Brain {
     if (!T) return;
     a.aimWeight = 1;
     a.face(T.pos);
-    // pushers close to their ideal range, everyone else holds and fights
-    if (role.pushes && dist > role.range[1] && this.inLeash(T.pos, 2)) {
+    // pushers close to their ideal range, everyone else holds and fights;
+    // on an assault (a mode's intel hunt, e.g. survival) every role closes to
+    // its own ideal range while it shoots
+    const push = role.pushes || this.order?.intel === true;
+    if (push && dist > role.range[1] && this.inLeash(T.pos, 2)) {
       a.moveTo(T.pos, SPEED.tactical * role.speed);
       a.crouch = false;
     } else if (dist < role.range[0] && (role.id === 'sniper' || role.id === 'rocket')) {
