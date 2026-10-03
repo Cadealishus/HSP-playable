@@ -72,6 +72,13 @@ export class SurvivalMode {
     this._squareObj = null;
     this._hud = { mode: 'survival', label: 'SURVIVAL', wave: 0, score: 0, objectives: null, breather: 0 };
     this._v = new THREE.Vector3();
+    // Command intel: hostiles are fed a rough area around Doug (an offset point
+    // and a radius) every few seconds, so a wave always closes in. They still
+    // only know his exact position through their own eyes and ears.
+    this._intel = new THREE.Vector3();
+    this._intelT = 0;
+    this._intelOk = false;
+    this._order = { kind: 'hunt', pos: this._intel, radius: 14, intel: true };
     return this;
   }
 
@@ -270,14 +277,35 @@ export class SurvivalMode {
       return;
     }
     if (this.waveActive) {
+      this._updateIntel(dt);
       this.scoring.update(dt);
       this.refill();
       this.checkClear();
     }
   }
 
-  orderFor() {
-    return null; // hostiles run their own hunt behaviour
+  /** Refresh the rough area hostiles are told to search (see init). */
+  _updateIntel(dt) {
+    this._intelT -= dt;
+    if (this._intelT > 0 && this._intelOk) return;
+    const pp = this.ctx.peek('player')?.position;
+    if (!pp) return;
+    const w = Math.max(1, this.wave);
+    // Later waves get tighter, fresher intel: 15 m every 7 s at wave 1,
+    // down to 6 m every 3 s from wave 10.
+    const radius = Math.max(6, 16 - w);
+    this._intelT = Math.max(3, 7.4 - w * 0.45);
+    const ang = this.rng.range(0, Math.PI * 2);
+    const err = this.rng.range(0, radius * 0.6);
+    this._intel.set(pp.x + Math.sin(ang) * err, pp.y, pp.z + Math.cos(ang) * err);
+    this._order.radius = radius;
+    this._intelOk = true;
+  }
+
+  orderFor(agent) {
+    // Hostiles hunt Doug's last reported area; anyone else does their own thing.
+    if (!this._intelOk || (agent?.team && agent.team !== 'hostile')) return null;
+    return this._order;
   }
 
   interact() {
