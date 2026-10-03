@@ -233,8 +233,8 @@ export class GameSystem {
     // CO-OP (src/net): inside a party every run is the shared survival run,
     // hosted by one page and mirrored by the rest. No party: unchanged.
     const netRole = this.ctx.peek('net')?.sessionRole?.() ?? null;
-    if (netRole) s = { ...s, kind: 'survival', mode: 'survival', mission: null };
-    this.session = { ...this.session, ...s, netRole };
+    s = netRole ? { ...s, kind: 'survival', mode: 'survival', mission: null, netRole } : { ...s, netRole: null };
+    this.session = { ...this.session, ...s };
     if (s.kind === 'mission') {
       loadMission(s.mission).then((Cls) => {
         if (!Cls) {
