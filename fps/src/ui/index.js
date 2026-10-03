@@ -625,6 +625,8 @@ export class UiSystem {
       settingsOpen: () => this.menu.open,
       bindingLive: (a) => this._bindingLive(a),
       extraControls: () => this._extraControls(),
+      /** Online co-op (src/net), or null when the build has none. */
+      net: () => ctx.peek('net') ?? null,
     };
   }
 

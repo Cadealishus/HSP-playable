@@ -230,7 +230,11 @@ export class GameSystem {
 
   /** Start a session on the current map. */
   startSession(s) {
-    this.session = { ...this.session, ...s };
+    // CO-OP (src/net): inside a party every run is the shared survival run,
+    // hosted by one page and mirrored by the rest. No party: unchanged.
+    const netRole = this.ctx.peek('net')?.sessionRole?.() ?? null;
+    if (netRole) s = { ...s, kind: 'survival', mode: 'survival', mission: null };
+    this.session = { ...this.session, ...s, netRole };
     if (s.kind === 'mission') {
       loadMission(s.mission).then((Cls) => {
         if (!Cls) {
@@ -270,9 +274,13 @@ export class GameSystem {
       this._continueUsed = false;
       this._clearAI();
       this._applyLoadout(s.loadout, this.job);
+      // The survival intel (hunt orders) reaches the bots through the provider.
+      const sai = this.ctx.peek('ai');
+      if (typeof sai?.setOrderProvider === 'function') sai.setOrderProvider((agent) => this.mode?.orderFor?.(agent) ?? null);
       this._setState('play');
       mode.start();
-      console.info(`[game] deploy — survival wave 1 (${s.difficulty})`);
+      if (s.netRole) this.ctx.peek('net')?.onGameBegin?.(s.netRole);
+      console.info(`[game] deploy — survival ${s.netRole ? `co-op (${s.netRole})` : `wave 1 (${s.difficulty})`}`);
       return;
     }
     const ai = this.ctx.peek('ai');
@@ -357,6 +365,8 @@ export class GameSystem {
       this.mode.onPlayerDeath?.({ ...(e ?? {}), killer: this.lastAttacker() });
       return;
     }
+    // CO-OP: a death is a down (revive / bleed out), handled by src/net.
+    if (this.ctx.peek('net')?.handlePlayerDeath?.(e)) return;
     const next = this.mode.onPlayerDeath();
     this._beginDeathBeat();
     p?.setControlEnabled?.(false);
@@ -413,6 +423,61 @@ export class GameSystem {
     console.info(`[game] operation concluded — score=${score} wave=${m.wave} kills=${this.scoring.kills}`);
   }
 
+  /* ----------------------------------------------------------- co-op */
+
+  /** CO-OP client: the host concluded the run (everyone is down). */
+  netOver(sum = {}) {
+    const m = this.mode;
+    if (!m || this.modeId !== 'survival' || this.state === 'over') return;
+    m.stop();
+    this._endDeathBeat();
+    this._releaseInput();
+    this.ctx.peek('player')?.setControlEnabled?.(false);
+    const score = sum.score ?? this.scoring.score;
+    const wave = Math.max(1, sum.wave ?? m.wave);
+    const newBest = score > this._best;
+    if (newBest) this._best = score;
+    if (wave > this._bestWave) this._bestWave = wave;
+    this._saveBest();
+    this._runDuration = sum.durationS ?? (this._runStartedMs ? Math.round((Date.now() - this._runStartedMs) / 1000) : 0);
+    const accuracy = this._accuracy();
+    this.lastRun = { mode: 'survival', job: null, score, wave, kills: sum.kills ?? this.scoring.kills, accuracy, duration_s: this._runDuration, continued: false, coop: true };
+    this._setState('over');
+    this.ctx.events.emit('game:over', {
+      mode: 'survival',
+      score,
+      wave,
+      kills: this.lastRun.kills,
+      accuracy,
+      best: this._best,
+      bestWave: this._bestWave,
+      newBest,
+      job: null,
+      durationS: this._runDuration,
+      continued: false,
+      coop: true,
+      map: this._currentMap(),
+      difficulty: this.session.difficulty,
+    });
+    console.info(`[game] co-op operation concluded — score=${score} wave=${wave}`);
+  }
+
+  /** CO-OP host migration: this page now runs the waves. */
+  netPromote() {
+    if (this.modeId !== 'survival' || !this.mode) return;
+    this.session.netRole = 'host';
+    this.mode.promote?.();
+    const ai = this.ctx.peek('ai');
+    if (typeof ai?.setOrderProvider === 'function') ai.setOrderProvider((agent) => this.mode?.orderFor?.(agent) ?? null);
+  }
+
+  /** CO-OP: another page outranked this one as host; mirror it from now on. */
+  netDemote() {
+    if (this.modeId !== 'survival' || !this.mode) return;
+    this.session.netRole = 'client';
+    this.mode.demote?.();
+  }
+
   /** A bot match or mission decided itself. */
   _finishMatch(result) {
     const m = this.mode;
@@ -433,6 +498,7 @@ export class GameSystem {
 
   /** ui:attract / FLOP.attract — drop everything and go back to the menu. */
   attract() {
+    this.ctx.peek('net')?.onGameEnd?.();
     this._endDeathBeat();
     this._teardown();
     this.modeId = null;

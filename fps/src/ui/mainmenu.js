@@ -271,6 +271,8 @@ export class MainMenu {
 
   _key(e) {
     if (!this.open || this.host.settingsOpen?.()) return;
+    // A text field (the party code) owns its keys.
+    if (e.target && e.target.tagName === 'INPUT') return;
     const c = e.code;
     let used = true;
     if (c === 'ArrowDown' || c === 'KeyS') this._focus((this.focus + 1) % this.rows.length);
@@ -325,6 +327,17 @@ export class MainMenu {
         this._blurb(p, 'SURVIVAL', info?.blurb ?? 'Hold the position against escalating waves.', (info?.rules ?? []).map((r) => ['', r]));
       },
     });
+    const net = this.host.net?.();
+    if (net) {
+      const ms = net.menuState();
+      items.push({
+        idx: idx(),
+        label: 'CO-OP ONLINE',
+        tag: ms.status === 'lobby' ? `PARTY ${String(ms.code ?? '').toUpperCase()}` : ms.availability === 'unavailable' ? 'NEEDS THE SHARED LINK' : '2 – 4 OPERATORS',
+        onSelect: () => this.go(ms.status === 'lobby' ? 'lobby' : 'coop'),
+        panel: (p) => this._coopBlurb(p, ms),
+      });
+    }
     items.push({
       idx: idx(),
       label: 'LOADOUT',
@@ -345,6 +358,233 @@ export class MainMenu {
       panel: (p) => this._blurb(p, 'CONTROLS', 'Every binding in the current build. Command has memorised none of them.'),
     });
     return { crumb: 'MAIN MENU', items };
+  }
+
+  /* ------------------------------------------------------- co-op (src/net) */
+
+  _coopBlurb(p, ms) {
+    if (ms.availability === 'unavailable') {
+      this._blurb(p, 'CO-OP ONLINE', 'Online play needs the shared FLOP OPS link (claude.ai). Open the game from its claude.ai link, where the room is provided, and try again. Single player works everywhere.');
+      return;
+    }
+    this._blurb(p, 'CO-OP ONLINE', 'Survival with up to four operators against the same waves. One of you hosts; everyone else is told it was their idea.', [
+      ['HOST', 'Create a party code and send it to your squad'],
+      ['JOIN', 'Type the code a host gave you'],
+      ['DOWNED', 'Hold F on a downed teammate for 3 s to revive'],
+      ['OVER', 'When everyone is down at once'],
+    ]);
+  }
+
+  _page_coop() {
+    const net = this.host.net?.();
+    const ms = net?.menuState();
+    if (!net || ms.availability === 'unavailable') {
+      return {
+        crumb: 'MAIN MENU  ›  CO-OP ONLINE',
+        items: [{ kind: 'back', label: 'BACK', panel: (p) => this._coopBlurb(p, ms ?? { availability: 'unavailable' }) }],
+      };
+    }
+    const status = (p) => {
+      const c = this._card(p, 'SECURE NET', ms.status === 'joining' ? 'CONNECTING' : 'CO-OP ONLINE');
+      const line = ms.availability === 'unknown' ? 'Checking the secure net…' : ms.error || 'A party is a room code. Everyone with the code is in.';
+      el('div', 'ow-mm-text', c, line);
+      return c;
+    };
+    const items = [
+      {
+        idx: '01',
+        label: 'HOST A PARTY',
+        tag: 'NEW CODE',
+        onSelect: () => this._coopConnect(() => net.hostParty()),
+        panel: (p) => {
+          status(p);
+          this._blurb(p, 'HOST', 'Creates a party code (ops-xxxx). You pick the map and start; your squad loads in with you.');
+        },
+      },
+      {
+        idx: '02',
+        label: 'JOIN A PARTY',
+        tag: 'ENTER CODE',
+        onSelect: () => this.go('coopjoin'),
+        panel: (p) => {
+          status(p);
+          this._blurb(p, 'JOIN', 'Type the code your host sent you.');
+        },
+      },
+      { kind: 'back', label: 'BACK' },
+    ];
+    return { crumb: 'MAIN MENU  ›  CO-OP ONLINE', items };
+  }
+
+  /** Connect, then show the lobby (or the error on this page). */
+  _coopConnect(fn) {
+    if (this._coopBusy) return;
+    this._coopBusy = true;
+    Promise.resolve(fn())
+      .then((ok) => {
+        this._coopBusy = false;
+        if (ok && this.open) this.go('lobby');
+        else if (this.open) this._render(this.page, this.arg, this.focus);
+      })
+      .catch(() => {
+        this._coopBusy = false;
+      });
+  }
+
+  _page_coopjoin() {
+    const net = this.host.net?.();
+    const join = () => {
+      const v = this._codeInput?.value ?? '';
+      this._coopConnect(() => net?.join(v));
+    };
+    const panel = (p) => {
+      const c = this._card(p, 'JOIN', 'PARTY CODE');
+      el('div', 'ow-mm-text', c, 'The host sees the code in their lobby (ops-xxxx). Letters and numbers; the ops- is optional.');
+      const inp = el('input', 'ow-mm-code', c);
+      inp.type = 'text';
+      inp.placeholder = 'ops-xxxx';
+      inp.maxLength = 48;
+      inp.spellcheck = false;
+      inp.autocomplete = 'off';
+      inp.value = this._codeDraft ?? '';
+      inp.setAttribute(
+        'style',
+        'display:block;width:100%;box-sizing:border-box;margin:10px 0;padding:8px 10px;font:600 22px/1 "Barlow Condensed",sans-serif;letter-spacing:.08em;text-transform:lowercase;color:#f1ead6;background:#0009;border:1px solid #c9a24a88;outline:none;pointer-events:auto;'
+      );
+      // Typing belongs to the field: keep the game's key handler (which
+      // swallows every key on window) out of it.
+      inp.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.code === 'Enter' || e.code === 'NumpadEnter') join();
+        if (e.code === 'Escape') this.back();
+      });
+      inp.addEventListener('input', () => (this._codeDraft = inp.value));
+      inp.addEventListener('mousedown', (e) => e.stopPropagation());
+      this._codeInput = inp;
+      const ms = net?.menuState();
+      el('div', 'ow-mm-text', c, ms?.status === 'joining' ? 'Connecting…' : ms?.status === 'error' ? ms.error : '');
+      el('div', 'ow-mm-go', c, 'ENTER TO JOIN');
+      setTimeout(() => inp.focus(), 0);
+    };
+    return {
+      crumb: 'CO-OP ONLINE  ›  JOIN',
+      items: [
+        { idx: '▸', label: 'JOIN', onSelect: join, panel },
+        { kind: 'back', label: 'BACK', panel },
+      ],
+    };
+  }
+
+  _page_lobby() {
+    const net = this.host.net?.();
+    const ms = net?.menuState();
+    if (!net || ms.status !== 'lobby') return this._page_coop();
+    const isHost = ms.role === 'host';
+    const maps = (this.host.maps?.() ?? []).filter((m) => this._supports(m, 'survival'));
+    const mapName = (id) => maps.find((m) => m.id === id)?.name ?? String(id ?? '').toUpperCase();
+    const panel = (p) => this._lobbyPanel(p, net);
+    const items = [];
+    if (isHost) {
+      items.push({
+        kind: 'value',
+        label: 'MAP',
+        value: () => mapName(net.menuState().lobby.map),
+        onChange: (dir) => {
+          if (!maps.length) return;
+          const i = Math.max(0, maps.findIndex((m) => m.id === net.menuState().lobby.map));
+          net.setLobby({ map: maps[(i + dir + maps.length) % maps.length].id });
+        },
+        panel,
+      });
+      items.push({
+        kind: 'value',
+        label: 'DIFFICULTY',
+        value: () => (DIFF.find((d) => d[0] === net.menuState().lobby.diff) ?? DIFF[1])[1],
+        onChange: (dir) => {
+          const i = Math.max(0, DIFF.findIndex((d) => d[0] === net.menuState().lobby.diff));
+          net.setLobby({ diff: DIFF[(i + dir + DIFF.length) % DIFF.length][0] });
+        },
+        panel,
+      });
+      items.push({ idx: '▸', label: 'START OPERATION', onSelect: () => net.start(), panel });
+    } else if (ms.lobby.hostInGame) {
+      items.push({ idx: '▸', label: 'JOIN THE OPERATION', tag: 'IN PROGRESS', onSelect: () => net.deployNow(), panel });
+    } else {
+      items.push({ idx: '·', label: ms.host ? 'WAITING FOR THE HOST' : 'FINDING THE HOST', panel });
+    }
+    items.push({ label: 'COPY PARTY CODE', tag: String(ms.code ?? '').toUpperCase(), onSelect: () => this._copyCode(ms.code), panel });
+    items.push({
+      label: 'LEAVE PARTY',
+      onSelect: () => {
+        net.leave();
+        this.home();
+      },
+      panel,
+    });
+    return { crumb: `CO-OP ONLINE  ›  PARTY ${String(ms.code ?? '').toUpperCase()}`, items };
+  }
+
+  _lobbyPanel(p, net) {
+    const ms = net.menuState();
+    const c = this._card(p, ms.role === 'host' ? 'YOU ARE HOSTING' : 'SQUAD', `PARTY ${String(ms.code ?? '').toUpperCase()}`);
+    const row = el('div', null, c);
+    row.setAttribute('style', 'display:flex;align-items:center;gap:12px;margin:8px 0 12px;');
+    const code = el('div', null, row, String(ms.code ?? ''));
+    code.setAttribute('style', 'font:700 30px/1 "Barlow Condensed",sans-serif;letter-spacing:.1em;color:#f1ead6;user-select:all;');
+    const btn = el('button', null, row, 'COPY');
+    btn.setAttribute('style', 'font:600 14px/1 "Barlow Condensed",sans-serif;letter-spacing:.1em;padding:6px 12px;color:#111;background:#c9a24a;border:0;cursor:pointer;pointer-events:auto;');
+    btn.addEventListener('mousedown', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._copyCode(ms.code, btn);
+    });
+    el('div', 'ow-mm-text', c, 'Send this code to your squad. They pick CO-OP ONLINE › JOIN A PARTY and type it in.');
+    const g = el('div', 'ow-ms-grid', c);
+    for (const pl of ms.players) {
+      el('div', 'k', g, pl.host ? 'HOST' : pl.me ? 'YOU' : 'OPERATOR');
+      el('div', 'v', g, pl.name + (pl.inGame ? ' · DEPLOYED' : ''));
+    }
+    const maps = this.host.maps?.() ?? [];
+    const m = maps.find((x) => x.id === ms.lobby.map);
+    el('div', 'k', g, 'MAP');
+    el('div', 'v', g, m?.name ?? ms.lobby.map);
+    el('div', 'k', g, 'DIFFICULTY');
+    el('div', 'v', g, String(ms.lobby.diff ?? 'regular').toUpperCase());
+    if (m?.preview) this._plan(c, m);
+    let go = 'LOOKING FOR THE HOST';
+    if (ms.role === 'host') go = `${ms.players.length} OF 4 · ENTER ON START OPERATION`;
+    else if (ms.lobby.hostInGame) go = 'THE HOST IS ALREADY DEPLOYED · JOIN WHEN READY';
+    else if (ms.host) go = 'THE HOST STARTS · YOU LOAD IN WITH THEM';
+    el('div', 'ow-mm-go', c, go);
+  }
+
+  _copyCode(code, btn = null) {
+    const text = String(code ?? '');
+    const done = () => {
+      if (btn) btn.textContent = 'COPIED';
+    };
+    try {
+      const pr = navigator.clipboard?.writeText?.(text);
+      if (pr?.then) pr.then(done, () => this._copyFallback(text, done));
+      else this._copyFallback(text, done);
+    } catch {
+      this._copyFallback(text, done);
+    }
+  }
+
+  _copyFallback(text, done) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('style', 'position:fixed;left:-1000px;top:0;');
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      done();
+    } catch {
+      /* the code is on screen and selectable */
+    }
   }
 
   _difficultyItem() {
@@ -705,6 +945,15 @@ export class MainMenu {
   }
 
   update(rawDt) {
+    // CO-OP pages follow the party live (players joining, the host changing).
+    if (this.open && (this.page === 'lobby' || this.page === 'coop' || this.page === 'root')) {
+      const v = this.host.net?.()?.version;
+      if (v !== undefined && v !== this._netVer) {
+        const first = this._netVer === undefined;
+        this._netVer = v;
+        if (!first) this._render(this.page, this.arg, this.focus);
+      }
+    }
     this.shown = damp(this.shown, this.open ? 1 : 0, 13, rawDt);
     if (this.shown < 0.004) {
       setStyle(this.root, 'display', 'none');
