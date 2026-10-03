@@ -25,7 +25,7 @@ export function argv() {
   );
 }
 
-export async function openPage(url, { width = 480, height = 270, timeout = 900_000, log = false } = {}) {
+export async function openPage(url, { width = 320, height = 180, timeout = 900_000, log = false } = {}) {
   const browser = await chromium.launch({
     headless: true,
     executablePath: CHROME,
