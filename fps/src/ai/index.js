@@ -185,7 +185,7 @@ export class AiSystem {
      *  blow the frame budget. The game self-limits waves well under this. */
     this.maxAlive = 20;
     this._navPending = true;
-    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0, rays: 0, raysDenied: 0, unstick1: 0, unstick2: 0, unstick3: 0 };
+    this.stats = { agents: 0, alive: 0, navMs: 0, coverPts: 0, walkable: 0, rays: 0, raysDenied: 0, unstick1: 0, unstick2: 0, unstick3: 0, pathsSolved: 0, pathsCached: 0 };
 
     /* scratch */
     this._v = new THREE.Vector3();
@@ -232,6 +232,9 @@ export class AiSystem {
      *  221x221 grid, and a squad that all enters combat on the same frame used to
      *  ask for six of them at once. */
     this.pathsPerFrame = 2;
+    this._pathCache = [];
+    for (let i = 0; i < 24; i++) this._pathCache.push({ s: -1, d: -1, t: -Infinity, n: 0, pts: [] });
+    this._pathCacheI = 0;
     this.stats.pathsDeferred = 0;
     this._frustum = new THREE.Frustum();
     this._mvp = new THREE.Matrix4();
@@ -1737,8 +1740,37 @@ export class AiSystem {
       this.stats.pathsDeferred++;
       return -1;
     }
+    // PATH CACHE: squadmates heading for the same place from the same spot
+    // (a zone slot, a hunt point, a callout) share one solve for a few seconds
+    const g = this.grid;
+    const now = this.ctx.time.elapsed;
+    const sk = (g.cellX(from.x) >> 1) * 4099 + (g.cellZ(from.z) >> 1) * 31 + Math.round(from.y);
+    const dk = g.cellX(dest.x) * 8191 + g.cellZ(dest.z) * 17 + Math.round(dest.y);
+    const C = this._pathCache;
+    for (let i = 0; i < C.length; i++) {
+      const e = C[i];
+      if (e.s === sk && e.d === dk && now - e.t < 3 && e.n > 0) {
+        for (let k = 0; k < e.n; k++) {
+          if (!out[k]) out[k] = new THREE.Vector3();
+          out[k].copy(e.pts[k]);
+        }
+        this.stats.pathsCached++;
+        return e.n;
+      }
+    }
     this._pathBudget--;
-    return this.grid.findPath(from, dest, out);
+    const n = g.findPath(from, dest, out);
+    this.stats.pathsSolved++;
+    const e = C[this._pathCacheI++ % C.length];
+    e.s = sk;
+    e.d = dk;
+    e.t = now;
+    e.n = n;
+    for (let k = 0; k < n; k++) {
+      if (!e.pts[k]) e.pts[k] = new THREE.Vector3();
+      e.pts[k].copy(out[k]);
+    }
+    return n;
   }
 
   /** Unit vector pointing AT the sun, however the sky exposes itself. */
