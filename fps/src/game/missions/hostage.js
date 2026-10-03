@@ -54,9 +54,12 @@ export class HostageMission extends MissionMode {
       library: this.box(-25.6, G - 0.5, -5.6, -16.4, G + 3, 0),
       libraryDoor: at(-21, G, -7.4, 0, 1),
       lz: { pos: lz.pos, r: (lz.radius ?? 5) + 1, h: 3 },
-      // the walk out: library -> west corridor -> side door -> west garden ->
-      // west stair -> the lawn
-      escortPath: [V(-21, G, -7.5), V(-27.5, G, -7.5), V(-35, G, -8), V(-38, G, -1), V(-38, 0, 13), V(-30, 0, 30), lz.pos.clone()],
+      // the walk out at walking pace: library door -> west corridor -> side
+      // door -> west garden -> west stair -> the lawn (tests walk Doug along it)
+      escortPath: [
+        V(-20.8, G, -7.3), V(-24.5, G, -7.5), V(-27.6, G, -7.5), V(-31, G, -8), V(-35, G, -6), V(-38, G, -1.5),
+        V(-38, 1.7, 5), V(-38, 0, 11.5), V(-34, 0, 19), V(-30, 0, 27), V(-27.5, 0, 34), lz.pos.clone(),
+      ],
     };
     const pts = this.points;
     const routes = A.patrolRoutes ?? {};
