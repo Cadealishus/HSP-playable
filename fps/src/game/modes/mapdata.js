@@ -66,7 +66,9 @@ export function snapToNav(ctx, p, search = 8) {
     try {
       const ci = g.nearest(p.x, p.z, p.y, search, 1.4);
       if (ci >= 0) {
-        p.set(g.worldX(ci % g.nx), g.floor[ci], g.worldZ((ci / g.nx) | 0));
+        // nodeX/nodeZ decode multi-storey node ids (upper floors are numbered
+        // after the ground layer, so `ci % nx` lands far off the map).
+        p.set(g.nodeX(ci), g.floor[ci], g.nodeZ(ci));
         return p;
       }
     } catch {
