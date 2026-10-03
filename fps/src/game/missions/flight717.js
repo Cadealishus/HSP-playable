@@ -69,7 +69,7 @@ export class Flight717Mission extends MissionMode {
       gate: {
         members: list('gatePosts').map((s, i) => ({
           at: s,
-          role: ['rifleman', 'smg', 'marksman', 'rifleman', 'smg'][i % 5],
+          role: ['rifleman', 'smg', 'sniper', 'rifleman', 'smg'][i % 5],
           weapon: i === 2 ? 'marksman' : undefined,
           order: i === 3 ? { kind: 'hunt' } : holdAt(s, 2.5),
           alert: i === 2 ? 'stay' : 'hunt',

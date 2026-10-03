@@ -614,7 +614,12 @@ export class MissionMode {
     if (rec.tag && this.tagged.get(rec.tag) === a) this.tagged.delete(rec.tag);
     if (e) {
       const k = e.killer;
-      const byPlayer = k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player') || (!k && !e.killerTeam) || e.killerTeam === 'esf';
+      // The AI says who killed whom (killerIsPlayer); older builds only name a
+      // killer, and an unattributed hostile death there was Doug's.
+      const byPlayer =
+        typeof e.killerIsPlayer === 'boolean'
+          ? e.killerIsPlayer
+          : k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player') || (!k && !e.killerTeam) || e.killerTeam === 'esf';
       if (byPlayer) {
         this.stats.kills++;
         this.player.kills++;
@@ -734,7 +739,7 @@ export class MissionMode {
   _onCivHit(e) {
     if (this.result || !e?.civ) return;
     const k = e.killer ?? e.source ?? null;
-    const byPlayer = !k || k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player');
+    const byPlayer = typeof e.killerIsPlayer === 'boolean' ? e.killerIsPlayer : !k || k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player');
     if (!byPlayer) return;
     const cr = this._civRecs.get(e.civ);
     this.stats.civHits++;
@@ -759,7 +764,7 @@ export class MissionMode {
     if (cr.down) return;
     cr.down = true;
     const k = e?.killer;
-    const byPlayer = k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player');
+    const byPlayer = typeof e?.killerIsPlayer === 'boolean' ? e.killerIsPlayer : k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player');
     if (byPlayer) this.stats.civKills++;
     if (this.result) return;
     if (cr.vip) {
@@ -1041,11 +1046,18 @@ export class MissionMode {
         self._lethal(a, head);
         return true;
       },
-      /** Fire a synthetic civilian hit from Doug (fail-rule tests). */
+      /** Graze a civilian with one of Doug's rounds (fail-rule tests). */
       hitCivilian: (tag) => {
         const c = tag ? self.civs.get(tag) : self.civs.values().next().value;
         if (!c) return false;
-        self.ctx.events.emit('civilian:hit', { civ: c, killer: self.ctx.peek('player') });
+        // a graze from Doug through the AI's own damage path (-> civilian:hit)
+        const h = self.host;
+        if (h) h._synthDamage = true;
+        try {
+          self.ctx.events.emit('damage:dealt', { target: c, amount: 6, headshot: false, killed: false, point: c.position, part: 'arm' });
+        } finally {
+          if (h) h._synthDamage = false;
+        }
         return true;
       },
       /** Points of interest for tests: every anchor/point the mission names. */

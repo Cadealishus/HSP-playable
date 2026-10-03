@@ -69,7 +69,7 @@ export class HostageMission extends MissionMode {
           { at: A.guardPost ? { pos: A.guardPost, yaw: yawOf(-1, 0) } : at(10.5, 0, 42.3, -1, 0), role: 'smg', order: hold(10.5, 0, 42.3, 1.5), alert: 'attack' },
           { at: at(-12, 0, 27, 1, 0), role: 'rifleman', order: hold(-9, 0, 27) },
           { at: at(12, 0, 25, -1, 0), role: 'rifleman', order: hold(9, 0, 26) },
-          { at: at(-12, G, 5, 0, 1), role: 'marksman', weapon: 'marksman', order: hold(-10, G, 6, 1.5), alert: 'stay' },
+          { at: at(-12, G, 5, 0, 1), role: 'sniper', weapon: 'marksman', order: hold(-10, G, 6, 1.5), alert: 'stay' },
           { at: at(-20, 0, 13, 1, 0), role: 'rifleman', order: routes.court ? { kind: 'patrol', pos: routes.court } : hold(-8, 0, 26) },
         ],
       },
