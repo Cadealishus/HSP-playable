@@ -531,7 +531,7 @@ export function runChecks(ctx, world, spec) {
     const pb = W(...b);
     const n = grid.findPath(pa, pb, pts, { maxNodes: 400000 });
     const gi = grid.nearest(pb.x, pb.z, pb.y);
-    const near = gi >= 0 && Math.hypot(grid.worldX(gi % grid.nx) - pb.x, grid.worldZ((gi / grid.nx) | 0) - pb.z) < 1.3 && Math.abs(grid.floor[gi] - pb.y) < 0.6;
+    const near = gi >= 0 && Math.hypot(grid.nodeX(gi) - pb.x, grid.nodeZ(gi) - pb.z) < 1.3 && Math.abs(grid.floor[gi] - pb.y) < 0.6;
     rec('nav', name, n > 0 && near, n > 0 ? `${n} waypoints${near ? '' : ' (goal cell off target)'}` : 'no path');
   }
   const fail = results.filter((r) => !r.ok);

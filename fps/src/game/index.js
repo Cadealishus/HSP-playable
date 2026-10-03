@@ -270,6 +270,8 @@ export class GameSystem {
       this._continueUsed = false;
       this._clearAI();
       this._applyLoadout(s.loadout, this.job);
+      // Survival orders hostiles to hunt Doug's last reported area.
+      this.ctx.peek('ai')?.setOrderProvider?.((agent) => this.mode?.orderFor?.(agent) ?? null);
       this._setState('play');
       mode.start();
       console.info(`[game] deploy — survival wave 1 (${s.difficulty})`);

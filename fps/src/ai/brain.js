@@ -72,6 +72,8 @@ export class Brain {
     this.scores = {};
     for (const k of ALL) this.scores[k] = 0;
     this.order = null;
+    this.areaC = new THREE.Vector3();
+    this.hasArea = false;
     this._orderT = -Infinity;
     this.orderProvided = false;
     /** set by a commander: go flank / throw a grenade */
@@ -544,8 +546,11 @@ export class Brain {
     if (!T) return;
     a.aimWeight = 1;
     a.face(T.pos);
-    // pushers close to their ideal range, everyone else holds and fights
-    if (role.pushes && dist > role.range[1] && this.inLeash(T.pos, 2)) {
+    // pushers close to their ideal range, everyone else holds and fights;
+    // on an assault (a mode's intel hunt, e.g. survival) every role closes to
+    // its own ideal range while it shoots
+    const push = role.pushes || this.order?.intel === true;
+    if (push && dist > role.range[1] && this.inLeash(T.pos, 2)) {
       a.moveTo(T.pos, SPEED.tactical * role.speed);
       a.crouch = false;
     } else if (dist < role.range[0] && (role.id === 'sniper' || role.id === 'rocket')) {
@@ -858,6 +863,8 @@ export class Brain {
       a.aimWeight = 0.6;
       return;
     }
+    const o = this.order;
+    if (o?.pos && !Array.isArray(o.pos) && Number.isFinite(o.pos.x)) return this._runHuntArea(now, o);
     if (!this.hasHunt || now > this.huntUntil || a.distTo(this.huntPt) < 3 || a.moveFailed) {
       a.moveFailed = false;
       this.hasHunt = a.ai.huntPoint(a, this.huntPt);
@@ -870,6 +877,39 @@ export class Brain {
     }
     a.moveTo(this.huntPt, SPEED.tactical * a.roleDef.speed);
     a.aimWeight = 0.45;
+  }
+
+  /**
+   * Hunt with an area (a mode's intel: `pos` + `radius`): each bot heads for
+   * its own spot in the circle, so a squad converges from different angles,
+   * then sweeps new spots inside it until the area moves or it makes contact.
+   */
+  _runHuntArea(now, o) {
+    const a = this.a;
+    const r = Math.max(2, o.radius ?? 10);
+    const moved = !this.hasArea || Math.hypot(o.pos.x - this.areaC.x, o.pos.z - this.areaC.z) > r * 0.5;
+    if (moved || a.distTo(this.huntPt) < 2.5 || a.moveFailed || now > this.huntUntil) {
+      a.moveFailed = false;
+      this.areaC.copy(o.pos);
+      this.hasArea = true;
+      // a different angle per bot and per sweep, biased to the side we come from
+      this.areaN = (this.areaN ?? 0) + 1;
+      const from = Math.atan2(a.position.x - o.pos.x, a.position.z - o.pos.z);
+      const ang = from + Math.sin(a.id * 2.399 + this.areaN * 1.7) * 1.4;
+      const d = r * (moved ? 0.35 : 0.3 + 0.6 * ((a.id * 0.618 + this.areaN * 0.37) % 1));
+      this._v.set(o.pos.x + Math.sin(ang) * d, o.pos.y, o.pos.z + Math.cos(ang) * d);
+      this.hasHunt = a.ai.snapWalkable(this._v, o.pos.y, this.huntPt, 6);
+      this.huntUntil = now + 12;
+      if (!this.hasHunt) {
+        a.stopMove();
+        this._lookAround(now);
+        return;
+      }
+    }
+    // jog in while far off, slow to a tactical sweep inside the area
+    const far = a.distTo(o.pos) > r * 1.5;
+    a.moveTo(this.huntPt, (far ? SPEED.run : SPEED.tactical) * a.roleDef.speed);
+    a.aimWeight = far ? 0.35 : 0.5;
   }
 
   _runEscort(now, o) {
