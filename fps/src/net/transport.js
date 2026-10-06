@@ -41,8 +41,8 @@ export const MAX_BYTES = 4096;
  *   capabilities: { room: { topics: { hit: 'interact', … } }, user: { … } }
  */
 export const TOPICS = Object.freeze([
-  'hit', // client → host: batched hits on host bots {s, h:[[id,dmg,head]]}
-  'dmg', // host → one client: batched damage from bots {t, a, f:[x,y,z]}
+  'hit', // client → host: batched hit claims {s, h:[[botId,dmg,head]], p:[[peer,dmg,zone]], am, w}
+  'dmg', // host → one player: validated damage {t, a, f:[x,y,z], k killer, z zone, am ammo, w}
   'kill', // host: a bot died {i, h, k, d:[x,y,z]}
   'wave', // host: wave start {n, c, run}
   'clear', // host: wave held {n, b, run}
@@ -52,6 +52,7 @@ export const TOPICS = Object.freeze([
   'revive', // reviver → downed teammate {t}
   'start', // host (lobby): deploy {m, d, run}
   'state', // host: full state re-sent when someone joins {g, r}
+  'death', // PvP: I died {k killer, h headshot, w weapon} (killfeed, ragdoll, score)
 ]);
 
 export function byteLen(str) {
