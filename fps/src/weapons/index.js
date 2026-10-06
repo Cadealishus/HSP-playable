@@ -168,6 +168,7 @@ export class WeaponSystem {
       lowReady: false,
       speed: 0,
       crouch: false,
+      slide: false,
       airborne: false,
       trigger: false,
       empty: false,
@@ -944,6 +945,7 @@ export class WeaponSystem {
     st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 && !throwing : false;
     st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
     st.crouch = player?.stance === 'crouch';
+    st.slide = player?.sliding === true;
     st.airborne = player?.airborne === true;
     st.lowReady = player?.state === 'mantle' || player?.mantling === true;
     st.empty = this._loaded(s) === 0;

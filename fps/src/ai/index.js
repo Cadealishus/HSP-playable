@@ -65,6 +65,8 @@ import { SoldierMaterials } from './textures.js';
 import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
 import { PlayerProxy, normTeam } from './teams.js';
 import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
+import { Rng } from '../core/rng.js';
+import { armorForRole, ARMOR } from '../combat/armor.js';
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
@@ -139,6 +141,18 @@ export class AiSystem {
     // leaves them hovering: see grounding.js.
     this.ground = new GroundShadows(this.root, 32);
     this._variants = new Map();
+    /** per variant|style: the seed its first build forked off this.rng, reused by
+     *  its armour combinations so dressing a bot never moves the AI's stream */
+    this._variantSeeds = new Map();
+    this._armorSeq = 0;
+    this._armorEvent = {
+      target: null, slot: null, tier: 'light', broke: false, deflected: false, absorbed: 0,
+      point: new THREE.Vector3(), hasPoint: false, ammo: null, source: null, byPlayer: false,
+    };
+    this._ricochet = {
+      point: new THREE.Vector3(), normal: new THREE.Vector3(), incident: new THREE.Vector3(),
+      surface: 'metal', damage: 40, exit: false,
+    };
     this.agents = [];
     /** every live combatant, bots plus the player proxy (EXPANSION.md §2) */
     this.actors = [];
@@ -475,7 +489,12 @@ export class AiSystem {
         a._dmgMax = amount;
         if (inc) a._dmgDir.copy(inc);
       }
-      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src);
+      const armBefore = a.armor.helmet.hp + a.armor.vest.hp;
+      a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src,
+        e.ammo ?? null, e.melee ? 'melee' : null);
+      // the HUD can draw an armour hitmarker (EXPANSION §10.3)
+      e.armored = a.armor.helmet.hp + a.armor.vest.hp < armBefore;
+      e.armorBroke = this._armorEvent.target === a && this._armorEvent.broke && this._armorEvent.frame === frame;
       if (!a.alive) e.killed = true;
     });
 
@@ -600,11 +619,25 @@ export class AiSystem {
     }
     name = variantForTeam(name, opts.team);
     const style = opts.weapon ?? null;
-    const key = style && style !== VARIANTS[name]?.weapon ? `${name}|${style}` : name;
+    const plain = style && style !== VARIANTS[name]?.weapon ? `${name}|${style}` : name;
+    // Armour tiers dress the body (EXPANSION §10.3). One geometry per
+    // variant|style|tiers, shared by every bot wearing it. The first build of a
+    // variant|style forks this.rng exactly once (as it always did), and every
+    // tier combination of it reuses that seed, so the AI's random stream is the
+    // same however many kits the waves bring.
+    const armor = opts.helmet || opts.vest
+      ? { helmet: opts.helmet ?? 'light', vest: opts.vest ?? 'light' }
+      : null;
+    const key = armor ? `${plain}|h:${armor.helmet}|v:${armor.vest}` : plain;
     let v = this._variants.get(key);
     if (!v) {
       const t0 = performance.now();
-      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials, weapon: style });
+      let seed = this._variantSeeds.get(plain);
+      if (seed === undefined) {
+        seed = this.rng.u32();
+        this._variantSeeds.set(plain, seed);
+      }
+      v = buildSoldier(name, { rng: new Rng(seed), materials: this.materials, weapon: style, armor });
       this._variants.set(key, v);
       // Hand the new materials to render immediately rather than waiting for its
       // scene walk: they are all MeshStandardMaterial, so the patcher injects the
@@ -614,7 +647,7 @@ export class AiSystem {
       const r = this.ctx.peek('render');
       if (r?.patcher) for (const m of v.materials) r.patcher.patch(m);
       console.info(
-        `[ai] variant "${name}" ${v.stats.triangles | 0} tris / ${v.stats.vertices} verts / ` +
+        `[ai] variant "${key}" ${v.stats.triangles | 0} tris / ${v.stats.vertices} verts / ` +
           `${v.materials.length} materials in ${(performance.now() - t0).toFixed(0)}ms`
       );
     }
@@ -716,7 +749,10 @@ export class AiSystem {
     }
     variant = String(variant).replace(/^esf_/, '');
     const model = opts.model ?? (opts.role ? modelFor(role, variant) : null);
-    const a = new Agent(this, { ...opts, variant, position, yaw, team, model });
+    // EXPANSION §10.3: kit by role and wave (opts.skill is the survival wave
+    // intensity / the MP bot skill); `opts.armor` overrides it
+    const armor = opts.armor ?? armorForRole(role.id ?? opts.role, team, opts.skill ?? 0.5, this._armorSeq++);
+    const a = new Agent(this, { ...opts, variant, position, yaw, team, model, armor });
     if (!a.name) a.name = team === 'esf' ? callsign(this._esfSeq++, ESF_CALLSIGNS) : this.nextCallsign();
     if (opts.skill !== undefined) a.setDifficulty(opts.skill);
     if (team === 'esf') this.iff.attach(a);
@@ -747,6 +783,50 @@ export class AiSystem {
     civ.captor = captor;
     civ.behavior = 'hostage';
     civ.released = false;
+  }
+
+  /**
+   * Called by Agent.applyDamage when armour took (part of) a hit: the
+   * `armor:hit` / `armor:break` events (audio plays the ping / crack, the HUD
+   * the ARMOUR BROKEN marker) and a ricochet spark off a deflecting helmet.
+   */
+  onArmorHit(agent, r, point, dir, source, ammo) {
+    const e = this._armorEvent;
+    e.target = agent;
+    e.slot = r.slot;
+    e.tier = agent.armor[r.slot]?.tier ?? 'light';
+    e.broke = r.broke;
+    e.deflected = r.deflected;
+    e.absorbed = r.absorbed;
+    e.ammo = ammo;
+    e.source = source;
+    e.byPlayer = !source || source === this.player || source?.isPlayer === true;
+    e.frame = this.ctx.time.frame;
+    e.hasPoint = !!point;
+    if (point) e.point.copy(point);
+    else e.point.set(agent.position.x, agent.position.y + 1.3, agent.position.z);
+    this.ctx.events.emit('armor:hit', e);
+    if (r.broke) this.ctx.events.emit('armor:break', e);
+    // the visible deflect: sparks off the shell, no decal (the head moves)
+    if ((r.deflected || (r.slot === 'helmet' && r.absorbed > 4)) && point) {
+      const fx = this.ctx.peek('fx');
+      if (fx?.onImpact) {
+        const k = this._ricochet;
+        k.point.copy(point);
+        if (dir) k.incident.copy(dir);
+        else k.incident.set(0, 0, 1);
+        // the shell's outward normal: from the head centre through the hit point
+        const head = agent.samplePoint ? agent.samplePoint(1, k.normal) : k.normal.copy(point);
+        k.normal.subVectors(point, head);
+        if (k.normal.lengthSq() < 1e-6) k.normal.copy(k.incident).multiplyScalar(-1);
+        k.normal.normalize();
+        k.damage = r.deflected ? 60 : 30;
+        const prev = fx._suppressDecals;
+        fx._suppressDecals = true;
+        fx.onImpact(k);
+        fx._suppressDecals = prev;
+      }
+    }
   }
 
   /** Called by Agent.die(): drop the IFF tag, free any claims. */

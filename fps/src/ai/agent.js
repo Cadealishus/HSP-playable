@@ -27,6 +27,7 @@ import { isEnemyTeam, normTeam, LAYER_ESF } from './teams.js';
 import { roleFor, resolveWeapon, weaponFor, PLAYER_DAMAGE_SCALE } from './roles.js';
 import { Perception } from './perception.js';
 import { Brain, S } from './brain.js';
+import { createArmor, resolveDamage, zoneOf } from '../combat/armor.js';
 
 /**
  * FLOP OPS death tuning. Deaths are the comedy; the physics stays honest.
@@ -150,7 +151,19 @@ export class Agent {
     /** AI weapon profile resolved from src/weapons/defs.js (see roles.js) */
     this.weapon = resolveWeapon(this.weaponId, ai.ctx.peek('weapons'));
     this.modelStyle = opts.model ?? null;
-    const def = ai.variant(this.variantName, { team: this.team, weapon: this.modelStyle });
+    /** EXPANSION §10.3: { helmet: {tier, hp, max}, vest: {tier, hp, max} }. The
+     *  tiers pick the body too: a cap / light helmet / heavy helmet with visor,
+     *  and no vest / soft vest / plate carrier, so what you see is what stops a round. */
+    this.armor = createArmor(opts.armor?.helmet ?? 'light', opts.armor?.vest ?? 'light');
+    this._armorRes = {};
+    this._burnDps = 0;
+    this._burnLeft = 0;
+    this._burnTick = 0;
+    this._burnSource = null;
+    const def = ai.variant(this.variantName, {
+      team: this.team, weapon: this.modelStyle,
+      helmet: this.armor.helmet.tier, vest: this.armor.vest.tier,
+    });
     this.def = def;
     this.scale = def.variant.scale ?? 1;
     /** Rank shown by the UI killfeed, e.g. "RIFLEMAN". See
@@ -455,6 +468,10 @@ export class Agent {
     this.repathTimer -= dt;
     this.vaultCooldown -= dt;
     if (this._stun > 0) this._stun = Math.max(0, this._stun - dt * this._stunRate);
+    if (this._burnLeft > 0) {
+      this._updateBurn(dt);
+      if (!this.alive) return;
+    }
     if (this._reloadPending && !this.animator.reloading) {
       this._reloadPending = false;
       this.ammo = this.magSize;
@@ -1120,8 +1137,19 @@ export class Agent {
    * @param point   world impact point
    * @param dir     incident direction (unit)
    */
-  applyDamage(amount, part, point, dir, blast = null, source = null) {
+  applyDamage(amount, part, point, dir, blast = null, source = null, ammo = null, kind = null) {
     if (!this.alive) return;
+    // Armour first (src/combat/armor.js, the ONE resolveDamage). `ammo` is the
+    // AMMO def or id the round carried (EXPANSION §10.2); `kind` 'fire' / 'melee'
+    // for burn ticks and knives, else a blast when `blast` rides along.
+    const r = resolveDamage({
+      amount, zone: zoneOf(part), ammo, armor: this.armor,
+      kind: kind ?? (blast ? 'blast' : 'bullet'),
+    }, this._armorRes);
+    if (r.slot && (r.absorbed > 0.01 || r.broke)) this.ai.onArmorHit?.(this, r, point, dir, source, ammo);
+    if (r.burnDps > 0) this.ignite(r.burnDps, r.burnDur, source);
+    amount = r.health;
+    if (!(amount > 0)) return;
     if (source) this.lastAttacker = source;
     this.lastHurtT = this.ctx.time.elapsed;
     this.health -= amount;
@@ -1145,6 +1173,23 @@ export class Agent {
             : 'torso';
     this.animator.hit(region, side, Math.min(1.4, 0.5 + amount / 45));
     if (part === 'leg') this.speed *= 0.4;
+  }
+
+  /** Incendiary rounds / fire: a damage-over-time, ticked through the armour. */
+  ignite(dps, dur, source = null) {
+    this._burnDps = Math.max(this._burnDps, dps);
+    this._burnLeft = Math.max(this._burnLeft, dur);
+    if (source) this._burnSource = source;
+  }
+
+  _updateBurn(dt) {
+    this._burnLeft -= dt;
+    this._burnTick += dt;
+    if (this._burnTick < 0.25 && this._burnLeft > 0) return;
+    const amount = this._burnDps * this._burnTick;
+    this._burnTick = 0;
+    if (this._burnLeft <= 0) { this._burnDps = 0; this._burnLeft = 0; }
+    this.applyDamage(amount, 'torso', null, null, null, this._burnSource, null, 'fire');
   }
 
   /** Which side of the body a world point is on: <0 right, >0 left. */
