@@ -732,7 +732,10 @@ export class Gunsmith {
     w.laserGroup = lg?.group ?? null;
 
     w.def = def;
-    if (this.vm.active === w) this.onActive(w);
+    if (this.vm.active === w) {
+      this._activeSeen = w;
+      this.onActive(w);
+    }
     return def;
   }
 
@@ -756,7 +759,10 @@ export class Gunsmith {
    */
   update(physics, show) {
     const w = this.vm.active;
-    if (this._laserEntry !== w) this.onActive(w);
+    if (this._activeSeen !== w) {
+      this._activeSeen = w;
+      this.onActive(w);
+    }
     if (!this.laserOn || !show) {
       this.dot.visible = false;
       return;
@@ -800,6 +806,11 @@ export class Gunsmith {
   }
 
   dispose() {
+    for (const w of this.vm.weapons?.values?.() ?? []) {
+      for (const g of w.stock?.groups?.values() ?? []) {
+        for (const m of g.group?.userData.kitMeshes ?? []) m.geometry.dispose();
+      }
+    }
     this.dot.removeFromParent();
     this.beam.removeFromParent();
     for (const g of this._owned) g.dispose();

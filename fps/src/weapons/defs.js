@@ -802,6 +802,33 @@ Object.assign(WEAPON_DEFS, {
   },
 });
 
+/**
+ * GUNSMITH (attachments.js, EXPANSION §10.2): what each gun takes, per slot.
+ * The stock part (`null`) is always allowed and not listed: the carbine's holo,
+ * the rifle / SMG / LMG tube dot, the shotgun's ghost ring. Scoped guns keep
+ * their scope (no optic slot); the launcher takes nothing.
+ */
+const OPTICS = ['reddot', 'holo', 'acog'];
+const MUZZLES = ['suppressor', 'compensator', 'flashhider'];
+const BARRELS = ['longbarrel', 'shortbarrel'];
+const GRIPS = ['vgrip', 'agrip'];
+const MAGS = ['extmag', 'fastmag'];
+const LASER = ['laser'];
+const ALLOWS = {
+  carbine: { optic: ['reddot', 'acog'], muzzle: MUZZLES, barrel: BARRELS, underbarrel: GRIPS, magazine: MAGS, laser: LASER },
+  carbine_sd: { optic: ['reddot', 'acog'], underbarrel: GRIPS, magazine: MAGS, laser: LASER },
+  rifle: { optic: OPTICS, muzzle: MUZZLES, barrel: BARRELS, underbarrel: GRIPS, magazine: MAGS, laser: LASER },
+  smg: { optic: OPTICS, muzzle: MUZZLES, barrel: BARRELS, magazine: MAGS, laser: LASER },
+  shotgun: { optic: ['reddot', 'holo'], laser: LASER },
+  lmg: { optic: OPTICS, muzzle: MUZZLES, magazine: MAGS, laser: LASER },
+  marksman: { muzzle: MUZZLES, barrel: BARRELS, underbarrel: GRIPS, magazine: MAGS, laser: LASER },
+  sniper: { muzzle: ['suppressor'], barrel: BARRELS, magazine: MAGS, laser: LASER },
+  pistol: { muzzle: ['suppressor', 'compensator'], magazine: MAGS, laser: LASER },
+  mpistol: { muzzle: ['suppressor', 'compensator'], magazine: MAGS, laser: LASER },
+  rocket: {},
+};
+for (const [id, allows] of Object.entries(ALLOWS)) if (WEAPON_DEFS[id]) WEAPON_DEFS[id].allows = allows;
+
 /** Slot of each weapon (primary / secondary) for the loadout. */
 const DEFAULT_SLOT = { carbine: 'primary', rifle: 'primary', smg: 'primary', pistol: 'secondary' };
 
@@ -826,6 +853,7 @@ export function normalizeDef(d) {
   out.suppressed = d.suppressed === true;
   out.fastSwap = d.fastSwap ?? 1;
   out.cycleTime = d.cycleTime ?? 60 / d.rpm;
+  out.allows = d.allows ?? {};
   return out;
 }
 
