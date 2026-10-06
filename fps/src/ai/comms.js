@@ -17,6 +17,7 @@
  */
 
 import * as THREE from 'three';
+import { relation } from './teams.js';
 
 export const VOICE_RANGE = 34;
 export const RADIO_RANGE = 85;
@@ -70,7 +71,7 @@ export class Comms {
       const agents = this.ai.agents;
       for (let k = 0; k < agents.length; k++) {
         const r = agents[k];
-        if (!r.alive || r === c.from || r.team !== c.team || !r.perception) continue;
+        if (!r.alive || r === c.from || r.team !== c.team || !r.perception || relation() === 'ffa') continue;
         const d = r.position.distanceTo(c.origin);
         const inVoice = d <= VOICE_RANGE;
         const inRadio = c.squad && r.squad === c.squad && d <= RADIO_RANGE;
