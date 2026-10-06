@@ -85,6 +85,13 @@ try {
   await ev(A, () => window.__NET__.start());
   for (const p of [A, B, C]) await until(p, () => window.FLOP?.state?.mode === 'play' && window.__NET__.stats().inGame);
   check('everyone deployed', true);
+  // AFK test operators would be shot to pieces in a minute: the host's bots
+  // hold their fire (the damage check below fires a bot round explicitly).
+  await ev(A, () => {
+    const ai = window.__ENGINE__.ctx.peek('ai');
+    ai.onAgentFire = () => {};
+    ai.throwGrenade = () => {};
+  });
 
   const sys = (p) => ev(p, () => {
     const s = window.__NET__.stats();
@@ -149,25 +156,32 @@ try {
     p.teleport({ x: a.position.x + 3, y: a.position.y + 1.66, z: a.position.z }, p.yaw);
   });
   await frames(B, 3);
-  const shot = await ev(B, () => {
-    const ctx = window.__ENGINE__.ctx;
-    const net = window.__NET__.system;
-    const e = net.puppets.bots.get(window.__shotTarget);
-    const a = e.agent;
-    const phys = ctx.peek('physics');
-    const O = window.__ENGINE__.ctx.camera.position.clone();
-    const T = a.position.clone();
-    T.y += 1.3;
-    const d = T.clone().sub(O).normalize();
-    O.addScaledVector(d, 0.5);
-    let dealt = 0;
-    const off = ctx.events.on('damage:dealt', (x) => {
-      if (x.target === a) dealt += x.amount;
+  // One round per frame (the AI counts a round once per frame per line).
+  const shot = { id: await ev(B, () => window.__shotTarget), dealt: 0 };
+  for (let i = 0; i < 12; i++) {
+    const r = await ev(B, () => {
+      const ctx = window.__ENGINE__.ctx;
+      const e = window.__NET__.system.puppets.bots.get(window.__shotTarget);
+      if (!e || !e.agent.alive) return -1;
+      const a = e.agent;
+      const phys = ctx.peek('physics');
+      const O = ctx.camera.position.clone();
+      const T = a.position.clone();
+      T.y += 1.3;
+      const d = T.clone().sub(O).normalize();
+      O.addScaledVector(d, 0.5);
+      let dealt = 0;
+      const off = ctx.events.on('damage:dealt', (x) => {
+        if (x.target === a) dealt += x.amount;
+      });
+      phys.fireBullet({ origin: O, dir: d, damage: 45, penetration: 0.5, maxDist: 20, mask: phys.MASK.BULLET });
+      off();
+      return dealt;
     });
-    for (let i = 0; i < 6; i++) phys.fireBullet({ origin: O, dir: d, damage: 60, penetration: 0.5, maxDist: 20, mask: phys.MASK.BULLET });
-    off();
-    return { id: e.id, dealt, sent: net.stats.hitsSent };
-  });
+    if (r < 0) break;
+    shot.dealt += r;
+    await frames(B, 4);
+  }
   await until(B, (id) => {
     const e = window.__NET__.system.puppets.bots.get(id);
     return !e || !e.agent.alive;

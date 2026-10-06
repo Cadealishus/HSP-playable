@@ -108,6 +108,65 @@ export const MODE_LINES = {
   'sd.lastAlive': [
     ['Doug, you are the last one. Command has faith. Command has a limited supply of faith.', 'Great.'],
   ],
+  'ffa.start': [
+    ['Free for all. There are no teams. Command has checked twice.', 'Fine.'],
+    ['Free for all. Everyone is the enemy. Command considers this simplifying.', 'Copy.'],
+    ['Free for all. First to {limit}. Command recommends not being shot by anyone.', 'Noted.'],
+  ],
+  'ffa.close': [
+    ['Five more, Doug. Command has started writing the citation in pencil.', 'Sure.'],
+  ],
+  'ffa.threat': [
+    ['{name} is five from winning. Command would prefer it was you.', 'Me too.'],
+    ['{name} is close. Command has no idea whose side {name} is on. Nobody\'s, technically.', 'Right.'],
+  ],
+  'ffa.won': [
+    ['Free for all won. Command is taking full credit, as is tradition.', 'Sure.'],
+    ['First place. Command has always believed in you, retroactively.', 'Okay.'],
+  ],
+  'ffa.lost': [
+    ['{name} has won the free for all. Command is reviewing whether {name} was ever ours.', 'He wasn\'t.'],
+    ['Match to {name}. Command describes your placement as a placement.', 'Noted.'],
+  ],
+  'kc.start': [
+    ['Kill Confirmed. A kill does not count until you collect the tags. Command needs the paperwork.', 'Copy.'],
+    ['Kill Confirmed. Pick up their tags to confirm. Pick up ours to deny. Do not pick up anything else.', 'Noted.'],
+  ],
+  'kc.confirmUs': [
+    ['Kill confirmed. Command has the receipt.', null],
+    ['Confirmed. That is {n}. Command is filing them alphabetically.', null],
+  ],
+  'kc.denyUs': [
+    ['Kill denied. Command appreciates the tidiness.', null],
+  ],
+  'gun.start': [
+    ['Gun Game. Every kill, a new weapon. {n} tiers. The last one is a knife. Command did not design this.', 'Okay.'],
+    ['Gun Game. Kill to advance. Finish with the knife. Command assures you there is a reason.', 'Is there.'],
+  ],
+  'gun.pistol': [
+    ['Pistol. Two tiers left. Command recommends getting closer.', 'Copy.'],
+  ],
+  'gun.knifeTier': [
+    ['Final tier, Doug. Knife only. Command recommends approaching from behind.', 'Noted.'],
+    ['One knife kill wins it. Command is not watching. Command is watching.', 'Okay.'],
+  ],
+  'gun.knifeOnly': [
+    ['That does not count. Knife, Doug. Command was very specific.', 'Fine.'],
+  ],
+  'gun.threat': [
+    ['{name} is on the final tier. Command recommends not letting him near you.', 'Noted.'],
+  ],
+  'gun.setbackUs': [
+    ['Setback. You have been demoted by knife. Command will not be mentioning this.', 'Thanks.'],
+    ['Knifed. One tier down. Command recommends facing the other way next time.', 'Noted.'],
+  ],
+  'gun.setbackThem': [
+    ['{name} has been set back a tier. Command is pretending that was planned.', null],
+    ['{name}, demoted by knife. Command has sent a card.', null],
+  ],
+  'gun.setbackFloor': [
+    ['Knifed on tier one. There is no tier zero. Command checked.', 'Good.'],
+  ],
   'match.won': [
     ['Victory. Command is taking full credit.', 'Sure.'],
     ['That is the match. Command will be mentioning this at every opportunity.', 'Okay.'],

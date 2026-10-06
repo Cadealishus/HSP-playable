@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
-import { isEnemyTeam, normTeam, LAYER_ESF } from './teams.js';
+import { isEnemy, isAlly, normTeam, LAYER_ESF } from './teams.js';
 import { roleFor, resolveWeapon, weaponFor, PLAYER_DAMAGE_SCALE } from './roles.js';
 import { Perception } from './perception.js';
 import { Brain, S } from './brain.js';
@@ -551,7 +551,7 @@ export class Agent {
     const agents = this.ai.agents;
     for (let i = 0; i < agents.length; i++) {
       const o = agents[i];
-      if (!o.alive || o.team === this.team || o.team === 'civ') continue;
+      if (!o.alive || !isEnemy(this, o)) continue;
       if (o.crouch || o.speed < 1.3) continue;
       const loud = o.speed > 2.8 ? 17 : 6.5;
       const d = this.position.distanceTo(o.position);
@@ -773,7 +773,7 @@ export class Agent {
       const list = lists[l];
       for (let i = 0; i < list.length; i++) {
         const o = list[i];
-        if (o === this || o === this.holding || !o.alive || (o.team !== this.team && o.team !== 'civ')) continue;
+        if (o === this || o === this.holding || !o.alive || (!isAlly(o, this) && o.team !== 'civ')) continue;
         const ox = o.position.x - eye.x, oy = o.position.y + 1.1 - eye.y, oz = o.position.z - eye.z;
         const t = ox * ux + oy * uy + oz * uz;
         if (t < 0.4 || t > len - 0.5) continue;
@@ -1259,6 +1259,9 @@ export class Agent {
       killerTeam: k?.team ?? null,
       killerName: k?.name ?? null,
       killerIsPlayer,
+      // the weapon id (EXPANSION §10.6): what the last hit was tagged with this
+      // frame, else the killer's own gun (the player's active weapon)
+      weapon: this._killWeapon(k, blast),
       point: hitPoint,
       impulse,
       headshot,
@@ -1268,6 +1271,14 @@ export class Agent {
     this.deadTime = 0;
     this.ai.onAgentDeath?.(this);
     this._squadReport();
+  }
+
+  _killWeapon(k, blast) {
+    if (this.lastHitWeapon && this.lastHitWeaponF === this.ctx.time.frame) return this.lastHitWeapon;
+    if (blast) return 'frag';
+    if (!k) return null;
+    if (k.isPlayer) return this.ctx.peek('weapons')?.activeId ?? null;
+    return k.weaponId ?? null;
   }
 
   /**

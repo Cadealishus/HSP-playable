@@ -1139,6 +1139,12 @@ const CSS = `
 .ow-mh-mis-t { margin-top: calc(var(--u) * 1); font-family: var(--fd); font-weight:600; font-size: calc(19px * var(--k)); letter-spacing:.06em; line-height:1.15; }
 .ow-mh-mis-s { margin-top: calc(var(--u) * 1); font-size: max(10px, calc(11px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
 .ow-mh-status.hot { color: var(--enemy); }
+.ow-mh-board { margin-top: calc(6px * var(--k)); display:flex; flex-direction:column; gap: calc(2px * var(--k)); min-width: calc(220px * var(--k)); background: var(--plate); padding: calc(5px * var(--k)) calc(9px * var(--k)); }
+.ow-mh-brow { display:flex; align-items:baseline; gap: calc(8px * var(--k)); font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.14em; color: var(--ink-2); white-space:nowrap; }
+.ow-mh-brow .p { color: var(--ink-3); width: calc(12px * var(--k)); }
+.ow-mh-brow .n { flex:1; overflow:hidden; text-overflow:ellipsis; }
+.ow-mh-brow .s { font-family: var(--fd); font-size: max(12px, calc(15px * var(--k))); color: var(--ink); }
+.ow-mh-brow.me, .ow-mh-brow.me .s { color: var(--acc); }
 
 .ow-mh-respawn { position:absolute; left:50%; top:38%; transform: translate(-50%,-50%); text-align:center;
   padding: calc(var(--u) * 5) calc(var(--u) * 24);

@@ -139,8 +139,10 @@ export function ammoDef(ammo) {
 
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+/** A tier id, or anything carrying `.tier` (an armour slot): unknown -> 'light'. */
 export function normTier(t) {
-  return t === 'none' || t === 'heavy' ? t : t === 'light' ? 'light' : 'light';
+  if (t && typeof t === 'object') t = t.tier;
+  return t === 'none' || t === 'heavy' ? t : 'light';
 }
 
 /* ------------------------------------------------------------------ state */

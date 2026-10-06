@@ -3,6 +3,9 @@ import { TdmMode } from './tdm.js';
 import { DomMode } from './dom.js';
 import { HpMode } from './hp.js';
 import { SdMode } from './sd.js';
+import { FfaMode } from './ffa.js';
+import { KcMode } from './kc.js';
+import { GunMode, GUN_LADDER } from './gun.js';
 import { aiCaps } from './team.js';
 
 /**
@@ -17,6 +20,9 @@ export const MODES = {
   dom: DomMode,
   hp: HpMode,
   sd: SdMode,
+  ffa: FfaMode,
+  kc: KcMode,
+  gun: GunMode,
 };
 
 /** Menu copy. Serious presentation; the jokes are in the sentences. */
@@ -48,6 +54,27 @@ export const MODE_INFO = {
     short: 'S&D',
     blurb: 'One life per round. Attackers plant the charge. Defenders stop them, or defuse it. Politely.',
     rules: ['FIRST TO 4 ROUNDS · SIDES SWAP AFTER ROUND 3', 'NO RESPAWNS · SPECTATE WHEN DOWN', 'PLANT 4 S · FUSE 40 S · DEFUSE 6 S'],
+  },
+  ffa: {
+    id: 'ffa',
+    label: 'FREE FOR ALL',
+    short: 'FFA',
+    blurb: 'No teams. Everyone is the enemy, including people who were on your side a moment ago. Command calls this clarity.',
+    rules: ['DOUG AND 7 OPERATORS · NO ALLIES', 'FIRST TO 30 KILLS · 10:00', 'RESPAWN AFTER 3 S · AWAY FROM EVERYONE'],
+  },
+  kc: {
+    id: 'kc',
+    label: 'KILL CONFIRMED',
+    short: 'KC',
+    blurb: 'A kill only counts once someone collects the tags. Command needs the paperwork. Deny theirs by collecting ours.',
+    rules: ['6 V 6 · ENEMY TAG CONFIRMS · FRIENDLY TAG DENIES', 'FIRST TO 50 CONFIRMS · 10:00', 'TAGS EXPIRE AFTER 30 S'],
+  },
+  gun: {
+    id: 'gun',
+    label: 'GUN GAME',
+    short: 'GUN',
+    blurb: `Every kill issues you a different weapon. ${GUN_LADDER.length} tiers, ending with a knife. Command has called this a procurement exercise.`,
+    rules: ['FREE FOR ALL · ' + (GUN_LADDER.length - 1) + ' GUNS, THEN THE KNIFE', 'A KNIFE KILL SETS THE VICTIM BACK ONE TIER', 'FIRST KNIFE KILL ON THE LAST TIER WINS'],
   },
   survival: {
     id: 'survival',

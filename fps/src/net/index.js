@@ -47,8 +47,9 @@ import { TOPICS } from './transport.js';
 import { Writer, writePlayer, readPlayer, writeGame, readGame, Reader, PF, GF, num, vec3, cm, randomCode, normaliseCode, PLAYER_LEN, GAME_LEN } from './codec.js';
 import { Puppets } from './puppets.js';
 import { NetHud } from './hud.js';
+import { netModeOf, NET_MODES, NET_MODE_INFO } from './pvp.js';
 
-export { TOPICS };
+export { TOPICS, NET_MODES, NET_MODE_INFO };
 
 const PARTY_KEY = 'flopops.party';
 const PROTO = 1;
@@ -67,6 +68,7 @@ const MAX_HIT_DMG = 600;
 const MAX_HIT_RANGE = 320;
 const PARTY_TTL_MS = 30 * 60 * 1000;
 const SPAWN_RING = 1.5;
+const ZONES = ['torso', 'head', 'limb'];
 
 /* ------------------------------------------------------------ party record */
 
@@ -149,7 +151,9 @@ export class NetSystem {
     this.version = 0;
     this.inGame = false;
     this.run = 0;
-    this.lobby = { map: ctx.config?.map ?? 'town', diff: ctx.config?.session?.difficulty ?? 'regular', go: 0 };
+    this.lobby = { map: ctx.config?.map ?? 'town', diff: ctx.config?.session?.difficulty ?? 'regular', go: 0, mode: 'survival', botFill: true };
+    /** Host: peer → absolute team ('esf' is the host's). Clients: what the host published. */
+    this.teams = new Map();
     this.local = { downed: false, dead: false, bleed: 0, kills: 0, reviveT: 0, reviveTarget: null, prompt: false };
     this.names = new Map();
     this.uid = null;
@@ -159,6 +163,7 @@ export class NetSystem {
     this._seenPres = new Map();
     this._buckets = new Map();
     this._hits = [];
+    this._phits = [];
     this._hitSeq = 0;
     this._dmg = new Map();
     this._lastSend = 0;
@@ -192,6 +197,8 @@ export class NetSystem {
       this._resume = rec;
       this.lobby.map = rec.map ?? this.lobby.map;
       this.lobby.diff = rec.d ?? this.lobby.diff;
+      if (NET_MODES.includes(rec.k)) this.lobby.mode = rec.k;
+      if (rec.bf === 0 || rec.bf === 1) this.lobby.botFill = rec.bf === 1;
       this.join(rec.code, { resume: rec }).then((ok) => {
         if (!ok) writeParty(null);
       });
@@ -304,9 +311,11 @@ export class NetSystem {
   }
 
   /** The host's lobby choices. */
-  setLobby({ map, diff } = {}) {
+  setLobby({ map, diff, mode, botFill } = {}) {
     if (typeof map === 'string') this.lobby.map = map;
     if (typeof diff === 'string') this.lobby.diff = diff;
+    if (NET_MODES.includes(mode)) this.lobby.mode = mode;
+    if (typeof botFill === 'boolean') this.lobby.botFill = botFill;
     this.version++;
   }
 
@@ -314,7 +323,8 @@ export class NetSystem {
   start() {
     if (this.role !== 'host' || !this.t) return false;
     this.lobby.go++;
-    const msg = { m: this.lobby.map, d: this.lobby.diff, go: this.lobby.go };
+    this._assignTeams(true);
+    const msg = { m: this.lobby.map, d: this.lobby.diff, go: this.lobby.go, k: this.lobby.mode, bf: this.lobby.botFill ? 1 : 0 };
     this.t.emit('start', msg).catch(() => {});
     this._sendPresence(performance.now(), true);
     this._deploy(msg);
@@ -326,20 +336,27 @@ export class NetSystem {
     const host = this.hostId ? this.t?.peers().get(this.hostId) : null;
     const l = host?.presence?.l;
     if (!l) return false;
-    this._deploy({ m: String(l.m ?? this.lobby.map), d: String(l.d ?? this.lobby.diff) });
+    this._deploy({ m: String(l.m ?? this.lobby.map), d: String(l.d ?? this.lobby.diff), k: l.k, bf: l.bf });
     return true;
   }
 
-  _deploy({ m, d }) {
+  _deploy({ m, d, k, bf }) {
     const maps = globalThis.__FLOP_MAPS__?.list ?? [];
     const map = maps.some((x) => x.id === m) ? m : this.ctx.config?.map ?? 'town';
     const diff = ['recruit', 'regular', 'hardened', 'veteran'].includes(d) ? d : 'regular';
+    const mode = NET_MODES.includes(k) ? k : this.lobby.mode;
     this.lobby.map = map;
     this.lobby.diff = diff;
-    writeParty({ code: this.code, wasHost: this.role === 'host', epoch: this.epoch, started: true, map, d: diff });
+    this.lobby.mode = mode;
+    if (bf === 0 || bf === 1) this.lobby.botFill = bf === 1;
+    writeParty({ code: this.code, wasHost: this.role === 'host', epoch: this.epoch, started: true, map, d: diff, k: mode, bf: this.lobby.botFill ? 1 : 0 });
     const game = this.ctx.peek('game');
     game?.setDifficulty?.(diff);
-    const session = { kind: 'survival', mode: 'survival', map, mission: null, difficulty: diff };
+    // The launch session only has to pick a map the mode can use; the game
+    // swaps in the party mode when it starts (sessionRole / partyMode).
+    const session = mode === 'survival'
+      ? { kind: 'survival', mode: 'survival', map, mission: null, difficulty: diff }
+      : { kind: 'mp', mode: 'tdm', map, mission: null, difficulty: diff };
     const ui = this.ctx.peek('ui');
     if (typeof ui?._launch === 'function') ui._launch(session);
     else this.ctx.events.emit('ui:launch', { session });
@@ -356,6 +373,136 @@ export class NetSystem {
   sessionRole() {
     if (!this.active()) return null;
     return this.role ?? 'client';
+  }
+
+  /** The party's mode: 'survival' | 'tdm' | 'ffa'. */
+  partyMode() {
+    return this.lobby.mode;
+  }
+
+  /** True in a PvP match (TDM / FFA). */
+  pvp() {
+    const id = this.ctx.peek('game')?.modeId;
+    return this.inGame && (id === 'tdm' || id === 'ffa');
+  }
+
+  /** The online mode class for `id`, built on the game's own registry (no import). */
+  modeClass(id, MODES) {
+    this._modeCls ??= {};
+    const base = MODES?.tdm;
+    if (!base) return MODES?.[id] ?? null;
+    if (id === 'ffa') return (this._modeCls.ffa ??= netModeOf(base, { ffa: true }));
+    return (this._modeCls.tdm ??= netModeOf(base, { ffa: false }));
+  }
+
+  /** This page's absolute team (the host is always 'esf'). */
+  myTeam() {
+    if (this.role === 'host' || !this.t) return 'esf';
+    return this.teams.get(this.t.selfId) ?? 'hostile';
+  }
+
+  teamOf(peer) {
+    if (peer && peer === this.hostId) return 'esf';
+    return this.teams.get(peer) ?? 'hostile';
+  }
+
+  /** Humans per absolute team (host included). */
+  teamCounts() {
+    const out = { esf: 0, hostile: 0 };
+    if (!this.t) return out;
+    for (const [id, p] of this.t.peers()) {
+      if (id !== this.t.selfId && p.presence?.v !== PROTO) continue;
+      out[this.teamOf(id)]++;
+    }
+    return out;
+  }
+
+  /** An absolute team as this page draws it: own side 'esf', the other 'hostile'. */
+  relTeam(abs) {
+    if (this.lobby.mode === 'survival' || !this.inGame) return abs;
+    return abs === this.myTeam() ? 'esf' : 'hostile';
+  }
+
+  /** How this page draws a remote player: teammate ('esf') or enemy ('hostile'). */
+  playerTeam(peer) {
+    const mode = this.ctx.peek('game')?.modeId;
+    if (mode === 'ffa') return 'hostile';
+    if (mode === 'tdm') return this.teamOf(peer) === this.myTeam() ? 'esf' : 'hostile';
+    return 'esf';
+  }
+
+  /** Living players other than this one (FFA spawn picking). */
+  livingOthers() {
+    const out = this._others ?? (this._others = []);
+    out.length = 0;
+    for (const e of this.puppets.players.values()) if (e.agent.alive && !e.ragdoll) out.push(e.agent.position);
+    return out;
+  }
+
+  /** Host: give every party member a team (balanced), keep it stable. */
+  _assignTeams(force = false) {
+    if (this.role !== 'host' || !this.t) return;
+    const ids = [];
+    for (const [id, p] of this.t.peers()) if (id === this.t.selfId || p.presence?.v === PROTO) ids.push(id);
+    for (const id of [...this.teams.keys()]) if (!ids.includes(id)) this.teams.delete(id);
+    this.teams.set(this.t.selfId, 'esf');
+    if (force && !this.inGame) {
+      // Fresh deal at START: host first, then alternate by slot.
+      this.teams.clear();
+      ids.sort((a, b) => this._slotOf(a) - this._slotOf(b));
+      let n = 0;
+      for (const id of ids) {
+        if (id === this.t.selfId) this.teams.set(id, 'esf');
+        else this.teams.set(id, n++ % 2 === 0 ? 'hostile' : 'esf');
+      }
+      return;
+    }
+    const c = { esf: 0, hostile: 0 };
+    for (const t of this.teams.values()) c[t]++;
+    for (const id of ids) {
+      if (this.teams.has(id)) continue;
+      const t = c.hostile <= c.esf ? 'hostile' : 'esf';
+      this.teams.set(id, t);
+      c[t]++;
+    }
+  }
+
+  /** The key a killer travels as: a peer id, 'b'+netId for a bot, '' unknown. */
+  _killerKey(k) {
+    if (!k) return '';
+    if (typeof k.netPeer === 'string') return k.netPeer;
+    if (k.isPlayer === true || k === this.ctx.peek('player')) return this.t?.selfId ?? '';
+    if (k.netId) return `b${k.netId}`;
+    return '';
+  }
+
+  /** A killer key back to something on this page (puppet, bot, the player proxy). */
+  _killerOf(key) {
+    if (typeof key !== 'string' || !key) return null;
+    const ai = this.ctx.peek('ai');
+    if (key === this.t?.selfId) return ai?.player ?? null;
+    if (key[0] === 'b') {
+      const id = Number(key.slice(1)) | 0;
+      return this.puppets.bots.get(id)?.agent ?? this.puppets.byNetId.get(id) ?? null;
+    }
+    return this.puppets.players.get(key)?.agent ?? null;
+  }
+
+  /** PvP: this player died — tell everyone (killfeed, ragdoll, the host's score). */
+  reportDeath(killer, e) {
+    if (!this.pvp()) return;
+    if (!killer && this._blastBy && performance.now() - this._blastT < 3000) killer = this._blastBy;
+    this.local.dead = true;
+    const h = !!(e?.headshot || this._lastHitZone === 'head');
+    this._emit('death', { k: this._killerKey(killer), h: h ? 1 : 0, w: this._lastHitWeapon ?? null });
+    this._sendPresence(performance.now(), true);
+  }
+
+  /** PvP: this player respawned. */
+  onLocalRespawn() {
+    this.local.dead = false;
+    this.local.downed = false;
+    if (this.t) this._sendPresence(performance.now(), true);
   }
 
   /** GameSystem started the co-op run (either role). */
@@ -387,7 +534,7 @@ export class NetSystem {
 
   /** player:death in co-op is a down. Returns true when handled. */
   handlePlayerDeath() {
-    if (!this.inGame) return false;
+    if (!this.inGame || this.ctx.peek('game')?.modeId !== 'survival') return false;
     const L = this.local;
     if (L.downed || L.dead) return true;
     L.downed = true;
@@ -442,13 +589,14 @@ export class NetSystem {
           this._seenPres.delete(id);
         }
         this.puppets.update(dt);
-        if (this.role === 'host') this._checkAllDown(game);
+        if (this.role === 'host' && game.modeId === 'survival') this._checkAllDown(game);
       }
     }
     if (now - this._lastSend >= SEND_MS) this._sendPresence(now);
     if (now - this._lastFlush >= FLUSH_MS) this._flush(now);
     if (now - this._lastHud >= HUD_MS) {
       this._lastHud = now;
+      this._assignTeams();
       // The menu re-renders on `version`: bump it only when the lobby changed.
       let key = `${this.hostId}|${this.lobby.map}|${this.lobby.diff}|${this.lobby.hostInGame ? 1 : 0}|${this.role}`;
       for (const [id, p] of t.peers()) key += `|${id}:${p.presence?.st ?? ''}:${this._nameOf(id)}`;
@@ -582,11 +730,17 @@ export class NetSystem {
     if (l && typeof l === 'object') {
       if (typeof l.m === 'string') this.lobby.map = l.m.slice(0, 32);
       if (typeof l.d === 'string') this.lobby.diff = l.d.slice(0, 16);
+      if (NET_MODES.includes(l.k)) this.lobby.mode = l.k;
+      if (l.bf === 0 || l.bf === 1) this.lobby.botFill = l.bf === 1;
+      if (l.tm && typeof l.tm === 'object') {
+        this.teams.clear();
+        for (const id of Object.keys(l.tm).slice(0, 16)) this.teams.set(id.slice(0, 32), l.tm[id] === 'h' ? 'hostile' : 'esf');
+      }
       const go = Number.isInteger(l.go) ? l.go : 0;
       if (this._goSeen < 0) this._goSeen = go;
       else if (go > this._goSeen) {
         this._goSeen = go;
-        if (!this.inGame) this._deploy({ m: this.lobby.map, d: this.lobby.diff });
+        if (!this.inGame) this._deploy({ m: this.lobby.map, d: this.lobby.diff, k: this.lobby.mode });
       }
       this.lobby.hostInGame = l.ig === 1;
     }
@@ -601,7 +755,40 @@ export class NetSystem {
     if (!this.inGame) return;
     if (typeof pr.r === 'string') this.puppets.applyRoster(pr.r);
     if (typeof pr.g === 'string') this._applyGame(pr.g);
+    if (pr.m && typeof pr.m === 'object') this._applyMatch(pr.m);
     if (typeof pr.b === 'string') this.puppets.applyBots(pr.b);
+  }
+
+  /** Client (PvP): mirror the host's match record (validated here). */
+  _applyMatch(m) {
+    const game = this.ctx.peek('game');
+    const mode = game?.mode;
+    if (!mode?.remote || typeof mode.applyNet !== 'function') return;
+    const run = num(m.run, 0, 1e6, 0) | 0;
+    if (run !== this._gsRun) {
+      const first = this._gsRun < 0;
+      this._gsRun = run;
+      if (!first && game.state === 'over') {
+        game.startSession(game.session);
+        return;
+      }
+    }
+    const kd = {};
+    if (m.kd && typeof m.kd === 'object') {
+      for (const id of Object.keys(m.kd).slice(0, 16)) {
+        const v = m.kd[id];
+        if (Array.isArray(v)) kd[id.slice(0, 32)] = [num(v[0], 0, 1e5, 0) | 0, num(v[1], 0, 1e5, 0) | 0];
+      }
+    }
+    const M = this._match ?? (this._match = {});
+    M.a = num(m.a, 0, 1e5, 0) | 0;
+    M.b = num(m.b, 0, 1e5, 0) | 0;
+    M.t = num(m.t, 0, 1e5, 0);
+    M.l = num(m.l, 1, 1e5, 50) | 0;
+    M.o = m.o === 1 ? 1 : 0;
+    M.w = typeof m.w === 'string' ? m.w.slice(0, 32) : null;
+    M.kd = kd;
+    mode.applyNet(M, this.t.selfId, this.myTeam());
   }
 
   _ingestPlayer(id, p) {
@@ -613,7 +800,8 @@ export class NetSystem {
     }
     if (!readPlayer(pr.p, RP, this._r)) return;
     const weapon = typeof pr.w === 'string' ? pr.w.replace(/[^a-z0-9_]/gi, '').slice(0, 20) : null;
-    this.puppets.updatePlayer(id, RP, this._nameOf(id), weapon);
+    const ar = typeof pr.ar === 'string' && /^[nlh]{2}$/.test(pr.ar) ? pr.ar : null;
+    this.puppets.updatePlayer(id, RP, this._nameOf(id), weapon, this.playerTeam(id), ar, this._roleFor(weapon));
   }
 
   _applyGame(str) {
@@ -678,6 +866,9 @@ export class NetSystem {
       case 'boom':
         if (fromHost && this.inGame && this.role === 'client') this._onBoom(d);
         break;
+      case 'death':
+        if (this.pvp()) this._onDeath(d, from);
+        break;
       case 'revive':
         if (this.inGame && d.t === this.t?.selfId) this._onRevive(from);
         break;
@@ -701,8 +892,8 @@ export class NetSystem {
 
   /** Host: a client's batched hits on host bots. */
   _onHit(d, from) {
-    const list = d.h;
-    if (!Array.isArray(list) || list.length > 40) return;
+    const list = Array.isArray(d.h) ? d.h : [];
+    if (list.length > 40) return;
     const seq = num(d.s, 0, 1e9, -1);
     const b = this._bucket(from);
     if (seq <= b.seq) return; // replay / reorder
@@ -715,6 +906,7 @@ export class NetSystem {
     const now = performance.now() / 1000;
     b.tokens = Math.min(HIT_BURST, b.tokens + (now - b.t) * HIT_RATE);
     b.t = now;
+    if (Array.isArray(d.p) && d.p.length <= 16 && this.pvp()) this._onPlayerHits(d, from, shooter, b);
     for (const h of list) {
       if (!Array.isArray(h) || h.length < 2) continue;
       const id = num(h[0], 0, 4095, -1);
@@ -753,22 +945,89 @@ export class NetSystem {
     }
   }
 
+  /** Host (PvP): validate a shooter's claims on other players, forward to each victim. */
+  _onPlayerHits(d, from, shooter, b) {
+    const ammo = typeof d.am === 'string' ? d.am.replace(/[^a-z_]/g, '').slice(0, 16) : 'fmj';
+    const weapon = typeof d.w === 'string' ? d.w.replace(/[^a-z0-9_]/gi, '').slice(0, 20) : null;
+    const self = this.t.selfId;
+    const ffa = this.ctx.peek('game')?.modeId === 'ffa';
+    for (const h of d.p) {
+      if (!Array.isArray(h) || typeof h[0] !== 'string') continue;
+      const victim = h[0].slice(0, 32);
+      const dmg = num(h[1], 0, MAX_HIT_DMG, 0);
+      const zone = ZONES[num(h[2], 0, 2, 0) | 0];
+      if (!(dmg > 0) || victim === from || b.tokens < 1) {
+        this.stats.hitsRejected++;
+        continue;
+      }
+      // Where the host sees the victim, and whether he can be hit at all.
+      let vpos = null;
+      if (victim === self) {
+        const p = this.ctx.peek('player');
+        if (!p || p.dead || this.local.dead) continue;
+        vpos = p.position;
+      } else {
+        const ve = this.puppets.players.get(victim);
+        if (!ve || ve.ragdoll || !ve.agent.alive) {
+          this.stats.hitsRejected++;
+          continue;
+        }
+        vpos = ve.agent.position;
+      }
+      if (!ffa && this.teamOf(victim) === this.teamOf(from)) {
+        this.stats.hitsRejected++; // friendly fire is off
+        continue;
+      }
+      if (vpos.distanceTo(shooter.position) > MAX_HIT_RANGE) {
+        this.stats.hitsRejected++;
+        continue;
+      }
+      b.tokens -= 1;
+      this.queueDamage(victim, dmg, shooter.position, from, zone, ammo, weapon);
+      this.stats.hitsApplied++;
+    }
+  }
+
   _bucket(id) {
     let b = this._buckets.get(id);
     if (!b) this._buckets.set(id, (b = { tokens: HIT_BURST, t: performance.now() / 1000, seq: -1 }));
     return b;
   }
 
+  /**
+   * Damage for this player (from the host). Applied through the canonical
+   * `damage:dealt` with the attacker as `source`, so the player's own health
+   * path (armour + ammo through resolveDamage, once src/combat lands) takes
+   * it, and the game knows the killer (kill credit, killcam).
+   */
   _onDmg(d) {
     const L = this.local;
     if (L.downed || L.dead) return;
     const p = this.ctx.peek('player');
     if (!p || p.dead) return;
-    const a = num(d.a, 0, 400, 0);
+    const a = num(d.a, 0, 600, 0);
     if (!(a > 0)) return;
     const from = vec3(d.f, this._from) ? this._from : null;
+    const zone = ZONES.includes(d.z) ? d.z : 'torso';
+    const ammo = typeof d.am === 'string' ? d.am.replace(/[^a-z_]/g, '').slice(0, 16) || 'fmj' : 'fmj';
+    const weapon = typeof d.w === 'string' ? d.w.replace(/[^a-z0-9_]/gi, '').slice(0, 20) : null;
+    const source = this._killerOf(d.k);
+    this._lastHitZone = zone;
+    this._lastHitWeapon = weapon ?? source?.weaponId ?? null;
     this.stats.dmgTaken += a;
-    p.applyDamage(a, from, { type: 'bullet' });
+    const e = this._dmgEvent ?? (this._dmgEvent = { target: null, amount: 0, headshot: false, killed: false, point: null, from: new THREE.Vector3(), source: null, zone: 'torso', ammo: 'fmj', weapon: null, net: true });
+    e.target = p;
+    e.amount = a;
+    e.headshot = zone === 'head';
+    e.killed = false;
+    e.point = from ? p.position : null;
+    if (from) e.from.copy(from);
+    else e.from.copy(p.position);
+    e.source = source;
+    e.zone = zone;
+    e.ammo = ammo;
+    e.weapon = this._lastHitWeapon;
+    this.ctx.events.emit('damage:dealt', e);
   }
 
   _onKill(d) {
@@ -787,10 +1046,27 @@ export class NetSystem {
     }
   }
 
+  /** PvP: player `from` died. Everyone ragdolls his soldier; the host scores it. */
+  _onDeath(d, from) {
+    const k = typeof d.k === 'string' ? d.k.slice(0, 32) : '';
+    const killer = this._killerOf(k);
+    this.puppets.killPlayer(from, killer, d.h === 1);
+    if (k && k === this.t?.selfId) {
+      this.local.kills++;
+      this.stats.kills++;
+      this.ctx.peek('ui')?.hitmarker?.(d.h === 1 ? 'headkill' : 'kill');
+    }
+    if (this.role === 'host') this.ctx.peek('game')?.mode?.netPlayerDeath?.(from, k, killer);
+  }
+
   _onNade(d, from) {
     const owner = this.puppets.players.get(from)?.agent;
     if (!owner) return;
-    const kind = d.k === 'flash' ? 'flash' : d.k === 'frag' ? 'frag' : null;
+    // Any throwable the equipment system knows (frag, flash, semtex, molotov,
+    // smoke, concussion, throwing_knife …): each page simulates its own copy,
+    // so fire areas and smoke volumes appear for everyone.
+    const eq0 = this.ctx.peek('weapons')?.equipment;
+    const kind = typeof d.k === 'string' && /^[a-z_]{2,20}$/.test(d.k) && (eq0?.defs?.[d.k] || d.k === 'frag' || d.k === 'flash') ? d.k : null;
     if (!kind) return;
     const pos = new THREE.Vector3();
     const vel = new THREE.Vector3();
@@ -799,7 +1075,12 @@ export class NetSystem {
     const fuse = num(d.f, 0.05, 6, 2);
     const eq = this.ctx.peek('weapons')?.equipment;
     if (typeof eq?._spawn !== 'function') return;
-    eq._spawn(kind, pos, vel, fuse, owner);
+    try {
+      eq._spawn(kind, pos, vel, fuse, owner);
+    } catch (err) {
+      console.warn(`[net] cannot simulate a remote ${kind}`, err?.message ?? err);
+      return;
+    }
     if (this.role === 'host') {
       // Let the host's bots see it coming and scatter.
       this.ctx.events.emit('grenade:throw', { kind, owner, position: pos, velocity: vel, fuse, net: true });
@@ -875,12 +1156,13 @@ export class NetSystem {
       const fuse = rec?.fuse ?? 2.5;
       const P = e.position, V = e.velocity;
       if (!P || !V) return;
-      this._emit('nade', { k: e.kind === 'flash' ? 'flash' : 'frag', p: [cm(P.x), cm(P.y), cm(P.z)], v: [cm(V.x), cm(V.y), cm(V.z)], f: cm(fuse) });
+      const kind = typeof e.kind === 'string' && /^[a-z_]{2,20}$/.test(e.kind) ? e.kind : 'frag';
+      this._emit('nade', { k: kind, p: [cm(P.x), cm(P.y), cm(P.z)], v: [cm(V.x), cm(V.y), cm(V.z)], f: cm(fuse) });
     });
     on('explosion', (e) => {
       if (!this.inGame || this.role !== 'host' || !e?.position || e.netBoom) return;
       const o = e.owner ?? e.source ?? null;
-      if (o && o.team !== 'hostile') return; // players' own grenades travel as `nade`
+      if (o && (o.team !== 'hostile' || o.__net)) return; // players' grenades travel as `nade`
       const P = e.position;
       this._emit('boom', { p: [cm(P.x), cm(P.y), cm(P.z)], r: cm(e.radius ?? 6), d: Math.round(e.damage ?? 100), k: e.kind === 'rocket' ? 'rocket' : 'frag' });
     });
@@ -920,30 +1202,71 @@ export class NetSystem {
     if (h.length < 32) h.push([id, dmg, head ? 1 : 0]);
   }
 
-  /** Host: damage for a remote player, sent in the next batch. */
-  queueDamage(peer, amount, from) {
+  /** PvP: my round hit enemy player `peer` (zone 'head'|'torso'|'limb'). */
+  claimPlayerHit(peer, dmg, zone) {
+    if (!this.pvp() || !peer) return;
+    const w = this.ctx.peek('weapons');
+    const ammo = this._ammoId(w);
+    if (this.role === 'host') {
+      // The host is shooter and referee: validate like any claim, then send.
+      const victim = this.puppets.players.get(peer);
+      if (!victim || !victim.agent.alive || victim.ragdoll) return;
+      this.queueDamage(peer, Math.min(MAX_HIT_DMG, dmg), this.ctx.peek('player')?.position ?? victim.agent.position, this.t.selfId, zone, ammo, w?.activeId ?? null);
+      return;
+    }
+    const P = this._phits;
+    for (let i = 0; i < P.length; i++) {
+      if (P[i][0] === peer && P[i][2] === ZONES.indexOf(zone)) {
+        P[i][1] = Math.min(MAX_HIT_DMG, P[i][1] + dmg);
+        return;
+      }
+    }
+    if (P.length < 16) P.push([peer, dmg, Math.max(0, ZONES.indexOf(zone))]);
+  }
+
+  _ammoId(w) {
+    const a = w?.ammoId ?? w?.currentAmmo?.() ?? w?.loadout?.primaryKit?.ammo ?? 'fmj';
+    const id = typeof a === 'string' ? a : a?.id;
+    return typeof id === 'string' ? id.slice(0, 16) : 'fmj';
+  }
+
+  /** Host: damage for a remote player, sent in the next batch (one entry per attacker and zone). */
+  queueDamage(peer, amount, from, killer = '', zone = 'torso', ammo = 'fmj', weapon = null) {
     if (!peer) return;
-    let q = this._dmg.get(peer);
-    if (!q) this._dmg.set(peer, (q = { a: 0, x: 0, y: 0, z: 0 }));
+    const key = `${peer}|${killer}|${zone}`;
+    let q = this._dmg.get(key);
+    if (!q) this._dmg.set(key, (q = { t: peer, a: 0, x: 0, y: 0, z: 0, k: killer, zn: zone, am: ammo, w: weapon }));
     q.a += amount;
     q.x = from.x;
     q.y = from.y + 1.5;
     q.z = from.z;
+    q.am = ammo;
+    q.w = weapon;
   }
 
   _flush(now) {
     this._lastFlush = now;
-    if (this._hits.length) {
+    if (this._hits.length || this._phits.length) {
       const h = this._hits;
+      const pl = this._phits;
       for (const e of h) e[1] = Math.round(e[1] * 10) / 10;
-      this._emit('hit', { s: ++this._hitSeq, h });
-      this.stats.hitsSent += h.length;
+      for (const e of pl) e[1] = Math.round(e[1] * 10) / 10;
+      const w = this.ctx.peek('weapons');
+      this._emit('hit', { s: ++this._hitSeq, h, p: pl.length ? pl : undefined, am: pl.length ? this._ammoId(w) : undefined, w: pl.length ? w?.activeId ?? undefined : undefined });
+      this.stats.hitsSent += h.length + pl.length;
       this._hits = [];
+      this._phits = [];
     }
     if (this._dmg.size) {
-      for (const [peer, q] of this._dmg) {
+      const self = this.t?.selfId;
+      for (const q of this._dmg.values()) {
         if (q.a <= 0) continue;
-        this._emit('dmg', { t: peer, a: Math.round(q.a * 10) / 10, f: [cm(q.x), cm(q.y), cm(q.z)] });
+        if (q.t === self) {
+          // The host itself was hit (PvP): apply here, same path as a client.
+          this._onDmg({ t: self, a: q.a, f: [q.x, q.y, q.z], k: q.k, z: q.zn, am: q.am, w: q.w });
+          continue;
+        }
+        this._emit('dmg', { t: q.t, a: Math.round(q.a * 10) / 10, f: [cm(q.x), cm(q.y), cm(q.z)], k: q.k || undefined, z: q.zn, am: q.am, w: q.w ?? undefined });
         this.stats.dmgSent += q.a;
       }
       this._dmg.clear();
@@ -961,25 +1284,41 @@ export class NetSystem {
     this._lastSend = now;
     const pres = this._basePresence();
     if (this.role === 'host') {
-      pres.l = { m: this.lobby.map, d: this.lobby.diff, go: this.lobby.go, ig: this.inGame ? 1 : 0 };
+      let tm = null;
+      if (this.lobby.mode === 'tdm') {
+        tm = {};
+        for (const [id, t] of this.teams) tm[id] = t === 'hostile' ? 'h' : 'e';
+      }
+      pres.l = { m: this.lobby.map, d: this.lobby.diff, go: this.lobby.go, ig: this.inGame ? 1 : 0, k: this.lobby.mode, bf: this.lobby.botFill ? 1 : 0, tm };
     } else pres.l = null;
     if (this.inGame) {
       pres.p = this._playerString();
       pres.w = this.ctx.peek('weapons')?.activeId ?? null;
       pres.rt = this.local.reviveTarget;
+      pres.ar = this._armorString();
       if (this.role === 'host') {
         pres.b = this.puppets.encodeBots();
         pres.r = this.puppets.rosterStr;
-        pres.g = this._gameString();
+        const game = this.ctx.peek('game');
+        if (game?.modeId === 'survival') {
+          pres.g = this._gameString();
+          pres.m = null;
+        } else {
+          pres.g = null;
+          pres.m = game?.mode?.netState?.(this.run) ?? null;
+        }
       } else {
         pres.b = null;
         pres.r = null;
         pres.g = null;
+        pres.m = null;
       }
     } else {
       pres.p = null;
       pres.w = null;
       pres.rt = null;
+      pres.ar = null;
+      pres.m = null;
       pres.b = null;
       pres.r = null;
       pres.g = null;
@@ -990,6 +1329,30 @@ export class NetSystem {
         console.warn('[net] presence rejected', err?.code ?? err, err?.message ?? '');
       }
     });
+  }
+
+  /** Helmet + vest tiers as two chars (n/l/h), from the player's armour or the loadout. */
+  _armorString() {
+    const p = this.ctx.peek('player');
+    const L = this.ctx.peek('game')?.session?.loadout ?? {};
+    const tier = (x) => {
+      const t = typeof x === 'string' ? x : x?.tier;
+      return t === 'heavy' ? 'h' : t === 'light' ? 'l' : 'n';
+    };
+    return tier(p?.armor?.helmet ?? L.helmet ?? 'none') + tier(p?.armor?.vest ?? L.vest ?? 'none');
+  }
+
+  /** The AI role whose third-person model carries this weapon's class. */
+  _roleFor(weaponId) {
+    if (!weaponId) return 'rifleman';
+    this._roleCache ??= new Map();
+    let r = this._roleCache.get(weaponId);
+    if (r) return r;
+    const info = this.ctx.peek('weapons')?.loadoutInfo?.() ?? [];
+    const cls = String(info.find((w) => w.id === weaponId)?.class ?? weaponId).toLowerCase();
+    r = /shotgun/.test(cls) ? 'shotgun' : /lmg|machine/.test(cls) ? 'lmg' : /sniper|marksman|dmr/.test(cls) ? 'sniper' : /smg|sub/.test(cls) ? 'smg' : /rocket|launcher/.test(cls) ? 'rocket' : 'rifleman';
+    this._roleCache.set(weaponId, r);
+    return r;
   }
 
   _playerString() {
@@ -1075,6 +1438,7 @@ export class NetSystem {
     if (L.dead) return;
     const p = this.ctx.peek('player');
     if (!p?.position || p.dead) return;
+    if (this.ctx.peek('game')?.modeId !== 'survival') return; // revives are a co-op thing
     // Nearest downed teammate within reach.
     let best = null;
     let bestD = REVIVE_R;
@@ -1299,7 +1663,7 @@ export class NetSystem {
       const self = this.t.selfId;
       for (const [id, p] of this.t.peers()) {
         if (id !== self && p.presence?.v !== PROTO) continue;
-        players.push({ id, name: id === self ? `${this._nameOf(id)} (YOU)` : this._nameOf(id), me: id === self, host: id === this.hostId, slot: this._slotOf(id), inGame: p.presence?.st === 'game' });
+        players.push({ id, name: id === self ? `${this._nameOf(id)} (YOU)` : this._nameOf(id), me: id === self, host: id === this.hostId, slot: this._slotOf(id), inGame: p.presence?.st === 'game', team: this.teamOf(id) });
       }
       players.sort((a, b) => a.slot - b.slot);
     }
@@ -1313,6 +1677,7 @@ export class NetSystem {
       host: this.hostId,
       players,
       lobby: { ...this.lobby },
+      modes: NET_MODES.map((id) => NET_MODE_INFO[id]),
       inGame: this.inGame,
     };
   }
@@ -1329,6 +1694,11 @@ export class NetSystem {
     p._onExplosion = function (e) {
       const o = e?.owner;
       if (net.active() && o && o !== p && o.isPlayer !== true && o.team === 'esf') return orig.call(this, { ...e, damage: 0 });
+      if (net.active() && o?.__net) {
+        // An enemy player's grenade (our copy of it): remember who, for the kill credit.
+        net._blastBy = o;
+        net._blastT = performance.now();
+      }
       return orig.call(this, e);
     };
   }
