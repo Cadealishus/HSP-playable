@@ -56,8 +56,13 @@ export class HostageMission extends MissionMode {
       lz: { pos: lz.pos, r: (lz.radius ?? 5) + 1, h: 3 },
       // the walk out at walking pace: library door -> west corridor -> side
       // door -> west garden -> west stair -> the lawn (tests walk Doug along it)
+      // The way out, as the VIP walks it: library door -> west corridor -> side
+      // door -> west garden -> west stair -> the lawn. Each hop is short and
+      // stays inside one space (the AI's nav reads the low-sill windows of the
+      // ground floor as open, so a direct follow from inside a room can steer a
+      // man into a wall under a window; the route never asks it to).
       escortPath: [
-        V(-20.8, G, -7.3), V(-24.5, G, -7.5), V(-27.6, G, -7.5), V(-31, G, -8), V(-35, G, -6), V(-38, G, -1.5),
+        V(-21, G, -6.6), V(-24, G, -7.5), V(-27.4, G, -7.5), V(-31, G, -8), V(-35, G, -6), V(-38, G, -1.5),
         V(-38, 1.7, 5), V(-38, 0, 11.5), V(-34, 0, 19), V(-30, 0, 27), V(-27.5, 0, 34), lz.pos.clone(),
       ],
     };
@@ -144,9 +149,10 @@ export class HostageMission extends MissionMode {
         },
       }),
       obj.reach('escort', 'ESCORT THE VIP TO THE LZ', pts.lz, {
-        markerName: 'LZ',
         spawn: ['response'],
         escort: (m) => m.civs.get('vip') ?? null,
+        marker: (m) => (m._dougNode >= 0 ? m.points.lz.pos : m.points.escortPath[2]),
+        markerName: (m) => (m._dougNode >= 0 ? 'LZ' : 'SIDE DOOR'),
         sub: (m) => m._escortSub(),
         start: (m) => {
           m.alarm = m.world?.setAlarm?.(true) ?? true;
@@ -201,21 +207,36 @@ export class HostageMission extends MissionMode {
   _freeVip() {
     const vip = this.civs.get('vip');
     if (!vip || vip.alive === false) return;
-    const target = 'player';
-    if (this.setCivBehavior(vip, 'follow', { target })) return;
-    // No behaviour switch in this AI build: re-issue the same man as a follower
-    // on the spot he stands on (an in-place swap; Doug is with him). Only where
-    // the AI can remove the old one, so there are never two VIPs.
-    const ai = this.ctx.peek('ai');
-    if (typeof ai?.despawnCivilian !== 'function') {
-      console.warn('[mission:hostage] the AI cannot switch a civilian to follow; the VIP stays put');
-      return;
+    // The VIP follows a lead point the mission walks along the escort route,
+    // one hop ahead of him and never ahead of Doug; on the last stretch, and
+    // whenever Doug is with him in the open, it is Doug himself.
+    this._lead = { position: vip.position.clone(), alive: true, team: 'esf', name: 'DOUG' };
+    this._vipNode = -1;
+    this._dougNode = -1;
+    if (this.setCivBehavior(vip, 'follow', { target: this._lead })) return;
+    console.warn('[mission:hostage] the AI cannot switch a civilian to follow; the VIP stays put');
+  }
+
+  /** Advance the lead point: the VIP's progress, Doug's progress, the next hop. */
+  _tickLead(vip) {
+    const route = this.points.escortPath;
+    const p = this.playerPos();
+    if (!this._lead || !p) return;
+    // the VIP has reached the next node
+    const nv = route[this._vipNode + 1];
+    if (nv && Math.hypot(vip.position.x - nv.x, vip.position.z - nv.z) < 2.6 && Math.abs(vip.position.y - nv.y) < 1.6) this._vipNode++;
+    // Doug's progress: the furthest node he has been near (monotonic)
+    for (let i = route.length - 1; i > this._dougNode; i--) {
+      const n = route[i];
+      if (Math.hypot(p.x - n.x, p.z - n.z) < 5 && Math.abs(p.y - n.y) < 2) {
+        this._dougNode = i;
+        break;
+      }
     }
-    const pos = vip.position.clone();
-    ai.despawnCivilian(vip);
-    this.civs.delete('vip');
-    this._civRecs.delete(vip);
-    this.spawnCivilian('vip', { pos, yaw: 0 }, { behavior: 'follow', target, vip: true, name: 'THE VIP' });
+    const lead = this._lead.position;
+    if (this._dougNode > this._vipNode) lead.copy(route[this._vipNode + 1]);
+    else if (this._vipNode >= 6 && Math.abs(p.y - vip.position.y) < 1.5) lead.copy(p); // outside, with Doug
+    else lead.copy(route[Math.max(0, this._vipNode)]);
   }
 
   _vipDist() {
@@ -233,7 +254,12 @@ export class HostageMission extends MissionMode {
   _tickEscort() {
     const vip = this.civs.get('vip');
     if (!vip || vip.alive === false) return false;
+    this._tickLead(vip);
     const d = this._vipDist();
+    if (this._dougNode < 0 && d > 14 && !this._routeWarned) {
+      this._routeWarned = true;
+      this.say('Doug, the VIP will only leave by the side door, through the west garden. It is how he came in, and he is a creature of habit.', 'Side door.');
+    }
     if (d > 25 && !this._laggedWarned) {
       this._laggedWarned = true;
       this.say('Doug, you have left the VIP behind. He has been told to keep up and has taken it personally.', 'Waiting.');
