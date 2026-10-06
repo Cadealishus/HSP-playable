@@ -230,10 +230,15 @@ export class GameSystem {
 
   /** Start a session on the current map. */
   startSession(s) {
-    // CO-OP (src/net): inside a party every run is the shared survival run,
-    // hosted by one page and mirrored by the rest. No party: unchanged.
-    const netRole = this.ctx.peek('net')?.sessionRole?.() ?? null;
-    s = netRole ? { ...s, kind: 'survival', mode: 'survival', mission: null, netRole } : { ...s, netRole: null };
+    // ONLINE (src/net): inside a party every run is the party's mode (co-op
+    // survival, TDM or FFA), hosted by one page and mirrored by the rest.
+    // No party: unchanged.
+    const net = this.ctx.peek('net');
+    const netRole = net?.sessionRole?.() ?? null;
+    if (netRole) {
+      const pm = net.partyMode?.() ?? 'survival';
+      s = { ...s, kind: pm === 'survival' ? 'survival' : 'mp', mode: pm, mission: null, netRole };
+    } else s = { ...s, netRole: null };
     this.session = { ...this.session, ...s };
     if (s.kind === 'mission') {
       loadMission(s.mission).then((Cls) => {
@@ -246,7 +251,7 @@ export class GameSystem {
       return;
     }
     const id = s.mode ?? 'survival';
-    const Cls = MODES[id];
+    const Cls = netRole && id !== 'survival' ? net.modeClass?.(id, MODES) : MODES[id];
     if (!Cls) return;
     const av = modeAvailable(id, this.ctx);
     if (!av.ok) console.warn(`[game] ${id}: ${av.why} (dev launch; not offered in the menu)`);
@@ -290,6 +295,7 @@ export class GameSystem {
     this._setState('play');
     mode.start();
     this.ctx.peek('ui')?.setObjectives?.([]);
+    if (s.netRole) this.ctx.peek('net')?.onGameBegin?.(s.netRole);
     console.info(`[game] deploy — ${this.modeId} on ${this._currentMap()} (${s.difficulty})`);
   }
 
@@ -464,7 +470,7 @@ export class GameSystem {
 
   /** CO-OP host migration: this page now runs the waves. */
   netPromote() {
-    if (this.modeId !== 'survival' || !this.mode) return;
+    if (!this.mode) return;
     this.session.netRole = 'host';
     this.mode.promote?.();
     const ai = this.ctx.peek('ai');
@@ -473,7 +479,7 @@ export class GameSystem {
 
   /** CO-OP: another page outranked this one as host; mirror it from now on. */
   netDemote() {
-    if (this.modeId !== 'survival' || !this.mode) return;
+    if (!this.mode) return;
     this.session.netRole = 'client';
     this.mode.demote?.();
   }

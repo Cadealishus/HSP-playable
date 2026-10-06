@@ -300,7 +300,7 @@ export class Puppets {
     let a = null;
     try {
       a = ai.spawn(info.variant || null, this._v.set(b.x, b.y, b.z), b.yaw, {
-        team: info.team,
+        team: this.net.relTeam?.(info.team) ?? info.team,
         role: info.role || undefined,
         weapon: info.weapon || undefined,
         name: info.name || undefined,
@@ -422,23 +422,41 @@ export class Puppets {
   /* ============================================================= players */
 
   /** A remote teammate's state (decoded presence). `st` = readPlayer output. */
-  updatePlayer(peer, st, name, weapon) {
+  /**
+   * `team` is how THIS page draws him ('esf' teammate, 'hostile' enemy: on the
+   * host that is also his side in the AI world). `ar` = helmet+vest tiers
+   * ('n'|'l'|'h' ×2), `role` picks the third-person model for his weapon class.
+   */
+  updatePlayer(peer, st, name, weapon, team = 'esf', ar = null, role = 'rifleman') {
     const ai = this.ai;
     if (!ai) return null;
     let e = this.players.get(peer);
+    const deadNow = (st.flags & PF.DEAD) !== 0;
     if (e && !e.agent.group.parent) {
       // ai.despawnAll() (a run restart) took it: build a new one.
       this.players.delete(peer);
       e = null;
     }
+    if (e && e.ragdoll && !deadNow) {
+      // Respawned after a PvP death: the corpse stays (the AI reaps it), a new soldier deploys.
+      this.players.delete(peer);
+      e = null;
+      ai.reapCorpses?.(10);
+    }
+    if (e && !e.ragdoll && (e.agent.team !== team || (e.role !== role && !deadNow))) {
+      // Switched sides, or switched to a weapon class with another model.
+      this.removePlayer(peer);
+      e = null;
+    }
     const t = this.now();
     const ayaw = st.yaw + Math.PI; // player yaw → agent convention (forward = sin, cos)
     if (!e) {
+      if (deadNow && this.net.pvp?.()) return null; // nobody to draw until he respawns
       let a = null;
       try {
         a = ai.spawn('vanguard', this._v.set(st.x, st.y, st.z), ayaw, {
-          team: 'esf',
-          role: 'rifleman',
+          team,
+          role,
           weapon: weapon || undefined,
           name: name || 'OPERATOR',
         });
@@ -449,6 +467,7 @@ export class Puppets {
       if (!a) return null;
       e = this._entry('player', a);
       e.peer = peer;
+      e.role = role;
       a.isNetPlayer = true;
       a.netPeer = peer;
       e.name = a.name;
@@ -457,6 +476,21 @@ export class Puppets {
       this.players.set(peer, e);
     }
     const a = e.agent;
+    if (e.ragdoll) return e;
+    if (ar && ar !== e.ar) {
+      e.ar = ar;
+      const T = { n: 'none', l: 'light', h: 'heavy' };
+      try {
+        a.setArmor?.({ helmet: T[ar[0]], vest: T[ar[1]] });
+      } catch {
+        /* the AI build has no armour meshes yet */
+      }
+    }
+    if (deadNow && this.net.pvp?.()) {
+      // PvP death without the event (dropped): drop him where he stands.
+      this.killPlayer(peer, null, false);
+      return e;
+    }
     if (name && name.toUpperCase() !== e.name) {
       e.name = name.toUpperCase();
       ai.iff?.detach?.(a);
@@ -487,6 +521,23 @@ export class Puppets {
     e.shots = st.shots;
     if (ds > 0 && ds < 32 && !downed) e.pendingShots = Math.min(3, e.pendingShots + ds);
     return e;
+  }
+
+  /** PvP: a remote player died — his soldier ragdolls like any actor (killfeed, killcam). */
+  killPlayer(peer, killer, headshot) {
+    const e = this.players.get(peer);
+    if (!e || e.ragdoll) return null;
+    const a = e.agent;
+    e.ragdoll = true;
+    a.alive = true; // die() only runs on the living
+    a.lastAttacker = killer ?? null;
+    a.applyDamage = Object.getPrototypeOf(a).applyDamage;
+    try {
+      a.die(null, null, 40, headshot ? 'head' : 'torso', null, killer ?? null);
+    } catch (err) {
+      console.warn('[net] teammate death failed', err);
+    }
+    return a;
   }
 
   removePlayer(peer) {
@@ -522,7 +573,7 @@ export class Puppets {
   /** Downed teammates are `alive = false` (out of the AI's world) but still drawn. */
   update(dt) {
     for (const e of this.players.values()) {
-      if (!e.agent.alive && e.downed && e.agent.group.parent) this.drive(e.agent, e, dt);
+      if (!e.agent.alive && e.downed && !e.ragdoll && e.agent.group.parent) this.drive(e.agent, e, dt);
     }
   }
 
@@ -632,12 +683,22 @@ export class Puppets {
       a.animator?.hit?.(part === 'head' ? 'head' : 'torso', side, Math.min(1.4, 0.5 + amount / 45));
       return;
     }
-    // A remote teammate's soldier on the HOST, hit by a bot round.
-    if (this.net.role !== 'host' || !source || source.team !== 'hostile') return;
+    const zone = part === 'head' ? 'head' : part === 'torso' ? 'torso' : 'limb';
+    if (source?.isPlayer === true) {
+      // PvP: my round hit another player's soldier. Teammates are never hit
+      // (their capsules are off the bullet mask); this is an enemy.
+      if (a.team !== 'hostile' || !(amount > 0)) return;
+      this.net.claimPlayerHit(e.peer, amount, zone);
+      const side = dir ? Math.sign(dir.x * Math.cos(a.yaw) - dir.z * Math.sin(a.yaw)) || 1 : 1;
+      a.animator?.hit?.(part === 'head' ? 'head' : 'torso', side, Math.min(1.4, 0.5 + amount / 45));
+      return;
+    }
+    // On the HOST: a bot round on a remote player's soldier.
+    if (this.net.role !== 'host' || !source || source.__net || !source.team || source.team === a.team) return;
     const W = source.weapon;
     const pellets = W?.pellets > 1 ? 1 / Math.sqrt(W.pellets) : 1;
     const dmg = (source.weaponDamage ?? amount) * (part === 'head' ? 1.25 : 1) * pellets;
-    this.net.queueDamage(e.peer, dmg, source.position);
+    this.net.queueDamage(e.peer, dmg, source.position, source.netId ? `b${source.netId}` : '', zone, 'fmj', source.weaponId ?? null);
     a.animator?.hit?.('torso', 1, 0.6);
   }
 

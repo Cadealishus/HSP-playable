@@ -332,7 +332,7 @@ export class MainMenu {
       const ms = net.menuState();
       items.push({
         idx: idx(),
-        label: 'CO-OP ONLINE',
+        label: 'ONLINE',
         tag: ms.status === 'lobby' ? `PARTY ${String(ms.code ?? '').toUpperCase()}` : ms.availability === 'unavailable' ? 'NEEDS THE SHARED LINK' : '2 – 4 OPERATORS',
         onSelect: () => this.go(ms.status === 'lobby' ? 'lobby' : 'coop'),
         panel: (p) => this._coopBlurb(p, ms),
@@ -367,11 +367,11 @@ export class MainMenu {
       this._blurb(p, 'CO-OP ONLINE', 'Online play needs the shared FLOP OPS link (claude.ai). Open the game from its claude.ai link, where the room is provided, and try again. Single player works everywhere.');
       return;
     }
-    this._blurb(p, 'CO-OP ONLINE', 'Survival with up to four operators against the same waves. One of you hosts; everyone else is told it was their idea.', [
+    this._blurb(p, 'ONLINE', 'Real operators, one party code. Co-op survival against the waves, or Team Deathmatch and Free For All against each other. One of you hosts; everyone else is told it was their idea.', [
       ['HOST', 'Create a party code and send it to your squad'],
       ['JOIN', 'Type the code a host gave you'],
-      ['DOWNED', 'Hold F on a downed teammate for 3 s to revive'],
-      ['OVER', 'When everyone is down at once'],
+      ['MODES', 'CO-OP SURVIVAL · TEAM DEATHMATCH · FREE FOR ALL'],
+      ['DOWNED', 'Co-op: hold F on a downed teammate for 3 s to revive'],
     ]);
   }
 
@@ -480,11 +480,30 @@ export class MainMenu {
     const ms = net?.menuState();
     if (!net || ms.status !== 'lobby') return this._page_coop();
     const isHost = ms.role === 'host';
-    const maps = (this.host.maps?.() ?? []).filter((m) => this._supports(m, 'survival'));
+    const modeKind = () => (net.menuState().lobby.mode === 'survival' ? 'survival' : 'tdm');
+    const maps = (this.host.maps?.() ?? []).filter((m) => this._supports(m, modeKind()));
     const mapName = (id) => maps.find((m) => m.id === id)?.name ?? String(id ?? '').toUpperCase();
     const panel = (p) => this._lobbyPanel(p, net);
     const items = [];
     if (isHost) {
+      const modes = ms.modes ?? [];
+      items.push({
+        kind: 'value',
+        label: 'MODE',
+        value: () => modes.find((m) => m.id === net.menuState().lobby.mode)?.label ?? 'CO-OP SURVIVAL',
+        onChange: (dir) => {
+          if (!modes.length) return;
+          const i = Math.max(0, modes.findIndex((m) => m.id === net.menuState().lobby.mode));
+          const next = modes[(i + dir + modes.length) % modes.length].id;
+          net.setLobby({ mode: next });
+          // Keep the map one the new mode can use.
+          const kind = next === 'survival' ? 'survival' : 'tdm';
+          const ok = (this.host.maps?.() ?? []).filter((m) => this._supports(m, kind));
+          if (ok.length && !ok.some((m) => m.id === net.menuState().lobby.map)) net.setLobby({ map: ok[0].id });
+          this._render(this.page, this.arg, this.focus);
+        },
+        panel,
+      });
       items.push({
         kind: 'value',
         label: 'MAP',
@@ -506,7 +525,16 @@ export class MainMenu {
         },
         panel,
       });
-      items.push({ idx: '▸', label: 'START OPERATION', onSelect: () => net.start(), panel });
+      if (ms.lobby.mode === 'tdm') {
+        items.push({
+          kind: 'value',
+          label: 'BOT FILL',
+          value: () => (net.menuState().lobby.botFill ? 'ON · 6 V 6' : 'OFF · PLAYERS ONLY'),
+          onChange: () => net.setLobby({ botFill: !net.menuState().lobby.botFill }),
+          panel,
+        });
+      }
+      items.push({ idx: '▸', label: ms.lobby.mode === 'survival' ? 'START OPERATION' : 'START MATCH', onSelect: () => net.start(), panel });
     } else if (ms.lobby.hostInGame) {
       items.push({ idx: '▸', label: 'JOIN THE OPERATION', tag: 'IN PROGRESS', onSelect: () => net.deployNow(), panel });
     } else {
@@ -540,16 +568,27 @@ export class MainMenu {
     });
     el('div', 'ow-mm-text', c, 'Send this code to your squad. They pick CO-OP ONLINE › JOIN A PARTY and type it in.');
     const g = el('div', 'ow-ms-grid', c);
+    const mode = (ms.modes ?? []).find((x) => x.id === ms.lobby.mode);
+    el('div', 'k', g, 'MODE');
+    el('div', 'v', g, mode?.label ?? 'CO-OP SURVIVAL');
     for (const pl of ms.players) {
       el('div', 'k', g, pl.host ? 'HOST' : pl.me ? 'YOU' : 'OPERATOR');
-      el('div', 'v', g, pl.name + (pl.inGame ? ' · DEPLOYED' : ''));
+      const side = ms.lobby.mode === 'tdm' ? (pl.team === 'esf' ? ' · BLUE' : ' · RED') : '';
+      el('div', 'v', g, pl.name + side + (pl.inGame ? ' · DEPLOYED' : ''));
+    }
+    if (ms.lobby.mode === 'tdm') {
+      el('div', 'k', g, 'BOTS');
+      el('div', 'v', g, ms.lobby.botFill ? 'FILL EMPTY SLOTS (6 V 6)' : 'NONE');
     }
     const maps = this.host.maps?.() ?? [];
     const m = maps.find((x) => x.id === ms.lobby.map);
     el('div', 'k', g, 'MAP');
     el('div', 'v', g, m?.name ?? ms.lobby.map);
-    el('div', 'k', g, 'DIFFICULTY');
-    el('div', 'v', g, String(ms.lobby.diff ?? 'regular').toUpperCase());
+    if (ms.lobby.mode !== 'ffa') {
+      el('div', 'k', g, 'DIFFICULTY');
+      el('div', 'v', g, String(ms.lobby.diff ?? 'regular').toUpperCase());
+    }
+    if (mode?.blurb) el('div', 'ow-mm-text', c, mode.blurb);
     if (m?.preview) this._plan(c, m);
     let go = 'LOOKING FOR THE HOST';
     if (ms.role === 'host') go = `${ms.players.length} OF 4 · ENTER ON START OPERATION`;
