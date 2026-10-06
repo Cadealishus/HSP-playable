@@ -917,6 +917,152 @@ export const EQUIPMENT_DEFS = {
     restitution: 0.28,
     friction: 0.72,
   },
+
+  /*
+   * EXPANSION §10.4 — the comment pass. Same G / Q, same prime / hold / release
+   * state machine. `flight` picks the in-flight model (equipment.js):
+   *   'body'     a physics rigid body that bounces and settles (frag, flash,
+   *              smoke, concussion)
+   *   'stick'    a swept projectile that glues itself to the first surface or
+   *              body it touches (semtex)
+   *   'shatter'  a swept projectile that breaks on first contact (molotov)
+   *   'blade'    a fast, nearly flat, spinning swept projectile that sticks and
+   *              wounds (throwing knife)
+   * `cook: false` means holding the key only delays the throw: the fuse (if
+   * any) starts at release. `prime` overrides the 0.30 s pin-pull.
+   */
+  semtex: {
+    id: 'semtex',
+    slot: 'lethal',
+    displayName: 'SEMTEX',
+    flight: 'stick',
+    cook: false,
+    fuse: 2.4, // from release; it beeps faster as it runs down
+    radius: 6.5,
+    damage: 250,
+    impulse: 104,
+    count: 2,
+    max: 2,
+    throwSpeed: 15.5,
+    loft: 8,
+    gravityScale: 0.62,
+    radiusFlight: 0.03,
+  },
+  molotov: {
+    id: 'molotov',
+    slot: 'lethal',
+    displayName: 'MOLOTOV',
+    flight: 'shatter',
+    cook: false,
+    prime: 0.42, // lighting the rag
+    fuse: 0,
+    count: 2,
+    max: 2,
+    throwSpeed: 14.5,
+    loft: 10,
+    gravityScale: 0.66,
+    radiusFlight: 0.034,
+    fireRadius: 2.7,
+    fireTime: 6,
+    dps: 46, // inside the fire, plus an afterburn once out of it
+    afterburn: 0.9,
+  },
+  throwing_knife: {
+    id: 'throwing_knife',
+    slot: 'lethal',
+    displayName: 'THROWING KNIFE',
+    flight: 'blade',
+    cook: false,
+    prime: 0.1,
+    fuse: 0,
+    count: 2,
+    max: 3,
+    throwSpeed: 34,
+    loft: 1.2,
+    gravityScale: 0.32,
+    radiusFlight: 0.01,
+    damageLethal: 200, // head or torso: one hit
+    damageLimb: 72,
+    spin: 21, // rad/s end over end
+    pickupRadius: 1.2,
+    useRadius: 2.6,
+    life: 90, // seconds a stuck knife waits to be picked up
+  },
+  smoke: {
+    id: 'smoke',
+    slot: 'tactical',
+    displayName: 'M18 SMOKE',
+    flight: 'body',
+    cook: false,
+    fuse: 1.3,
+    duration: 12,
+    radius: 4.8, // full-grown cloud radius
+    count: 2,
+    max: 2,
+    throwSpeed: 15,
+    loft: 8,
+    gravityScale: 0.62,
+    shape: 'capsule',
+    mass: 0.5,
+    restitution: 0.22,
+    friction: 0.8,
+  },
+  concussion: {
+    id: 'concussion',
+    slot: 'tactical',
+    displayName: 'CONCUSSION',
+    flight: 'body',
+    fuse: 1.6,
+    radius: 11,
+    count: 2,
+    max: 2,
+    throwSpeed: 16,
+    loft: 7,
+    gravityScale: 0.62,
+    shape: 'capsule',
+    mass: 0.38,
+    restitution: 0.26,
+    friction: 0.72,
+  },
+};
+
+/**
+ * The loadout-facing registry (EXPANSION §10.4): every throwable the LOADOUT
+ * page lists, in display order, with its menu copy. `count` is what a life
+ * starts with; the in-game counts live on `weapons.equipment.counts`.
+ */
+export const EQUIPMENT_COPY = {
+  frag: { label: 'FRAG GRENADE', desc: 'Cooks while held. Thrown with feeling.' },
+  semtex: { label: 'SEMTEX', desc: 'Sticks to the first thing it meets. Usually the right thing.' },
+  molotov: { label: 'MOLOTOV', desc: 'Glass, fuel, a rag. Six seconds of area denial.' },
+  throwing_knife: { label: 'THROWING KNIFE', desc: 'One hit, one problem solved. Please collect it afterwards.' },
+  flash: { label: 'FLASHBANG', desc: 'Blinds and deafens. Politely.' },
+  smoke: { label: 'SMOKE GRENADE', desc: 'Twelve seconds of nobody seeing anything.' },
+  concussion: { label: 'CONCUSSION', desc: 'No blind. Just slow, dizzy and briefly philosophical.' },
+};
+export const EQUIPMENT_IDS = {
+  lethal: ['frag', 'semtex', 'molotov', 'throwing_knife'],
+  tactical: ['flash', 'smoke', 'concussion'],
+};
+
+/**
+ * Quick melee (V). One hit kills from behind, two from the front (100 hp
+ * soldiers: 62 x 2 > 100). `lunge` is the reach inside which the knife closes
+ * the gap to the target itself.
+ */
+export const MELEE_DEF = {
+  id: 'knife',
+  displayName: 'COMBAT KNIFE',
+  reach: 1.55, // slash ray length from the eye
+  lunge: 2.2, // a target this close (and in front) is lunged at
+  lungeCone: 0.82, // cos of the half angle a lunge target must be inside
+  damageFront: 62,
+  damageBack: 200,
+  backDot: 0.25, // attacker behind the target's shoulders
+  slash: 0.46, // seconds, first frame to gun back up
+  lungeTime: 0.52,
+  hitAt: 0.38, // fraction of the clip where the blade connects
+  cooldown: 0.62, // seconds between swings
 };
 
 export const SPREAD_MODS = {
