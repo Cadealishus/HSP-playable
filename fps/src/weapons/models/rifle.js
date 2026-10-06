@@ -131,7 +131,13 @@ export function buildRifle() {
   });
 
   // ---- barrel, gas system, muzzle -----------------------------------------
-  const barrel = addBarrel(body, 'steel', 'cavity', {
+  // The exposed barrel, the stock muzzle device and the stock optic are their
+  // own assemblies so the GUNSMITH (attachments.js) can swap them: the barrel
+  // is re-lengthened, the device and the optic hidden under a replacement.
+  const barrelAsm = new Assembly('rifle-barrel');
+  const stockMuzzle = new Assembly('rifle-muzzle');
+  const stockOptic = new Assembly('rifle-optic');
+  const barrel = addBarrel(barrelAsm, 'steel', 'cavity', {
     y: bore,
     zBreech,
     zMuzzle: zBarrelEnd,
@@ -150,7 +156,7 @@ export function buildRifle() {
     w: 0.021,
     h: 0.0195,
   });
-  const muzzle = addMuzzleDevice(body, 'steel_soot', 'cavity', 'brake', zBarrelEnd, 0.0077, bore);
+  const muzzle = addMuzzleDevice(stockMuzzle, 'steel_soot', 'cavity', 'brake', zBarrelEnd, 0.0077, bore);
 
   // ---- handguard + rails ---------------------------------------------------
   /**
@@ -218,7 +224,7 @@ export function buildRifle() {
    * frame was a quarter-height ring of dark tube wall — "a length of drainpipe",
    * measured. 52 mm plus the flared bore in buildOptic gets it to 69%.
    */
-  const optic = buildOptic(body, {
+  const optic = buildOptic(stockOptic, {
     rTube: 0.0155,
     len: 0.052,
     hood: 0.007,
@@ -316,9 +322,17 @@ export function buildRifle() {
     label: 'HARRIER 556',
     fxClass: 'carbine',
     body,
-    moving: { magazine, charging, bolt, trigger, selector },
+    moving: { magazine, charging, bolt, trigger, selector, barrel: barrelAsm, stockMuzzle, stockOptic },
     nodes: {
       muzzle: [0, bore, muzzle.crownZ],
+      /** GUNSMITH mount points (attachments.js). */
+      mounts: {
+        rail: { y: railTop, z: opticZ },
+        muzzle: { y: bore, z: zBarrelEnd, r: 0.0077 },
+        barrel: { pivot: hgZ1, end: zBarrelEnd },
+        under: { y: bore - hgR - 0.0036, z: -0.335 },
+        side: { x: -(hgR + 0.0036), y: bore, z: -0.35, s: -1 },
+      },
       chamber: [0, bore, portZ],
       eject: [rUpper + 0.008, bore + 0.003, portZ],
       ejectDir: [0.86, 0.44, 0.26],
