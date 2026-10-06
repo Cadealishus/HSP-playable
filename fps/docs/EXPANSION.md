@@ -15,7 +15,7 @@ per-frame allocation, staggered AI).
 `resolveSession(params) → { kind, mode, map, mission, loadout, difficulty }`:
 
 - `kind`: `'mp'` (bot match) | `'survival'` | `'mission'`
-- `mode`: `'tdm' | 'dom' | 'hp' | 'sd' | 'survival'` (null for missions)
+- `mode`: `'tdm' | 'dom' | 'hp' | 'sd' | 'ffa' | 'kc' | 'gun' | 'survival'` (null for missions)
 - `map`: a map id from `src/world/maps/index.js`
 - `mission`: `'underground' | 'flight717' | 'hostage'` (only for kind `'mission'`)
 - `loadout`: `{ primary, secondary, lethal: 'frag', tactical: 'flash' }` (weapon ids)

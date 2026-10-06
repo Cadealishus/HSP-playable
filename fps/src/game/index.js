@@ -34,8 +34,9 @@ import * as THREE from 'three';
 import { Scoring } from './scoring.js';
 import { MODES, MODE_INFO, modeAvailable } from './modes/index.js';
 import { aiCaps } from './modes/team.js';
+import { Killcam } from './killcam.js';
 import { availableMissions, loadMission, missionCaps } from './missions.js';
-import { DEFAULT_SESSION, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
+import { DEFAULT_SESSION, MODE_IDS, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
 
 /**
  * Legacy ESF loadout id → { weapon id, armour multiplier on base max health }.
@@ -113,6 +114,9 @@ export class GameSystem {
     const p = ctx.peek('player');
     this._baseMaxHealth = p?.health?.max ?? p?.maxHealth ?? 100;
 
+    /** KILLCAM (src/game/killcam.js): recorder + replay. */
+    this.killcam = new Killcam(ctx, this);
+
     this._loadBest();
     this._wireEvents(ctx);
     this._installDebugApi();
@@ -180,6 +184,7 @@ export class GameSystem {
       return;
     }
     const headshot = this._headshotOf(e);
+    if (e?.killer) this.killcam.noteKill(e, headshot);
     if (this.modeId === 'survival') this.mode.onDeath(e, headshot);
     else this.mode.onDeath?.(e, headshot);
   }
@@ -230,10 +235,15 @@ export class GameSystem {
 
   /** Start a session on the current map. */
   startSession(s) {
-    // CO-OP (src/net): inside a party every run is the shared survival run,
-    // hosted by one page and mirrored by the rest. No party: unchanged.
-    const netRole = this.ctx.peek('net')?.sessionRole?.() ?? null;
-    s = netRole ? { ...s, kind: 'survival', mode: 'survival', mission: null, netRole } : { ...s, netRole: null };
+    // ONLINE (src/net): inside a party every run is the party's mode (co-op
+    // survival, TDM or FFA), hosted by one page and mirrored by the rest.
+    // No party: unchanged.
+    const net = this.ctx.peek('net');
+    const netRole = net?.sessionRole?.() ?? null;
+    if (netRole) {
+      const pm = net.partyMode?.() ?? 'survival';
+      s = { ...s, kind: pm === 'survival' ? 'survival' : 'mp', mode: pm, mission: null, netRole };
+    } else s = { ...s, netRole: null };
     this.session = { ...this.session, ...s };
     if (s.kind === 'mission') {
       loadMission(s.mission).then((Cls) => {
@@ -246,7 +256,7 @@ export class GameSystem {
       return;
     }
     const id = s.mode ?? 'survival';
-    const Cls = MODES[id];
+    const Cls = netRole && id !== 'survival' ? net.modeClass?.(id, MODES) : MODES[id];
     if (!Cls) return;
     const av = modeAvailable(id, this.ctx);
     if (!av.ok) console.warn(`[game] ${id}: ${av.why} (dev launch; not offered in the menu)`);
@@ -290,10 +300,13 @@ export class GameSystem {
     this._setState('play');
     mode.start();
     this.ctx.peek('ui')?.setObjectives?.([]);
+    if (s.netRole) this.ctx.peek('net')?.onGameBegin?.(s.netRole);
     console.info(`[game] deploy — ${this.modeId} on ${this._currentMap()} (${s.difficulty})`);
   }
 
   _teardown() {
+    this.killcam?.cancel();
+    this._finalPending = false;
     const m = this.mode;
     this.mode = null;
     this.endSpectate();
@@ -361,8 +374,30 @@ export class GameSystem {
       return;
     }
     if (this.state !== 'play' || !this.mode) return;
+    // player:death fires INSIDE the lethal damage:dealt dispatch, before this
+    // system's own damage listener has recorded who fired it (the player
+    // subscribed first). Finish the dispatch, then decide: same frame.
+    if (!this._deathDeferred) {
+      this._deathDeferred = true;
+      const mode = this.mode;
+      queueMicrotask(() => {
+        this._deathDeferred = false;
+        if (this.mode === mode) this._handlePlayerDeath(e);
+      });
+    }
+  }
+
+  _handlePlayerDeath(e) {
+    const p = this.ctx.peek('player');
+    if (this.state !== 'play' || !this.mode) return;
+    const killer = this.lastAttacker();
     if (this.modeId !== 'survival') {
-      this.mode.onPlayerDeath?.({ ...(e ?? {}), killer: this.lastAttacker() });
+      this.mode.onPlayerDeath?.({ ...(e ?? {}), killer });
+      // KILLCAM: after a beat, the last seconds from the killer's eyes; then redeploy.
+      const rec = this.killcam.notePlayerDeath(killer, killer?.weaponId, e?.headshot);
+      if (rec && this._killcamAllowed() && this.mode?.constructor?.id !== 'mission' && !this.mode?.result) {
+        this.killcam.queue(rec, 1.1, { onEnd: () => this._afterKillcamMp() });
+      }
       return;
     }
     // CO-OP: a death is a down (revive / bleed out), handled by src/net.
@@ -370,12 +405,57 @@ export class GameSystem {
     const next = this.mode.onPlayerDeath();
     this._beginDeathBeat();
     p?.setControlEnabled?.(false);
+    // KILLCAM (survival): the DOUG IS DOWN beat, the replay, then the death screen.
+    const rec = this._killcamAllowed() ? this.killcam.notePlayerDeath(killer, killer?.weaponId, e?.headshot) : null;
+    if (rec && this.killcam.queue(rec, 1.25, { survival: true, onEnd: () => this._afterKillcamSurvival(next) })) {
+      this._setState('killcam');
+      return;
+    }
     if (next === 'over') {
       this._gameOver();
     } else {
       this._setState('down');
       this.ctx.events.emit('game:continueOffer', {});
     }
+  }
+
+  /** No killcam in co-op (the world cannot pause for one page) or in capture runs. */
+  _killcamAllowed() {
+    if (this.ctx.config?.deterministic) return false;
+    if (this.ctx.peek('net')?.sessionRole?.()) return false;
+    return !!this.ctx.peek('ai')?.spawnMannequin;
+  }
+
+  /** MP: the replay is over (or was skipped): redeploy now. */
+  _afterKillcamMp() {
+    const m = this.mode;
+    if (!m || this.state !== 'play' || m.result) return;
+    const pl = m.player;
+    if (pl && !pl.alive && pl.respawnAt > 0) pl.respawnAt = Math.min(pl.respawnAt, m.t);
+  }
+
+  /** Survival: the replay is over: the continue offer, or the report. */
+  _afterKillcamSurvival(next) {
+    if (this.state !== 'killcam' || this.modeId !== 'survival') return;
+    if (next === 'over') this._gameOver();
+    else {
+      this._setState('down');
+      this.ctx.events.emit('game:continueOffer', {});
+    }
+  }
+
+  /** Match decided: the FINAL KILLCAM of its last kill, then the report. */
+  _finishWithFinalKillcam(over) {
+    if (this._finalPending) return;
+    this._finalPending = true;
+    const done = () => {
+      this._finalPending = false;
+      if (this.mode && this.state === 'play') this._finishMatch(over);
+    };
+    this.killcam.cancel();
+    const rec = this.killcam.lastKill;
+    if (this._killcamAllowed() && this.mode?.constructor?.id !== 'mission' && this.killcam.queue(rec, 1.0, { final: true, onEnd: done })) return;
+    done();
   }
 
   /** Survival run over: best score, after-action numbers, game:over. */
@@ -464,7 +544,7 @@ export class GameSystem {
 
   /** CO-OP host migration: this page now runs the waves. */
   netPromote() {
-    if (this.modeId !== 'survival' || !this.mode) return;
+    if (!this.mode) return;
     this.session.netRole = 'host';
     this.mode.promote?.();
     const ai = this.ctx.peek('ai');
@@ -473,7 +553,7 @@ export class GameSystem {
 
   /** CO-OP: another page outranked this one as host; mirror it from now on. */
   netDemote() {
-    if (this.modeId !== 'survival' || !this.mode) return;
+    if (!this.mode) return;
     this.session.netRole = 'client';
     this.mode.demote?.();
   }
@@ -719,7 +799,7 @@ export class GameSystem {
   /** Every mode with its menu copy, playability and the maps that host it. */
   availableModes() {
     const maps = this._maps();
-    return ['tdm', 'dom', 'hp', 'sd', 'survival'].map((id) => {
+    return MODE_IDS.filter((id) => MODE_INFO[id]).map((id) => {
       const av = modeAvailable(id, this.ctx);
       return {
         ...MODE_INFO[id],
@@ -767,6 +847,9 @@ export class GameSystem {
     }
 
     if (this._deathBeatUntil && ctx.time.raw >= this._deathBeatUntil) this._endDeathBeat();
+    // KILLCAM: record the world while it runs; start a queued replay when due.
+    if (this.mode && !this.killcam.playing) this.killcam.record();
+    this.killcam.tick();
     this.scoring.tickCombo(dt);
 
     if (this._god) {
@@ -784,11 +867,15 @@ export class GameSystem {
       const p = ctx.peek('player');
       if (this.mode.player && !this.mode.player.alive && p?.controlEnabled) p.setControlEnabled(false);
       const over = this.mode.isOver?.();
-      if (over) this._finishMatch(over);
+      if (over) this._finishWithFinalKillcam(over);
     }
   }
 
   lateUpdate(dt) {
+    if (this.killcam.playing) {
+      this.killcam.lateUpdate();
+      return;
+    }
     if (this.cameraOverride && this.mode) this._spectateCamera(dt);
   }
 
@@ -1006,6 +1093,16 @@ export class GameSystem {
           return self.ctx.peek('weapons')?.allWeaponIds ?? [];
         },
         spectateNext: () => self.spectateNext(1),
+        /** Replay the last death (or the last kill) through the killcam. */
+        killcam: () => self.killcam.replayLast(),
+        get kc() {
+          return self.killcam.debugState;
+        },
+        skipKillcam: () => self.killcam.skip(),
+        /** The running mode instance (tests). */
+        get mode() {
+          return self.mode;
+        },
         get hud() {
           return self.hudState();
         },
@@ -1027,6 +1124,7 @@ export class GameSystem {
     this._teardown();
     this._endDeathBeat();
     this._pendingHead.clear();
+    this.killcam?.dispose();
     try {
       if (window.FLOP) delete window.FLOP;
     } catch {
