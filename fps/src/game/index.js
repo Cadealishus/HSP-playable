@@ -35,7 +35,7 @@ import { Scoring } from './scoring.js';
 import { MODES, MODE_INFO, modeAvailable } from './modes/index.js';
 import { aiCaps } from './modes/team.js';
 import { availableMissions, loadMission, missionCaps } from './missions.js';
-import { DEFAULT_SESSION, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
+import { DEFAULT_SESSION, MODE_IDS, normaliseSession, saveSession, launchSession, mapSupports, normaliseLoadout } from './session.js';
 
 /**
  * Legacy ESF loadout id → { weapon id, armour multiplier on base max health }.
@@ -719,7 +719,7 @@ export class GameSystem {
   /** Every mode with its menu copy, playability and the maps that host it. */
   availableModes() {
     const maps = this._maps();
-    return ['tdm', 'dom', 'hp', 'sd', 'survival'].map((id) => {
+    return MODE_IDS.filter((id) => MODE_INFO[id]).map((id) => {
       const av = modeAvailable(id, this.ctx);
       return {
         ...MODE_INFO[id],

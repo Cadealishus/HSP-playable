@@ -31,7 +31,7 @@ export const SETTINGS_KEY = 'flopops.settings';
 export const LEGACY_MAP_KEY = 'flopops.map';
 
 export const KINDS = ['mp', 'survival', 'mission'];
-export const MP_MODE_IDS = ['tdm', 'dom', 'hp', 'sd'];
+export const MP_MODE_IDS = ['tdm', 'dom', 'hp', 'sd', 'ffa', 'kc', 'gun'];
 export const MODE_IDS = [...MP_MODE_IDS, 'survival'];
 export const MISSION_IDS = ['underground', 'flight717', 'hostage'];
 /** A mission forces its own map. */

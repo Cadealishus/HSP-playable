@@ -64,7 +64,7 @@ import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
 import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
 import { PlayerProxy, normTeam, isAlly, isEnemy, relation, setRelation as setTeamRelation } from './teams.js';
-import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
+import { BOT_DAMAGE_SCALE, roleFor, modelFor, resolveWeapon } from './roles.js';
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
@@ -789,6 +789,51 @@ export class AiSystem {
     civ.captor = captor;
     civ.behavior = 'hostage';
     civ.released = false;
+  }
+
+  /**
+   * GUN GAME (src/game/modes/gun.js): hand a live bot a different weapon def.
+   * Stats change at once (rate, damage, magazine, range); the carried model is
+   * baked into the body and changes on the bot's next spawn.
+   */
+  rearm(a, weaponId) {
+    if (!a || !weaponId || a.weaponId === weaponId) return false;
+    const W = resolveWeapon(weaponId, this.ctx.peek('weapons'));
+    a.weaponId = weaponId;
+    a.weapon = W;
+    a.weaponRange = Math.min(W.maxRange, a.roleDef?.range?.[2] ?? W.maxRange);
+    a.magSize = W.magSize;
+    a.ammo = W.magSize;
+    a.setDifficulty?.(a.intensity ?? a.skill ?? 0.5);
+    return true;
+  }
+
+  /**
+   * KILLCAM (src/game/killcam.js): a visual-only soldier. The same skinned body,
+   * kit, third-person weapon and animator as a spawned Agent, but with no
+   * physics (no controller, no hit capsules), not in `agents` / `actors`, never
+   * thinking. The caller poses it and calls `m._drive(dt)`; `releaseMannequin`
+   * frees it. `opts { team, model (weapon style), weapon, name }`.
+   */
+  spawnMannequin(variant, opts = {}) {
+    const team = normTeam(opts.team ?? 'hostile');
+    let v = String(variant || 'vanguard').replace(/^esf_/, '');
+    if (!VARIANTS[v]) v = 'vanguard';
+    const a = new Agent(this, { variant: v, position: opts.position, yaw: 0, team, model: opts.model ?? null, weapon: opts.weapon });
+    if (a.controller) this.phys?.removeCharacter(a.controller);
+    a.controller = null;
+    for (const c of a.colliders) this.phys?.removeCollider(c);
+    a.colliders.length = 0;
+    a.alive = false;
+    a.isMannequin = true;
+    a.name = opts.name ?? '';
+    a.group.name = `mannequin${a.id}`;
+    return a;
+  }
+
+  releaseMannequin(m) {
+    if (!m?.isMannequin) return;
+    m.dispose();
   }
 
   /** Called by Agent.die(): drop the IFF tag, free any claims. */

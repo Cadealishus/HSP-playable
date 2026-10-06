@@ -101,6 +101,8 @@ export class TeamMode {
     };
     this.slots = [];
     this._slotOf = new Map();
+    /** Every agent this mode ever spawned → its slot (a dead killer still gets credit). */
+    this._everSlot = new WeakMap();
     this._buildRoster();
 
     this._v = new THREE.Vector3();
@@ -165,6 +167,16 @@ export class TeamMode {
 
   slotOf(agent) {
     return this._slotOf.get(agent) ?? null;
+  }
+
+  /** The slot an agent belongs or belonged to, alive or not. */
+  slotOfAny(agent) {
+    return (agent && typeof agent === 'object' && (this._slotOf.get(agent) ?? this._everSlot.get(agent))) || null;
+  }
+
+  /** True when `k` (an actor:death killer / damage source) is Doug. */
+  isPlayerActor(k) {
+    return !!k && (k === 'player' || k.isPlayer === true || k === this.ctx.peek('player'));
   }
 
   /** The side a team spawns on (S&D swaps it at half time). */
@@ -272,6 +284,7 @@ export class TeamMode {
     const opts = { team: slot.team, skill: this.skill };
     if (slot.name) opts.name = slot.name;
     if (this.caps.roles?.has(slot.role)) opts.role = slot.role;
+    this.botSpawnOpts?.(slot, opts);
     let a = null;
     try {
       a = ai.spawn(slot.variant, pos, playerYaw + Math.PI, opts);
@@ -297,6 +310,8 @@ export class TeamMode {
     slot.respawnAt = 0;
     slot.interactAt = -1e9;
     this._slotOf.set(a, slot);
+    this._everSlot.set(a, slot);
+    this.onBotSpawned?.(slot, a);
     return a;
   }
 
@@ -323,7 +338,7 @@ export class TeamMode {
     const k = e?.killer;
     if (k) {
       if (k === 'player' || k.isPlayer === true || k === this.ctx.peek('player')) return 'esf';
-      const ks = this._slotOf.get(k);
+      const ks = this.slotOfAny(k);
       if (ks) return ks.team;
       if (k.team === 'esf' || k.team === 'hostile') return k.team;
     }
@@ -344,7 +359,7 @@ export class TeamMode {
     if (k === 'player' || k?.isPlayer === true || k === this.ctx.peek('player') || (!k && slot.team === 'hostile' && !e.killerTeam)) {
       this.player.kills += 1;
     } else if (k) {
-      const ks = this._slotOf.get(k);
+      const ks = this.slotOfAny(k);
       if (ks) ks.kills += 1;
     }
     if (this.constructor.respawn && !this.result) slot.respawnAt = this.t + this.constructor.respawnDelay;
@@ -357,7 +372,7 @@ export class TeamMode {
     this.player.alive = false;
     this.player.deaths += 1;
     const killer = e?.killer ?? this.host?.lastAttacker?.() ?? null;
-    const ks = killer ? this._slotOf.get(killer) : null;
+    const ks = killer ? this.slotOfAny(killer) : null;
     if (ks) ks.kills += 1;
     this._hud.killer = killer?.name ? String(killer.name).toUpperCase() : null;
     const kTeam = ks?.team ?? 'hostile';
