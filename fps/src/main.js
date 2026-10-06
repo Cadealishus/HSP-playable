@@ -13,6 +13,7 @@ import { AiSystem } from './ai/index.js';
 import { UiSystem } from './ui/index.js';
 import { AudioSystem } from './audio/index.js';
 import { GameSystem } from './game/index.js';
+import { NetSystem } from './net/index.js';
 
 import { installShotApi } from './dev/shots.js';
 import { MAPS } from './world/maps/index.js';
@@ -73,7 +74,8 @@ engine
   .add(AiSystem)
   .add(UiSystem)
   .add(AudioSystem)
-  .add(GameSystem);
+  .add(GameSystem)
+  .add(NetSystem);
 
 // ---------------------------------------------------------------- loading --
 // The loading screen is plain DOM in index.html, driven by an inline classic

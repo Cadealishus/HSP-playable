@@ -79,6 +79,14 @@ export class SurvivalMode {
     this._intelT = 0;
     this._intelOk = false;
     this._order = { kind: 'hunt', pos: this._intel, radius: 14, intel: true };
+    // CO-OP (src/net): the intel spreads over every living player, one rough
+    // area per player, and hostiles are dealt out across them.
+    this._intels = [this._order];
+    this._intelN = 1;
+    /** CO-OP client: the host runs the waves; this page only mirrors them. */
+    this.remote = this.session.netRole === 'client';
+    this._announcedWave = 0;
+    this._clearedWave = 0;
     return this;
   }
 
@@ -93,7 +101,9 @@ export class SurvivalMode {
     this.scoring.reset();
     this.scoring.announce();
     this.markSquare(true);
-    this.startWave(1);
+    this._announcedWave = 0;
+    this._clearedWave = 0;
+    if (!this.remote) this.startWave(1);
   }
 
   /** REQUEST ONE (1) MORE CHANCE: the same wave restarts, score kept. */
@@ -123,6 +133,7 @@ export class SurvivalMode {
 
   startWave(n) {
     this.wave = n;
+    this._announcedWave = n;
     this.waveActive = true;
     this.breather = 0;
     this.waveSpawned = 0;
@@ -134,7 +145,7 @@ export class SurvivalMode {
 
   /** Keep the fight topped up to the concurrent cap, up to the wave's total. */
   refill() {
-    if (!this.waveActive || this.breather > 0) return;
+    if (this.remote || !this.waveActive || this.breather > 0) return;
     const ai = this.ctx.peek('ai');
     if (!ai) return;
     const remaining = this.waveGoal - this.waveSpawned;
@@ -175,8 +186,16 @@ export class SurvivalMode {
     if (typeof ai.reapCorpses === 'function') ai.reapCorpses(14);
     else ai._reapCorpses?.(14);
     const pp = this.ctx.peek('player')?.position ?? this.ctx.camera.position;
+    // CO-OP: "far from Doug" means far from every living player.
+    const players = this.ctx.peek('net')?.huntTargets?.();
+    const away = (pos) => {
+      if (!players?.length) return pos.distanceTo(pp);
+      let d = Infinity;
+      for (const q of players) d = Math.min(d, pos.distanceTo(q));
+      return d;
+    };
     let ranked = spawns
-      .map((s) => ({ s, d: s.position.distanceTo(pp) }))
+      .map((s) => ({ s, d: away(s.position) }))
       .sort((a, b) => b.d - a.d)
       .filter((e) => e.d > 16);
     if (!ranked.length) ranked = spawns.map((s) => ({ s, d: 0 }));
@@ -234,6 +253,7 @@ export class SurvivalMode {
 
   waveCleared() {
     this.waveActive = false;
+    this._clearedWave = this.wave;
     const bonus = waveBonus(this.wave) * this.scoring.mult;
     this.scoring.addBonus(bonus);
     // A real break: ammo and equipment topped up for the next wave.
@@ -257,7 +277,7 @@ export class SurvivalMode {
 
   /** `actor:death` of a hostile in the live wave. */
   onDeath(e, headshot) {
-    if (!this.waveActive) return false;
+    if (this.remote || !this.waveActive) return false;
     this.aliveInWave = Math.max(0, this.aliveInWave - 1);
     this.scoring.kill(!!headshot);
     this.refill();
@@ -268,6 +288,11 @@ export class SurvivalMode {
   /* ------------------------------------------------------------ frame */
 
   update(dt) {
+    if (this.remote) {
+      // Mirror: the breather counts down locally between host updates.
+      if (this.breather > 0) this.breather = Math.max(0, this.breather - dt);
+      return;
+    }
     if (this.breather > 0) {
       this.breather -= dt;
       if (this.breather <= 0) {
@@ -288,24 +313,111 @@ export class SurvivalMode {
   _updateIntel(dt) {
     this._intelT -= dt;
     if (this._intelT > 0 && this._intelOk) return;
+    // Every living player (co-op), else Doug.
+    const net = this.ctx.peek('net');
+    const targets = net?.active?.() ? net.huntTargets() : null;
     const pp = this.ctx.peek('player')?.position;
-    if (!pp) return;
+    const n = targets ? Math.min(4, targets.length) : pp ? 1 : 0;
+    if (!n) return;
     const w = Math.max(1, this.wave);
     // Later waves get tighter, fresher intel: 15 m every 7 s at wave 1,
     // down to 6 m every 3 s from wave 10.
     const radius = Math.max(6, 16 - w);
     this._intelT = Math.max(3, 7.4 - w * 0.45);
-    const ang = this.rng.range(0, Math.PI * 2);
-    const err = this.rng.range(0, radius * 0.6);
-    this._intel.set(pp.x + Math.sin(ang) * err, pp.y, pp.z + Math.cos(ang) * err);
-    this._order.radius = radius;
+    for (let i = 0; i < n; i++) {
+      const tp = targets ? targets[i] : pp;
+      let o = this._intels[i];
+      if (!o) {
+        o = { kind: 'hunt', pos: new THREE.Vector3(), radius: 14, intel: true };
+        this._intels[i] = o;
+      }
+      const ang = this.rng.range(0, Math.PI * 2);
+      const err = this.rng.range(0, radius * 0.6);
+      o.pos.set(tp.x + Math.sin(ang) * err, tp.y, tp.z + Math.cos(ang) * err);
+      o.radius = radius;
+    }
+    this._intelN = n;
     this._intelOk = true;
   }
 
   orderFor(agent) {
-    // Hostiles hunt Doug's last reported area; anyone else does their own thing.
+    // Hostiles hunt a player's last reported area (in co-op, dealt out across
+    // the living players by id); anyone else does their own thing.
     if (!this._intelOk || (agent?.team && agent.team !== 'hostile')) return null;
-    return this._order;
+    if (this._intelN <= 1) return this._order;
+    return this._intels[(agent?.id ?? 0) % this._intelN] ?? this._order;
+  }
+
+  /* ------------------------------------------------------------ co-op */
+
+  /** CO-OP client: mirror the host's state (src/net codec readGame shape). */
+  applyNet(g) {
+    if (!this.remote) return;
+    const ACTIVE = 1;
+    const active = (g.flags & ACTIVE) !== 0;
+    this.wave = g.wave;
+    this.waveActive = active;
+    this.breather = g.breather;
+    this.aliveInWave = g.alive;
+    this.waveSpawned = g.spawned;
+    this.waveGoal = g.goal;
+    const sc = this.scoring;
+    if (g.score !== sc.score || g.mult !== sc.mult) {
+      const delta = g.score - sc.score;
+      const multUp = g.mult !== sc.mult;
+      sc.score = g.score;
+      sc.mult = g.mult;
+      this.ctx.events.emit('game:score', { score: sc.score, delta: Math.max(0, delta), mult: sc.mult });
+      if (multUp) this.ctx.events.emit('game:mult', { mult: sc.mult });
+    }
+    sc.kills = g.kills;
+    if (active && g.wave > this._announcedWave) this.netWave(g.wave, g.goal);
+    if (!active && g.breather > 0 && g.wave > this._clearedWave) this.netClear(g.wave, 0);
+  }
+
+  /** CO-OP client: the host started wave `n`. */
+  netWave(n, count) {
+    if (!this.remote || n <= this._announcedWave) return;
+    this._announcedWave = n;
+    this.wave = n;
+    this.waveActive = true;
+    this.waveGoal = count || this.waveGoal;
+    this.ctx.events.emit('game:wave', { wave: n, count: this.waveGoal });
+  }
+
+  /** CO-OP client: the host held wave `n` (a real break: resupply here too). */
+  netClear(n, bonus) {
+    if (!this.remote || n <= this._clearedWave) return;
+    this._clearedWave = n;
+    this.waveActive = false;
+    if (this.breather <= 0) this.breather = BREATHER_S;
+    const resupplied = this.host?.refill?.() ?? false;
+    this.ctx.events.emit('game:waveClear', { wave: n, bonus, resupplied, breather: BREATHER_S });
+  }
+
+  /** CO-OP host migration: this page takes over the waves from the mirrored state. */
+  promote() {
+    if (!this.remote) return;
+    this.remote = false;
+    const ai = this.ctx.peek('ai');
+    let alive = 0;
+    for (const a of ai?.agents ?? []) if (a.alive && a.team === 'hostile' && !a.__net) alive++;
+    this.aliveInWave = alive;
+    if (this.wave <= 0) {
+      this.startWave(1);
+      return;
+    }
+    if (this.waveActive) {
+      this.waveGoal = this.waveGoal || waveGoal(this.wave);
+      this.waveSpawned = Math.max(this.waveSpawned, alive);
+    } else if (this.breather <= 0) this.breather = 1;
+    this._intelOk = false;
+    this._intelT = 0;
+  }
+
+  /** CO-OP: another page outranked this one as host. */
+  demote() {
+    this.remote = true;
   }
 
   interact() {

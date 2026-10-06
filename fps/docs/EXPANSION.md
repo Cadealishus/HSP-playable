@@ -111,3 +111,17 @@ the penalty. `ai.spawn(..., { holding: civ })` lets a hostage-taker shield a hos
 encounters (squads activated by triggers or alerts, **never spawned in the player's view**),
 radio lines through the existing UI radio, fail conditions, and a debrief. Missions ids:
 `underground` (map `underground`), `flight717` (map `airport`), `hostage` (map `estate`).
+
+## 9. Online co-op (src/net, owned by NETCODE)
+
+`ctx.get('net')` is inert until the player joins a party (CO-OP ONLINE in the main menu). Inside a
+party every run is the shared survival run: one page hosts (runs the mode and all AI exactly as
+single player), the others mirror it. What other systems may rely on:
+- `net.sessionRole()` → `null` (single player) | `'host'` | `'client'`. GameSystem passes it to the
+  mode as `session.netRole`; survival with `netRole === 'client'` spawns nothing (`mode.remote`).
+- `net.huntTargets()` → living players' feet positions (the survival intel spreads over them).
+- `net.handlePlayerDeath()` → true when the death became a co-op down (GameSystem then stops).
+- Remote teammates are AI Agents on team `'esf'` with `agent.isNetPlayer` / `agent.netPeer`; the
+  host's bots carry `agent.netId`. Puppets override `update` / `applyDamage` per instance only.
+- Transport, topics and the presence budget: `src/net/transport.js`, `src/net/codec.js`. Publish with
+  `capabilities: { room: { topics: { <each of TOPICS>: 'interact' } }, user: { scopes: ['profile'] } }`.
