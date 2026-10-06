@@ -368,6 +368,22 @@ export class GameSystem {
       return;
     }
     if (this.state !== 'play' || !this.mode) return;
+    // player:death fires INSIDE the lethal damage:dealt dispatch, before this
+    // system's own damage listener has recorded who fired it (the player
+    // subscribed first). Finish the dispatch, then decide: same frame.
+    if (!this._deathDeferred) {
+      this._deathDeferred = true;
+      const mode = this.mode;
+      queueMicrotask(() => {
+        this._deathDeferred = false;
+        if (this.mode === mode) this._handlePlayerDeath(e);
+      });
+    }
+  }
+
+  _handlePlayerDeath(e) {
+    const p = this.ctx.peek('player');
+    if (this.state !== 'play' || !this.mode) return;
     const killer = this.lastAttacker();
     if (this.modeId !== 'survival') {
       this.mode.onPlayerDeath?.({ ...(e ?? {}), killer });

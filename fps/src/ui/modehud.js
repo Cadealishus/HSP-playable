@@ -33,6 +33,7 @@ const RING = 2 * Math.PI * 15;
 const MAX_CHIPS = 6;
 const MAX_PIPS = 6;
 
+const ord = (n) => n + (n % 10 === 1 && n !== 11 ? 'ST' : n % 10 === 2 && n !== 12 ? 'ND' : n % 10 === 3 && n !== 13 ? 'RD' : 'TH');
 const teamColour = (t) => (t === 'esf' ? ESF : t === 'hostile' ? HOS : NEUTRAL);
 const markerColour = (t) => (t === 'esf' ? '#A9C6DC' : t === 'hostile' ? '#F2654F' : '#E9B64A');
 
@@ -43,7 +44,7 @@ export class ModeHud {
     const bar = (this.bar = el('div', 'ow-mh-bar', this.root));
     const l = el('div', 'ow-mh-side esf', bar);
     const lt = el('div', 'ow-mh-top', l);
-    el('span', 'ow-mh-team', lt, 'ESF');
+    this.teamE = el('span', 'ow-mh-team', lt, 'ESF');
     this.scoreE = el('b', 'ow-mh-score', lt, '0');
     this.fillE = el('i', null, el('div', 'ow-mh-prog', l));
     const c = el('div', 'ow-mh-mid', bar);
@@ -52,7 +53,7 @@ export class ModeHud {
     const r = el('div', 'ow-mh-side hos', bar);
     const rt = el('div', 'ow-mh-top', r);
     this.scoreH = el('b', 'ow-mh-score', rt, '0');
-    el('span', 'ow-mh-team', rt, 'HOSTILE');
+    this.teamH = el('span', 'ow-mh-team', rt, 'HOSTILE');
     this.fillH = el('i', null, el('div', 'ow-mh-prog', r));
 
     // alive pips (S&D)
@@ -81,6 +82,18 @@ export class ModeHud {
     }
 
     this.status = el('div', 'ow-mh-status', this.root, '');
+
+    // FREE FOR ALL / GUN GAME: top-3 board under the bar
+    this.board = el('div', 'ow-mh-board', this.root);
+    this.boardRows = [];
+    for (let i = 0; i < 3; i++) {
+      const r = el('div', 'ow-mh-brow', this.board);
+      r._p = el('span', 'p', r, String(i + 1));
+      r._n = el('span', 'n', r, '');
+      r._s = el('b', 's', r, '0');
+      this.boardRows.push(r);
+    }
+    setStyle(this.board, 'display', 'none');
 
     // ---- mission objective line (SPECIAL OPERATIONS) -------------------------
     this.mis = el('div', 'ow-mh-mis', this.root);
@@ -205,6 +218,21 @@ export class ModeHud {
     setClass(this.clock, 'hot', planted || (h.timeLeft < 30 && !sd && h.timeLeft > 0));
     setText(this.label, sd ? `ROUND ${h.round ?? 1} · FIRST TO ${h.roundsToWin ?? 4}` : `${h.label} · ${lim}`);
 
+    // ---- FFA / GUN GAME: you versus the leader, and a top-3 board ------------
+    const ffa = h.ffa ?? null;
+    setText(this.teamE, ffa ? 'YOU' : 'ESF');
+    setText(this.teamH, ffa ? (ffa.leaderIsPlayer ? '2ND · ' : 'LEADER · ') + ffa.leaderName : 'HOSTILE');
+    setStyle(this.board, 'display', ffa ? '' : 'none');
+    if (ffa) {
+      for (let i = 0; i < 3; i++) {
+        const r = this.boardRows[i];
+        const e = ffa.top[i];
+        setText(r._n, e.name + (h.gun && e.weapon ? '  ·  ' + e.weapon : ''));
+        setText(r._s, e.score | 0);
+        setClass(r, 'me', !!e.isPlayer);
+      }
+    }
+
     // ---- alive pips (S&D) ---------------------------------------------------
     setStyle(this.pips, 'display', sd ? '' : 'none');
     if (sd) {
@@ -262,6 +290,12 @@ export class ModeHud {
         else if (o.owner === 'hostile') theirs++;
       }
       status = `ZONES  ESF ${ours} · HOSTILE ${theirs}`;
+    } else if (ffa) {
+      status = h.gun
+        ? `TIER ${h.gun.tier}/${h.gun.tiers} · ${h.gun.weapon}${h.gun.knife ? ' · KNIFE KILL WINS' : ' · NEXT ' + h.gun.next} · ${ord(ffa.place)}`
+        : `${ord(ffa.place)} OF ${ffa.of} · K ${h.kills | 0} · D ${h.deaths | 0}`;
+    } else if (h.mode === 'kc') {
+      status = `CONFIRMED ${h.kc?.confirms | 0} · DENIED ${h.kc?.denies | 0} · K ${h.kills | 0} · D ${h.deaths | 0}`;
     } else if (mission) {
       const civ = h.civLimit ? ` · CIVILIAN HITS ${h.civHits | 0}/${h.civLimit}` : '';
       status = `${mmss(Math.floor(h.elapsed ?? 0))} · KILLS ${h.kills | 0}${civ}`;
