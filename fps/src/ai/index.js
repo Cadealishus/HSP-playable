@@ -63,8 +63,8 @@
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
 import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS, variantForTeam } from './soldier.js';
-import { PlayerProxy, normTeam } from './teams.js';
-import { BOT_DAMAGE_SCALE, roleFor, modelFor } from './roles.js';
+import { PlayerProxy, normTeam, isAlly, isEnemy, relation, setRelation as setTeamRelation } from './teams.js';
+import { BOT_DAMAGE_SCALE, roleFor, modelFor, resolveWeapon } from './roles.js';
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
@@ -452,7 +452,7 @@ export class AiSystem {
       // physics names no shooter: an unattributed round on a bot is Doug's
       const src = e.source instanceof Agent ? e.source : this.player;
       // friendly fire is off (ESF hitboxes are off MASK.BULLET anyway)
-      if (src !== a && src.team === a.team && a.team !== 'civ') { e.amount = 0; return; }
+      if (isAlly(src, a)) { e.amount = 0; return; }
       let amount = e.amount * (src === this.player ? this._falloff(e.point) : 1);
       // ONE ROUND, ONE WOUND. A penetrating round that passes through two of
       // this man's capsules (arm then chest, chest then the lower torso)
@@ -475,6 +475,8 @@ export class AiSystem {
         a._dmgMax = amount;
         if (inc) a._dmgDir.copy(inc);
       }
+      // the killcam and the modes read actor:death.weapon (EXPANSION §10.6)
+      this.tagHitWeapon(a, this._weaponOfHit(e, src));
       a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src);
       if (!a.alive) e.killed = true;
     });
@@ -493,7 +495,7 @@ export class AiSystem {
           a.hear(e.position, 120);
           if (d > radius) continue;
           // friendly fire off: the owner's teammates are spared (the owner is not)
-          if (ownerTeam && a !== owner && a.team === ownerTeam && a.team !== 'civ') continue;
+          if (ownerTeam && a !== owner && relation() !== 'ffa' && a.team === ownerTeam && a.team !== 'civ') continue;
           // cover: the blast has to reach the torso or the head, not just the eye
           if (phys) {
             const torso = this._v2.set(a.position.x, a.position.y + 1.1, a.position.z);
@@ -507,6 +509,7 @@ export class AiSystem {
           this._blast.position = e.position;
           this._blast.radius = radius;
           this._blast.strength = Math.min(1.5, ((e.damage ?? 100) * 0.9) / 108);
+          this.tagHitWeapon(a, typeof e.kind === 'string' ? e.kind : typeof e.weapon === 'string' ? e.weapon : 'frag');
           a.applyDamage((e.damage ?? 100) * f * f, 'torso', a.eye, this._v, this._blast, owner);
         }
       }
@@ -524,8 +527,47 @@ export class AiSystem {
       }
     });
 
+    // a knife (src/weapons/melee.js) names its kill: tag the victim so the
+    // death that follows (or has just happened on this frame) says 'knife'
+    on('melee:hit', (e) => {
+      if (e?.target instanceof Agent) this.tagHitWeapon(e.target, 'knife');
+    });
+
     on('grenade:throw', (e) => this._onGrenadeThrow(e));
     on('flash:detonate', (e) => this._onFlash(e));
+  }
+
+  /** Remember which weapon id is about to hurt `a` (read by Agent.die → actor:death.weapon). */
+  tagHitWeapon(a, id) {
+    if (!a || !id) return;
+    a.lastHitWeapon = id;
+    a.lastHitWeaponF = this.ctx.time.frame;
+  }
+
+  /** The weapon id behind a `damage:dealt` on a bot. */
+  _weaponOfHit(e, src) {
+    if (e.melee === true || e.kind === 'melee' || e.type === 'melee') return 'knife';
+    const w = e.weapon;
+    if (typeof w === 'string' && w) return w;
+    if (w && typeof w === 'object' && typeof w.id === 'string') return w.id;
+    if (src === this.player) return this.ctx.peek('weapons')?.activeId ?? null;
+    return src?.weaponId ?? null;
+  }
+
+  /**
+   * FREE FOR ALL relation (teams.js): 'ffa' makes every combatant everybody's
+   * enemy; 'teams' (default) is ESF versus hostiles. Bots re-think at once.
+   */
+  setRelation(mode) {
+    const r = setTeamRelation(mode);
+    for (const a of this.agents) {
+      if (a.brain) a.brain._orderT = -Infinity;
+    }
+    return r;
+  }
+
+  get relation() {
+    return relation();
   }
 
   /** An explosion/damage owner as an actor: an Agent, the player proxy, or null. */
@@ -553,7 +595,7 @@ export class AiSystem {
       const d = a.position.distanceTo(origin);
       if (d > radius) continue;
       const strength = 1 - d / radius;
-      if (shooter && a.team === shooter.team) {
+      if (shooter && isAlly(shooter, a)) {
         // a friend's gunfire: there is a fight over there
         if (d < radius * 0.6) a.perception.hearFrom(null, origin, strength * 0.6, 'friendfire', now);
         continue;
@@ -747,6 +789,51 @@ export class AiSystem {
     civ.captor = captor;
     civ.behavior = 'hostage';
     civ.released = false;
+  }
+
+  /**
+   * GUN GAME (src/game/modes/gun.js): hand a live bot a different weapon def.
+   * Stats change at once (rate, damage, magazine, range); the carried model is
+   * baked into the body and changes on the bot's next spawn.
+   */
+  rearm(a, weaponId) {
+    if (!a || !weaponId || a.weaponId === weaponId) return false;
+    const W = resolveWeapon(weaponId, this.ctx.peek('weapons'));
+    a.weaponId = weaponId;
+    a.weapon = W;
+    a.weaponRange = Math.min(W.maxRange, a.roleDef?.range?.[2] ?? W.maxRange);
+    a.magSize = W.magSize;
+    a.ammo = W.magSize;
+    a.setDifficulty?.(a.intensity ?? a.skill ?? 0.5);
+    return true;
+  }
+
+  /**
+   * KILLCAM (src/game/killcam.js): a visual-only soldier. The same skinned body,
+   * kit, third-person weapon and animator as a spawned Agent, but with no
+   * physics (no controller, no hit capsules), not in `agents` / `actors`, never
+   * thinking. The caller poses it and calls `m._drive(dt)`; `releaseMannequin`
+   * frees it. `opts { team, model (weapon style), weapon, name }`.
+   */
+  spawnMannequin(variant, opts = {}) {
+    const team = normTeam(opts.team ?? 'hostile');
+    let v = String(variant || 'vanguard').replace(/^esf_/, '');
+    if (!VARIANTS[v]) v = 'vanguard';
+    const a = new Agent(this, { variant: v, position: opts.position, yaw: 0, team, model: opts.model ?? null, weapon: opts.weapon });
+    if (a.controller) this.phys?.removeCharacter(a.controller);
+    a.controller = null;
+    for (const c of a.colliders) this.phys?.removeCollider(c);
+    a.colliders.length = 0;
+    a.alive = false;
+    a.isMannequin = true;
+    a.name = opts.name ?? '';
+    a.group.name = `mannequin${a.id}`;
+    return a;
+  }
+
+  releaseMannequin(m) {
+    if (!m?.isMannequin) return;
+    m.dispose();
   }
 
   /** Called by Agent.die(): drop the IFF tag, free any claims. */
@@ -1116,6 +1203,7 @@ export class AiSystem {
       const victim = hit.actor;
       const part = hit.part;
       this._emitFlesh(pt, dir, amount, victim, part);
+      this.tagHitWeapon(victim, agent.weaponId);
       victim.applyDamage(amount, part, pt, dir, null, agent);
     } else if (playerT < Infinity) {
       endT = playerT;
@@ -1161,7 +1249,7 @@ export class AiSystem {
       for (let i = 0; i < list.length; i++) {
         const a = list[i];
         if (!a.alive || a === shooter || a === shooter.holding) continue;
-        if (a.team === shooter.team) continue; // friendly fire off: passes through
+        if (isAlly(a, shooter)) continue; // friendly fire off: passes through (never in FFA)
         // bounding sphere around the body before the seven capsules
         const cx = a.position.x - o.x, cy = a.position.y + 0.9 - o.y, cz = a.position.z - o.z;
         const tc = cx * d.x + cy * d.y + cz * d.z;
@@ -1359,7 +1447,7 @@ export class AiSystem {
     if (!near) {
       for (let i = 0; i < this.actors.length; i++) {
         const o = this.actors[i];
-        if (o.team === a.team) continue;
+        if (!isEnemy(a, o)) continue;
         const dx = o.position.x - a.position.x, dz = o.position.z - a.position.z;
         if (dx * dx + dz * dz < 900) { near = true; break; }
       }
@@ -1393,6 +1481,10 @@ export class AiSystem {
   /** Live combatants hostile to `team`. */
   enemiesOf(team) {
     let n = 0;
+    if (relation() === 'ffa') {
+      for (const o of this.actors) if (o.alive && o.team !== 'civ') n++;
+      return Math.max(0, n - 1);
+    }
     for (const o of this.actors) if (o.alive && o.team !== team && o.team !== 'civ') n++;
     return n;
   }
@@ -1442,9 +1534,13 @@ export class AiSystem {
   huntPoint(a, out) {
     const world = this.ctx.peek('world');
     const enemy = a.team === 'esf' ? 'hostile' : 'esf';
-    let list = world?.spawns?.[enemy];
     const pts = [];
-    if (Array.isArray(list) && list.length) for (const s of list) pts.push(s.pos ?? s.position ?? s);
+    // FFA: every spawn is an enemy spawn
+    const sides = relation() === 'ffa' ? ['esf', 'hostile'] : [enemy];
+    for (const side of sides) {
+      const list = world?.spawns?.[side];
+      if (Array.isArray(list) && list.length) for (const s of list) pts.push(s.pos ?? s.position ?? s);
+    }
     const sp = world?.spawnPoints ?? [];
     if (!pts.length) for (const s of sp) pts.push(s.position);
     // also sweep objective zones: that is where the enemy has to go
@@ -1509,7 +1605,7 @@ export class AiSystem {
     if (a.distTo(pos) < 8) return false;
     for (const o of this.agents) {
       if (!o.alive || o === a) continue;
-      if (o.team === a.team && o.position.distanceTo(pos) < 8) return false;
+      if (isAlly(o, a) && o.position.distanceTo(pos) < 8) return false;
     }
     for (const c of this.civilians) if (c.alive && c.position.distanceTo(pos) < 7) return false;
     return true;
@@ -1591,7 +1687,7 @@ export class AiSystem {
     const phys = this.phys;
     const now = this.ctx.time.elapsed;
     for (const a of this.agents) {
-      if (!a.alive || (ownerTeam && a.team === ownerTeam)) continue;
+      if (!a.alive || (ownerTeam && relation() !== 'ffa' && a.team === ownerTeam)) continue;
       if (a.position.distanceTo(e.position) < radius * 2) a.perception.hearFrom(owner, e.position, 0.9, 'flash', now);
     }
     for (const c of this.civilians) {
@@ -1622,7 +1718,7 @@ export class AiSystem {
     if (d > 32) return true;
     let group = 0;
     for (const o of this.actors) {
-      if (!o.alive || o.team === a.team) continue;
+      if (!o.alive || !isEnemy(a, o)) continue;
       if (Math.hypot(o.position.x - p.x, o.position.z - p.z) < 5) group++;
     }
     return group >= 2;

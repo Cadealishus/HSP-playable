@@ -27,7 +27,7 @@
  */
 
 import * as THREE from 'three';
-import { isEnemyTeam } from './teams.js';
+import { isEnemy } from './teams.js';
 
 const MAX_RECS = 8;
 
@@ -138,7 +138,7 @@ export class Perception {
     const actors = ai.actors;
     for (let i = 0; i < actors.length; i++) {
       const t = actors[i];
-      if (!t.alive || !isEnemyTeam(a.team, t.team)) continue;
+      if (!t.alive || !isEnemy(a, t)) continue;
       const p = t.samplePoint(0, this._p);
       const dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z;
       const d2 = dx * dx + dy * dy + dz * dz;
@@ -287,7 +287,7 @@ export class Perception {
     const e2 = (h2 - Math.floor(h2)) * 2 - 1;
     const err = d * (0.1 - strength * 0.06);
     this.alert = Math.max(this.alert, Math.min(1, 0.3 + strength));
-    if (actor && isEnemyTeam(a.team, actor.team)) {
+    if (actor && isEnemy(a, actor)) {
       const rec = this.mem.touch(actor);
       if (rec.visible) return rec; // already looking at him: the eyes win
       rec.pos.set(pos.x + e1 * err, pos.y, pos.z + e2 * err);
@@ -325,7 +325,7 @@ export class Perception {
   fromDamage(source, point, dir, now) {
     const a = this.agent;
     this.alert = 1;
-    if (source && source.team && isEnemyTeam(a.team, source.team) && dir) {
+    if (source && source.team && isEnemy(a, source) && dir) {
       const rec = this.mem.touch(source);
       if (rec.visible) return;
       const back = Math.min(25, Math.max(6, rec.updT > -Infinity ? rec.pos.distanceTo(a.position) : 14));

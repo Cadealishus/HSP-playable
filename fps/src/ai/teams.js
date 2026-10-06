@@ -16,9 +16,42 @@ import * as THREE from 'three';
 
 export const TEAM = Object.freeze({ ESF: 'esf', HOSTILE: 'hostile', CIV: 'civ' });
 
+/**
+ * TEAM RELATION. `'teams'` (default): ESF versus hostiles, civilians neutral.
+ * `'ffa'` (FREE FOR ALL, docs/EXPANSION.md §10.6): every combatant is the
+ * enemy of every other combatant, including his own "team" (FFA bots all spawn
+ * on 'hostile' so their hitboxes and their fire at the player use the hostile
+ * paths). Civilians stay neutral either way. The game sets it per mode through
+ * `ai.setRelation()` and resets it on teardown.
+ */
+const REL = { mode: 'teams' };
+
+export function setRelation(mode) {
+  REL.mode = mode === 'ffa' ? 'ffa' : 'teams';
+  return REL.mode;
+}
+
+export function relation() {
+  return REL.mode;
+}
+
 /** True when actors on teams `a` and `b` fight each other. */
 export function isEnemyTeam(a, b) {
+  if (REL.mode === 'ffa') return a !== 'civ' && b !== 'civ' && !!a && !!b;
   return (a === 'esf' && b === 'hostile') || (a === 'hostile' && b === 'esf');
+}
+
+/** Actor-level: `x` and `y` fight each other (never yourself). */
+export function isEnemy(x, y) {
+  return !!x && !!y && x !== y && isEnemyTeam(x.team, y.team);
+}
+
+/**
+ * Actor-level: `x` and `y` are on the same side (the friendly-fire rule, shared
+ * callouts, spacing). Always false in FFA. Civilians are nobody's allies.
+ */
+export function isAlly(x, y) {
+  return !!x && !!y && x !== y && REL.mode !== 'ffa' && x.team === y.team && x.team !== 'civ';
 }
 
 /** Normalise legacy / loose team ids (the old Agent default was the number 1). */
