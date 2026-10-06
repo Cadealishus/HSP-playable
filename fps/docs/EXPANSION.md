@@ -125,3 +125,80 @@ single player), the others mirror it. What other systems may rely on:
   host's bots carry `agent.netId`. Puppets override `update` / `applyDamage` per instance only.
 - Transport, topics and the presence budget: `src/net/transport.js`, `src/net/codec.js`. Publish with
   `capabilities: { room: { topics: { <each of TOPICS>: 'interact' } }, user: { scopes: ['profile'] } }`.
+
+## 10. The comment pass: kit, armour, movement, modes, killcam, online PvP
+
+The user's feature request (from a YouTube comment): multiplayer, TDM, FFA, sidearms, knives
+(throwing knives included), sliding, more modes, attachments, more grenades, killcam, helmets and
+ballistic vests, ammo types. **Exclusions: NO new guns, NO wall running.** Extend what exists; one
+system per feature; keep single player identical when a feature is unused.
+
+### 10.1 Loadout shape (session.js, `flopops.loadout`; old shapes must still load)
+```
+{ primary, secondary,                      // weapon ids from defs.js (unchanged)
+  primaryKit:   { optic, muzzle, barrel, underbarrel, magazine, laser, ammo },   // ids or null
+  secondaryKit: { optic, muzzle, barrel, underbarrel, magazine, laser, ammo },
+  lethal,   // 'frag' | 'semtex' | 'molotov' | 'throwing_knife'
+  tactical, // 'flash' | 'smoke' | 'concussion'
+  helmet,   // 'none' | 'light' | 'heavy'
+  vest }    // 'none' | 'light' | 'heavy'
+```
+`normaliseLoadout` (src/game) fills missing fields with defaults (kits all null, ammo 'fmj', helmet
+and vest 'light'). `weapons.setLoadout(L)` accepts the kits; `player.setArmor({helmet, vest})`.
+
+### 10.2 Attachments + ammo (GUNSMITH: src/weapons/attachments.js, src/weapons/ammo.js)
+- `ATTACHMENTS[id] = { id, slot, label, desc, mods: { adsTime, adsFov, spreadHip, spreadAds,
+  recoil, magSize, reloadTime, range, noise, moveMult, flash, laser }, model }`; a def lists
+  `allows: { slot: [ids] }`. Stats are multipliers or adds applied when a kit is equipped. The
+  suppressor sets `noise` (the weapon:fire hearing radius) and hides the muzzle flash.
+- `AMMO[id] = { id, label, desc, dmgMult, fleshMult, armorPen (0..1), armorDmgMult,
+  penetrationMult, rangeMult, burn: {dps, dur} | null, tracer }`; ids `fmj` (default), `hp`
+  (hollow point: more flesh damage, poor against armour), `ap` (armour-piercing), `incendiary`
+  (burns), `subsonic` (quieter, shorter range).
+- **Every damage payload a player weapon creates carries `ammo` (the AMMO def object or id)
+  and `zone` ('head' | 'torso' | 'limb').** That covers `damage:dealt`, bullet hits on bots,
+  and hits on players (net). AI weapons use `fmj` unless a role gives other ammo.
+
+### 10.3 Armour (ARMOUR: src/combat/armor.js)
+- `ARMOR.helmet / ARMOR.vest = { none | light | heavy: { label, protect (0..1), hp, moveMult } }`.
+- `resolveDamage({ amount, zone, ammo, armor }) -> { health, armorDamage, absorbed, broke }`.
+  This is the ONE function both the player's health and the AI's `applyDamage` call. A helmet only
+  affects 'head', a vest only 'torso'. Explosions and fire count as 'torso' with low protection.
+  Burn DOT from incendiary ammo and molotovs applies through it too (`ammo.burn`).
+- `armor = { helmet: {tier, hp}, vest: {tier, hp} }` lives on the player and on every Agent;
+  visible tiered helmet and vest meshes on bots (and on net puppets).
+- HUD: armour pips beside health.
+
+### 10.4 Equipment + melee (CLOSE-QUARTERS: src/weapons/equipment.js, src/weapons/melee.js)
+- Lethals `frag, semtex (sticks to surfaces and bodies), molotov (fire area, DOT, blocks paths
+  briefly), throwing_knife (fast projectile, sticks, one hit kills to the head or torso, can be
+  picked up again)`; tacticals `flash, smoke (a volume that blocks sight), concussion (slow and
+  stun, no blind)`. Same G / Q keys, counts per kind.
+- **Smoke must block AI sight:** export `smokeBlocks(ctx, from, to) -> bool` from
+  src/weapons/equipment.js, and AI perception calls it in its line-of-sight check (CLOSE-QUARTERS
+  adds that one call in src/ai/perception.js).
+- Knife: V = quick melee (viewmodel knife slash/lunge; 1 hit from behind, 2 from the front, short
+  lunge to the target within 2 m). Bots die and ragdoll from it like a shot. Events
+  `melee:hit { target, attacker, amount, backstab }`.
+
+### 10.5 Movement (ARMOUR also owns this, src/player)
+- Slide: crouch (C / Ctrl) while sprinting starts a slide: ~0.75 s, speed carried and decaying,
+  low camera, can fire while sliding, ends in a crouch, cooldown; jumping cancels it into a hop.
+  NO wall running.
+
+### 10.6 Modes + killcam (MODES-KC: src/game/modes, src/game/killcam.js)
+- New modes: `ffa` (free for all: everyone hostile to everyone; AI teams need an `ffa` rule so
+  bots fight each other: MODES-KC adds it in src/ai/teams.js), `kc` (Kill Confirmed: dog tags
+  drop on death and are scored on pickup), `gun` (Gun Game: kills advance you through the EXISTING
+  weapon list, knife kills set the victim back; no new guns). Add them to `MP_MODE_IDS` and to the
+  map registry `modes` lists.
+- Killcam: a recorder keeps the last ~6 s of every actor's transform, aim, weapon id and fire events
+  (pooled ring buffers). On the player's death in an MP mode (and in survival), replay from the
+  killer's eye with the killer's weapon and tracers and a FLOP OPS lower-third (killer name, weapon,
+  distance, headshot). Space skips it. Plus a final killcam at match end.
+  `actor:death` gains `weapon` (an id) where the killer is known.
+
+### 10.7 Online PvP (NETCODE: src/net)
+- Online TDM and FFA with real players (bots fill optional), host-authoritative scoring through
+  the same mode classes, player-vs-player hits claimed by the shooter and validated by the host,
+  with armour and ammo applied through `resolveDamage`, plus a killcam for online deaths.
