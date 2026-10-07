@@ -764,13 +764,133 @@ export class MainMenu {
           const L = { ...this._loadout() };
           const i = Math.max(0, s.options.findIndex((o) => o.id === L[s.key]));
           L[s.key] = s.options[(i + dir + s.options.length) % s.options.length].id;
+          // A new gun keeps only the attachments it can actually take.
+          const kk = s.key === 'primary' ? 'primaryKit' : s.key === 'secondary' ? 'secondaryKit' : null;
+          if (kk) L[kk] = this.host.kitStats?.(L[s.key], L[kk])?.kit2 ?? L[kk];
           this.host.saveLoadout?.(L);
         },
         panel: (p) => this._slotPanel(p, s),
       });
+      // GUNSMITH: a sub-page per weapon slot, when the weapons system has one.
+      if ((s.key === 'primary' || s.key === 'secondary') && this.host.gunsmith) {
+        items.push({
+          label: `${s.label} GUNSMITH`,
+          tag: this._kitTag(s.key),
+          onSelect: () => this.go('gunsmith', s.key),
+          panel: (p) => this._gunsmithPanel(p, s.key, null),
+        });
+      }
     }
     items.push({ kind: 'back', label: 'BACK' });
     return { crumb: 'MAIN MENU  ›  LOADOUT', items };
+  }
+
+  /* ------------------------------------------------------------- gunsmith */
+
+  /** The kit a weapon slot carries in the saved loadout (all null = stock). */
+  _kitOf(key) {
+    const k = this._loadout()[`${key}Kit`];
+    return k && typeof k === 'object' ? k : {};
+  }
+
+  /** '3 ATTACHMENTS · AP' style summary for the LOADOUT row. */
+  _kitTag(key) {
+    const k = this._kitOf(key);
+    const n = ['optic', 'muzzle', 'barrel', 'underbarrel', 'magazine', 'laser'].filter((x) => k[x]).length;
+    const ammo = k.ammo && k.ammo !== 'fmj' ? String(k.ammo).toUpperCase() : null;
+    const parts = [n ? `${n} ATTACHMENT${n > 1 ? 'S' : ''}` : 'STOCK'];
+    if (ammo) parts.push(ammo === 'INCENDIARY' ? 'INC' : ammo === 'SUBSONIC' ? 'SUB' : ammo);
+    return parts.join(' · ');
+  }
+
+  /** GUNSMITH page: one value row per slot the gun takes, plus ammunition. */
+  _page_gunsmith(key) {
+    const L = this._loadout();
+    const wid = L[key];
+    const info = this.host.gunsmith?.(wid);
+    const wName = (this.host.weapons?.() ?? []).find((w) => w.id === wid)?.displayName ?? String(wid ?? '').toUpperCase();
+    const items = [];
+    for (const slot of info?.slots ?? []) {
+      items.push({
+        kind: 'value',
+        label: slot.label,
+        value: () => {
+          const cur = this._kitOf(key)[slot.slot] ?? (slot.slot === 'ammo' ? 'fmj' : null);
+          return (slot.options.find((o) => o.id === cur) ?? slot.options[0])?.label ?? 'STOCK';
+        },
+        onChange: (dir) => {
+          const L2 = { ...this._loadout() };
+          const kit = { ...this._kitOf(key) };
+          const cur = kit[slot.slot] ?? (slot.slot === 'ammo' ? 'fmj' : null);
+          const i = Math.max(0, slot.options.findIndex((o) => o.id === cur));
+          kit[slot.slot] = slot.options[(i + dir + slot.options.length) % slot.options.length].id;
+          L2[`${key}Kit`] = kit;
+          this.host.saveLoadout?.(L2);
+        },
+        panel: (p) => this._gunsmithPanel(p, key, slot),
+      });
+    }
+    if (!items.length) {
+      items.push({ label: 'NO ATTACHMENT POINTS', panel: (p) => this._blurb(p, wName, 'This one is issued exactly as it is. Command considers modifications to it a personality.') });
+    }
+    items.push({
+      label: 'STRIP TO STOCK',
+      onSelect: () => {
+        const L2 = { ...this._loadout() };
+        L2[`${key}Kit`] = null;
+        this.host.saveLoadout?.(L2);
+        this._render(this.page, this.arg, this.focus);
+      },
+      panel: (p) => this._gunsmithPanel(p, key, null),
+    });
+    items.push({ kind: 'back', label: 'BACK' });
+    return { crumb: `MAIN MENU  ›  LOADOUT  ›  ${wName}`, items };
+  }
+
+  /**
+   * Gunsmith card: the focused slot's choice and description, then the gun's
+   * stat bars. Each bar is the stock value with the kit's change drawn on top:
+   * an amber extension for a gain, a red cut-back for a loss.
+   */
+  _gunsmithPanel(p, key, slot) {
+    const L = this._loadout();
+    const wid = L[key];
+    const kit = this._kitOf(key);
+    const ws = (this.host.weapons?.() ?? []).find((w) => w.id === wid);
+    const st = this.host.kitStats?.(wid, kit);
+    let kicker = 'GUNSMITH';
+    let title = ws?.displayName ?? String(wid ?? '—').toUpperCase();
+    let desc = 'Attachments and ammunition. Every change is a trade; Command calls this "balance".';
+    if (slot) {
+      const cur = kit[slot.slot] ?? (slot.slot === 'ammo' ? 'fmj' : null);
+      const o = slot.options.find((x) => x.id === cur) ?? slot.options[0];
+      kicker = `${title} · ${slot.label}`;
+      title = o?.label ?? 'STOCK';
+      desc = o?.desc ?? desc;
+    }
+    const c = this._card(p, kicker, title);
+    el('div', 'ow-mm-text', c, desc);
+    if (st?.base && st?.kit) {
+      const bars = el('div', 'ow-gs-bars', c);
+      for (let i = 0; i < st.kit.length; i++) {
+        const b = st.base[i];
+        const k = st.kit[i];
+        const row = el('div', 'ow-gs-row', bars);
+        el('span', 'ow-gs-k', row, k.label);
+        const track = el('span', 'ow-gs-track', row);
+        const lo = Math.min(b.v, k.v);
+        const hi = Math.max(b.v, k.v);
+        const base = el('i', 'ow-gs-base', track);
+        setStyle(base, 'width', `${(lo * 100).toFixed(1)}%`);
+        if (hi - lo > 0.004) {
+          const d = el('i', k.v > b.v ? 'ow-gs-up' : 'ow-gs-down', track);
+          setStyle(d, 'left', `${(lo * 100).toFixed(1)}%`);
+          setStyle(d, 'width', `${((hi - lo) * 100).toFixed(1)}%`);
+        }
+        el('span', 'ow-gs-v' + (k.v > b.v + 0.004 ? ' up' : k.v < b.v - 0.004 ? ' down' : ''), row, String(k.raw));
+      }
+    }
+    el('div', 'ow-mm-go', c, slot ? '‹ ›  TO CHANGE' : 'ENTER TO MODIFY');
   }
 
   _page_controls() {
@@ -860,9 +980,15 @@ export class MainMenu {
     const sec = ws.filter((w) => slotOf(w) === 'secondary').map(opt);
     if (prim.length) out.push({ key: 'primary', label: 'PRIMARY', options: prim });
     if (sec.length) out.push({ key: 'secondary', label: 'SECONDARY', options: sec });
+    // Equipment and armour rows come from their registries at runtime
+    // (weapons equipment defs, player armour tiers): whatever those systems
+    // offer is what the page lists.
     const eq = this.host.equipment?.();
     if (eq?.lethal?.length) out.push({ key: 'lethal', label: 'LETHAL', options: eq.lethal });
     if (eq?.tactical?.length) out.push({ key: 'tactical', label: 'TACTICAL', options: eq.tactical });
+    const ar = this.host.armor?.();
+    if (ar?.helmet?.length) out.push({ key: 'helmet', label: 'HELMET', options: ar.helmet });
+    if (ar?.vest?.length) out.push({ key: 'vest', label: 'VEST', options: ar.vest });
     return out;
   }
 

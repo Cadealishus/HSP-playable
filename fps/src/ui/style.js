@@ -302,6 +302,13 @@ const CSS = `
   text-shadow: var(--sh-o1); }
 .ow-ammo-res { font-family: var(--fd); font-size: calc(27px * var(--k)); font-weight:500; color: var(--ink-2);
   text-shadow: var(--sh-o1); }
+.ow-ammo-type {
+  align-self:center; margin-left: calc(var(--u) * 1);
+  font-size: max(10px, calc(10.5px * var(--k))); letter-spacing:.18em; color: var(--ink-2); font-weight:600;
+  border:1px solid var(--hair); padding: calc(1.5px * var(--k)) calc(4px * var(--k));
+  background: rgba(8,9,10,.34); text-shadow: var(--sh-hard); white-space:nowrap;
+}
+.ow-ammo-type.special { color: var(--acc); border-color: var(--acc-2); }
 .ow-ammo-low .ow-ammo-cur { color: var(--acc); }
 .ow-ammo-empty .ow-ammo-cur { color: var(--red); }
 
@@ -1074,6 +1081,21 @@ const CSS = `
 .ow-mm-go { margin-top: calc(var(--u) * 5); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--hair-2);
   font-size: max(10px, calc(13px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc); }
 .ow-mm-hint { color: var(--ink-3); }
+/* GUNSMITH stat bars (mainmenu.js _gunsmithPanel): stock value, plus the kit's
+   gain in the accent or its loss in red. */
+.ow-gs-bars { display:grid; row-gap: calc(var(--u) * 1.6); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--hair); }
+.ow-gs-row { display:grid; grid-template-columns: calc(108px * var(--k)) 1fr calc(78px * var(--k)); align-items:center;
+  column-gap: calc(var(--u) * 3); }
+.ow-gs-k { font-size: max(10px, calc(12px * var(--k))); font-weight:600; letter-spacing:.2em; color: var(--ink-2); }
+.ow-gs-track { position:relative; height: calc(6px * var(--k)); background: rgba(255,255,255,.08); }
+.ow-gs-track i { position:absolute; top:0; bottom:0; left:0; }
+.ow-gs-base { background: var(--ink-2); }
+.ow-gs-up { background: var(--acc); }
+.ow-gs-down { background: var(--red); opacity:.85; }
+.ow-gs-v { font-family: var(--fs); text-transform:none; letter-spacing:0; text-align:right;
+  font-size: max(10px, calc(13px * var(--k))); color: var(--ink-2); }
+.ow-gs-v.up { color: var(--acc); }
+.ow-gs-v.down { color: var(--enemy); }
 .ow-mm-keys { display:grid; grid-template-columns: 1fr 1fr; column-gap: calc(var(--u) * 8); row-gap: calc(var(--u) * 5); }
 .ow-mm-khead { font-size: max(10px, calc(12.5px * var(--k))); font-weight:600; letter-spacing:.3em; color: var(--acc);
   margin-bottom: calc(var(--u) * 2); }

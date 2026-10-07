@@ -625,6 +625,11 @@ export class UiSystem {
       saveLoadout: (l) => game()?.saveLoadout?.(l),
       weapons: () => this._loadoutInfo() ?? [],
       equipment: () => this._equipmentInfo(),
+      /** Helmet / vest options from the player's armour registry (EXPANSION 10.3). */
+      armor: () => this._armorInfo(),
+      /** GUNSMITH (src/weapons/attachments.js via the weapons system). */
+      gunsmith: (id) => ctx.peek('weapons')?.gunsmithInfo?.(id) ?? null,
+      kitStats: (id, kit) => ctx.peek('weapons')?.kitStats?.(id, kit) ?? null,
       openSettings: (onBack) => this.menu.openSettings(onBack),
       settingsOpen: () => this.menu.open,
       bindingLive: (a) => this._bindingLive(a),
@@ -642,12 +647,49 @@ export class UiSystem {
     const w = this.ctx.peek('weapons');
     if (!w) return null;
     if (typeof w.equipmentInfo === 'function') return w.equipmentInfo();
+    // The equipment registry itself (weapons' equipment.defs): every lethal and
+    // tactical it defines, labelled by the def. Menu-time only.
+    const defs = w.equipment?.defs;
+    if (defs && typeof w.setLoadout === 'function') {
+      const copy = w.equipmentCopy ?? w.equipment?.copy ?? {};
+      const list = (slot) =>
+        Object.values(defs)
+          .filter((d) => d?.slot === slot)
+          .map((d) => ({ id: d.id, label: copy[d.id]?.label ?? d.label ?? d.displayName ?? d.id, desc: copy[d.id]?.desc ?? d.desc ?? '' }));
+      const lethal = list('lethal');
+      const tactical = list('tactical');
+      if (lethal.length || tactical.length) return { lethal, tactical };
+    }
     const hs = this._weaponState();
     // A real equipment system: live counts in the HUD state and a loadout hook.
     if (!(typeof w.setLoadout === 'function' || typeof w.equipment?.setLoadout === 'function') || hs?.lethalCount == null) return null;
     return {
       lethal: [{ id: 'frag', label: 'FRAG GRENADE', desc: 'Cooks while held. Thrown with feeling.' }],
       tactical: [{ id: 'flash', label: 'FLASHBANG', desc: 'Blinds and deafens. Politely.' }],
+    };
+  }
+
+  /**
+   * Helmet / vest rows: the player's own option list when it publishes one
+   * (`player.armorOptions()`), else the three tiers of EXPANSION 10.3 whenever
+   * the player has armour at all (`setArmor`). Null = no armour rows.
+   */
+  _armorInfo() {
+    const p = this.ctx.peek('player');
+    if (!p) return null;
+    if (typeof p.armorOptions === 'function') return p.armorOptions();
+    if (typeof p.setArmor !== 'function') return null;
+    return {
+      helmet: [
+        { id: 'none', label: 'NO HELMET', desc: 'A cap. Doug finds it aerodynamic.' },
+        { id: 'light', label: 'LIGHT HELMET', desc: 'Stops a fair share of what reaches the head.' },
+        { id: 'heavy', label: 'HEAVY HELMET', desc: 'Stops more of it. Heavier, as helmets tend to be.' },
+      ],
+      vest: [
+        { id: 'none', label: 'NO VEST', desc: 'Faster. Considerably less armoured.' },
+        { id: 'light', label: 'SOFT VEST', desc: 'Takes the edge off torso hits.' },
+        { id: 'heavy', label: 'PLATE CARRIER', desc: 'Plates front and back. Slows you down a little.' },
+      ],
     };
   }
 
@@ -949,6 +991,9 @@ export class UiSystem {
     if (ws) {
       if (ws.name) s.weaponName = ws.name;
       if (ws.mode) s.fireMode = ws.mode;
+      // GUNSMITH ammo type tag ('FMJ' / 'HP' / 'AP' / 'INC' / 'SUB'; '' for a launcher).
+      if (ws.ammoType !== undefined) s.ammoType = ws.ammoType;
+      if (ws.ammoTypeId !== undefined) s.ammoTypeId = ws.ammoTypeId;
       if (ws.ammo !== undefined) s.ammo = ws.ammo;
       if (ws.reserve !== undefined) s.reserve = ws.reserve;
       if (ws.magSize !== undefined) s.magSize = ws.magSize;

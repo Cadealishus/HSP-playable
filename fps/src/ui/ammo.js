@@ -73,6 +73,9 @@ export class AmmoPanel {
     this.cur = el('div', 'ow-ammo-cur', row, '30');
     this.sep = el('div', 'ow-ammo-sep', row, '/');
     this.res = el('div', 'ow-ammo-res', row, '210');
+    // Ammunition type tag beside the counter (GUNSMITH, src/weapons/ammo.js).
+    this.type = el('div', 'ow-ammo-type', row, '');
+    this._lastType = null;
 
     this.mag = el('div', 'ow-mag', this.root);
     this.pips = new Array(MAX_PIPS);
@@ -107,6 +110,14 @@ export class AmmoPanel {
       setText(this.cur, ammo);
     }
     setText(this.res, Math.max(0, s.reserve | 0));
+    const tag = s.ammoType ?? '';
+    if (tag !== this._lastType) {
+      this._lastType = tag;
+      setText(this.type, tag);
+      setStyle(this.type, 'display', tag ? '' : 'none');
+      // The one colour cue: anything but standard ball reads in the accent.
+      setClass(this.type, 'special', !!tag && tag !== 'FMJ');
+    }
     this._fitName(String(s.weaponName ?? s.name ?? 'ASSAULT RIFLE'));
     setText(this.mode, s.fireMode ?? 'AUTO');
 
