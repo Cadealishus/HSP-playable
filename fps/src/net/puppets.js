@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Reader, Writer, readBot, writeBot, writeRoster, readRoster, BF, PF, MAX_BOTS, BOT_LEN } from './codec.js';
+import { Reader, Writer, readBot, writeBot, writeRoster, readRoster, BF, PF, MAX_BOTS, BOT_LEN, TIER_OF } from './codec.js';
 
 /**
  * NET — puppets: other people's things, drawn with the AI's own soldiers.
@@ -114,9 +114,9 @@ function puppetUpdate(dt) {
   if (e) e.owner.drive(this, e, dt);
 }
 
-function puppetDamage(amount, part, point, dir, blast, source) {
+function puppetDamage(amount, part, point, dir, blast, source, ammo, kind) {
   const e = this.__net;
-  if (e) e.owner.onPuppetDamage(this, e, amount, part, point, dir, blast, source);
+  if (e) e.owner.onPuppetDamage(this, e, amount, part, point, dir, blast, source, ammo, kind);
 }
 
 const S = { x: 0, y: 0, z: 0, yaw: 0, ayaw: 0, pitch: 0 };
@@ -220,6 +220,8 @@ export class Puppets {
           weapon: a.weaponId,
           team: a.team,
           name: a.name,
+          helmet: a.armor?.helmet,
+          vest: a.armor?.vest,
         }))
       );
     }
@@ -304,6 +306,7 @@ export class Puppets {
         role: info.role || undefined,
         weapon: info.weapon || undefined,
         name: info.name || undefined,
+        armor: { helmet: info.helmet ?? 'light', vest: info.vest ?? 'light' },
       });
     } catch (err) {
       console.warn('[net] puppet spawn failed', err);
@@ -443,7 +446,7 @@ export class Puppets {
       e = null;
       ai.reapCorpses?.(10);
     }
-    if (e && !e.ragdoll && (e.agent.team !== team || (e.role !== role && !deadNow))) {
+    if (e && !e.ragdoll && (e.agent.team !== team || (e.role !== role && !deadNow) || (ar && e.ar && ar !== e.ar && !deadNow))) {
       // Switched sides, or switched to a weapon class with another model.
       this.removePlayer(peer);
       e = null;
@@ -459,6 +462,7 @@ export class Puppets {
           role,
           weapon: weapon || undefined,
           name: name || 'OPERATOR',
+          armor: ar ? { helmet: TIER_OF[ar[0]], vest: TIER_OF[ar[1]] } : undefined,
         });
       } catch (err) {
         console.warn('[net] teammate spawn failed', err);
@@ -477,15 +481,7 @@ export class Puppets {
     }
     const a = e.agent;
     if (e.ragdoll) return e;
-    if (ar && ar !== e.ar) {
-      e.ar = ar;
-      const T = { n: 'none', l: 'light', h: 'heavy' };
-      try {
-        a.setArmor?.({ helmet: T[ar[0]], vest: T[ar[1]] });
-      } catch {
-        /* the AI build has no armour meshes yet */
-      }
-    }
+    if (ar) e.ar = ar; // the soldier was built with these tiers (a change rebuilds him above)
     if (deadNow && this.net.pvp?.()) {
       // PvP death without the event (dropped): drop him where he stands.
       this.killPlayer(peer, null, false);
@@ -672,12 +668,14 @@ export class Puppets {
 
   /* ========================================================== damage path */
 
-  onPuppetDamage(a, e, amount, part, point, dir, blast, source) {
-    if (blast) return; // explosions: the host applies them to bots, each player to himself
+  onPuppetDamage(a, e, amount, part, point, dir, blast, source, ammo, kind) {
+    // Explosions and fire: the host applies them to its bots, every player to himself.
+    if (blast || kind === 'fire' || kind === 'blast') return;
+    const melee = kind === 'melee';
     if (e.kind === 'bot') {
       // Client: my round hit a host bot. Resolved here, applied by the host.
       if (!(amount > 0)) return;
-      this.net.queueHit(e.id, amount, part === 'head');
+      this.net.queueHit(e.id, amount, part === 'head', melee);
       e.localHit = true;
       const side = dir ? Math.sign(dir.x * Math.cos(a.yaw) - dir.z * Math.sin(a.yaw)) || 1 : 1;
       a.animator?.hit?.(part === 'head' ? 'head' : 'torso', side, Math.min(1.4, 0.5 + amount / 45));
@@ -688,7 +686,7 @@ export class Puppets {
       // PvP: my round hit another player's soldier. Teammates are never hit
       // (their capsules are off the bullet mask); this is an enemy.
       if (a.team !== 'hostile' || !(amount > 0)) return;
-      this.net.claimPlayerHit(e.peer, amount, zone);
+      this.net.claimPlayerHit(e.peer, amount, zone, melee);
       const side = dir ? Math.sign(dir.x * Math.cos(a.yaw) - dir.z * Math.sin(a.yaw)) || 1 : 1;
       a.animator?.hit?.(part === 'head' ? 'head' : 'torso', side, Math.min(1.4, 0.5 + amount / 45));
       return;
