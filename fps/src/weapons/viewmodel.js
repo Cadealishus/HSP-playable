@@ -1230,6 +1230,10 @@ export class Viewmodel {
   _updateThrow(dt) {
     const T = this._throw;
     const arm = this.throwArm;
+    if (T.phase === 'melee') {
+      this._updateMelee(dt);
+      return;
+    }
     // Gun lowering: down over 0.18 s when a throw starts, up during recover.
     const want = T.phase === 'idle' ? 0 : T.phase === 'recover' ? Math.max(0, 1 - T.t * 1.6) : T.phase === 'wait' ? 0.25 : 1;
     const rate = T.phase === 'recover' ? 30 : 5.6;
@@ -1295,6 +1299,44 @@ export class Viewmodel {
       default:
         break;
     }
+    this._throwPos.set(c.p[0], c.p[1], c.p[2]);
+    handBasis(this._throwQuat, c.f, c.b);
+    arm.solve(this._throwPos, this._throwQuat);
+  }
+
+  /**
+   * Quick melee (melee.js): the gun drops out of frame in ~60 ms and the
+   * throwing arm comes in with the combat knife. `t` 0..1 through the swing;
+   * `lunge` picks the forward stab instead of the right-to-left slash.
+   */
+  setMelee(t, lunge = false) {
+    this._meleeLunge = !!lunge;
+    this.setThrow('melee', t, 'knife', 0, false);
+  }
+
+  _updateMelee() {
+    const T = this._throw;
+    const arm = this.throwArm;
+    const t = clamp01(T.t);
+    T.lower = t < 0.72 ? Math.min(1, t / 0.1) : Math.max(0, (1 - t) / 0.28);
+    arm.root.visible = t < 0.97;
+    this.armR.root.visible = T.lower < 0.6;
+    this.armL.root.visible = T.lower < 0.8;
+    for (const [k, g] of this.throwItems) g.visible = k === 'knife' && arm.root.visible;
+    const c = T.cur;
+    const P = MELEE_POSES;
+    if (this._meleeLunge) {
+      if (t < 0.2) blendPose(c, T.from, P.cock, smootherstep(0, 1, t / 0.2));
+      else if (t < 0.4) blendPose(c, P.cock, P.thrust, easeInQuad((t - 0.2) / 0.2));
+      else if (t < 0.56) blendPose(c, P.thrust, P.thrust, 1);
+      else blendPose(c, P.thrust, P.hidden, smootherstep(0, 1, (t - 0.56) / 0.44));
+    } else {
+      if (t < 0.2) blendPose(c, T.from, P.wind, smootherstep(0, 1, t / 0.2));
+      else if (t < 0.44) blendPose(c, P.wind, P.through, easeInQuad((t - 0.2) / 0.24));
+      else if (t < 0.7) blendPose(c, P.through, P.follow, smootherstep(0, 1, (t - 0.44) / 0.26));
+      else blendPose(c, P.follow, P.hidden, smootherstep(0, 1, (t - 0.7) / 0.3));
+    }
+    arm.setPose('wrap');
     this._throwPos.set(c.p[0], c.p[1], c.p[2]);
     handBasis(this._throwQuat, c.f, c.b);
     arm.solve(this._throwPos, this._throwQuat);
@@ -1377,6 +1419,23 @@ const THROW_POSES = {
   cock: { p: [0.175, -0.1, -0.33], f: [-0.2, 0.9, -0.1], b: [0.85, 0.2, -0.45] },
   release: { p: [0.07, 0.02, -0.44], f: [-0.1, 0.3, -0.95], b: [0.25, 0.95, 0.15] },
   follow: { p: [-0.02, -0.4, -0.36], f: [-0.2, -0.65, -0.73], b: [0.25, 0.7, -0.65] },
+};
+
+/**
+ * Knife hand key poses (camera space, same convention as THROW_POSES).
+ *   wind     cocked out to the right and up, blade pointing left
+ *   through  the cut: across to the left of centre, low and forward
+ *   follow   carried on down and left
+ *   cock     lunge: fist drawn back by the hip, thumb (and blade) forward
+ *   thrust   lunge: arm out, blade into the target at eye level
+ */
+const MELEE_POSES = {
+  hidden: THROW_POSES.hidden,
+  wind: { p: [0.27, -0.06, -0.31], f: [-0.45, 0.25, -0.86], b: [0.55, 0.8, 0.2] },
+  through: { p: [-0.12, -0.17, -0.43], f: [-0.75, -0.2, -0.63], b: [0.15, 0.95, -0.25] },
+  follow: { p: [-0.22, -0.36, -0.33], f: [-0.6, -0.55, -0.58], b: [0.1, 0.75, -0.65] },
+  cock: { p: [0.17, -0.2, -0.24], f: [-0.9, -0.05, -0.43], b: [0.15, 0.97, 0.15] },
+  thrust: { p: [0.05, -0.1, -0.55], f: [-0.95, 0.05, -0.3], b: [0.1, 0.97, 0.15] },
 };
 
 function blendPose(out, a, b, w) {

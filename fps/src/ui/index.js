@@ -316,6 +316,7 @@ export class UiSystem {
           victimVariant: e.target?.variantDisplay ?? null,
           headshot: !!e.headshot,
           mine: true,
+          weapon: e.melee ? 'knife' : typeof e.weapon === 'string' ? e.weapon : null,
         });
         this.modeHud.confirmKill(e.target?.name ?? null, !!e.headshot);
         // The game's own score delta for this kill arrives on game:score from
@@ -389,6 +390,7 @@ export class UiSystem {
         victimVariant: e.actor.variantDisplay ?? null,
         headshot: !!e.headshot,
         mine: false,
+        weapon: typeof e.weapon === 'string' ? e.weapon : null,
         attackerFriendly: kTeam === 'esf',
       });
     });
@@ -958,6 +960,9 @@ export class UiSystem {
       if (ws.spread !== undefined) s.baseSpread = 4 + ws.spread * 40;
       s.lethalCount = ws.lethalCount ?? 0;
       s.tacticalCount = ws.tacticalCount ?? 0;
+      // which throwable each slot holds: the panel draws that kind's icon
+      s.lethal = ws.lethal ?? 'frag';
+      s.tactical = ws.tactical ?? 'flash';
     }
 
     const ps = s.simulate ? null : this._playerState();

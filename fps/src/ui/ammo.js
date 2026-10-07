@@ -36,6 +36,65 @@ function flashIcon(parent) {
   return s;
 }
 
+/* EXPANSION §10.4: one icon per throwable kind, same 16 x 20 cell. */
+function semtexIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
+  svg('rect', { x: 2, y: 7, width: 12, height: 11, rx: 1.6 }, s);
+  svg('rect', { x: 4.5, y: 3.6, width: 7, height: 3.6, rx: 0.8 }, s);
+  svg('circle', { cx: 9.6, cy: 5.4, r: 1, fill: 'rgba(0,0,0,.55)' }, s);
+  const g = svg('g', { stroke: 'rgba(0,0,0,.5)', 'stroke-width': 1 }, s);
+  svg('line', { x1: 2, y1: 10.5, x2: 14, y2: 10.5 }, g);
+  svg('line', { x1: 2, y1: 14.5, x2: 14, y2: 14.5 }, g);
+  return s;
+}
+
+function molotovIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
+  svg('path', { d: 'M6.6 5h2.8v3.2c2.2.8 3.4 2.3 3.4 4.6V18c0 1.1-.9 2-2 2H5.2c-1.1 0-2-.9-2-2v-5.2c0-2.3 1.2-3.8 3.4-4.6z' }, s);
+  svg('path', { d: 'M7 0.6c1.6 1 2.8 2.2 2.2 4.4H6.6C6 3.4 6.2 1.8 7 .6z' }, s);
+  svg('rect', { x: 3.2, y: 12.6, width: 9.6, height: 3, fill: 'rgba(0,0,0,.4)' }, s);
+  return s;
+}
+
+function throwingKnifeIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
+  svg('path', { d: 'M8 0l2.4 6.4v5.2H5.6V6.4z' }, s);
+  svg('rect', { x: 6.1, y: 11.6, width: 3.8, height: 8, rx: 0.9 }, s);
+  svg('circle', { cx: 8, cy: 14.4, r: 0.9, fill: 'rgba(0,0,0,.6)' }, s);
+  svg('circle', { cx: 8, cy: 17.2, r: 0.9, fill: 'rgba(0,0,0,.6)' }, s);
+  return s;
+}
+
+function smokeIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
+  svg('rect', { x: 4.4, y: 8, width: 7.2, height: 12, rx: 1 }, s);
+  svg('rect', { x: 6.4, y: 6, width: 3.2, height: 2.2 }, s);
+  svg('circle', { cx: 5, cy: 3.4, r: 2.4, fill: 'rgba(255,255,255,.55)' }, s);
+  svg('circle', { cx: 9.4, cy: 2.6, r: 2.6, fill: 'rgba(255,255,255,.55)' }, s);
+  svg('rect', { x: 4.4, y: 10, width: 7.2, height: 1.6, fill: 'rgba(0,0,0,.45)' }, s);
+  return s;
+}
+
+function concussionIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
+  svg('rect', { x: 3.6, y: 6.4, width: 8.8, height: 13.6, rx: 1.4 }, s);
+  svg('rect', { x: 6.2, y: 3.4, width: 3.6, height: 3.2 }, s);
+  const g = svg('g', { stroke: 'rgba(0,0,0,.5)', 'stroke-width': 1.1, fill: 'none' }, s);
+  svg('circle', { cx: 8, cy: 13.2, r: 2.6 }, g);
+  svg('line', { x1: 3.6, y1: 9, x2: 12.4, y2: 9 }, g);
+  return s;
+}
+
+const EQUIP_ICONS = {
+  frag: fragIcon,
+  semtex: semtexIcon,
+  molotov: molotovIcon,
+  throwing_knife: throwingKnifeIcon,
+  flash: flashIcon,
+  smoke: smokeIcon,
+  concussion: concussionIcon,
+};
+
 /**
  * Ammo / weapon readout, bottom right.
  *
@@ -58,12 +117,23 @@ export class AmmoPanel {
     this.root = el('div', 'ow-ammo', parent);
 
     this.equip = el('div', 'ow-equip', this.root);
+    // Every kind's icon is built once; the slot shows the one it holds.
     this.slotL = el('div', 'ow-slot', this.equip);
-    fragIcon(this.slotL);
+    this.iconsL = {};
+    for (const k of ['frag', 'semtex', 'molotov', 'throwing_knife']) {
+      this.iconsL[k] = EQUIP_ICONS[k](this.slotL);
+      setStyle(this.iconsL[k], 'display', k === 'frag' ? '' : 'none');
+    }
     this.slotLn = el('span', null, this.slotL, '0');
     this.slotT = el('div', 'ow-slot', this.equip);
-    flashIcon(this.slotT);
+    this.iconsT = {};
+    for (const k of ['flash', 'smoke', 'concussion']) {
+      this.iconsT[k] = EQUIP_ICONS[k](this.slotT);
+      setStyle(this.iconsT[k], 'display', k === 'flash' ? '' : 'none');
+    }
     this.slotTn = el('span', null, this.slotT, '0');
+    this._kindL = 'frag';
+    this._kindT = 'flash';
 
     const head = el('div', 'ow-ammo-head', this.root);
     this.mode = el('div', 'ow-ammo-mode', head, 'AUTO');
@@ -175,6 +245,18 @@ export class AmmoPanel {
     const tc = s.tacticalCount ?? 0;
     setText(this.slotLn, lc);
     setText(this.slotTn, tc);
+    const kl = this.iconsL[s.lethal] ? s.lethal : 'frag';
+    if (kl !== this._kindL) {
+      setStyle(this.iconsL[this._kindL], 'display', 'none');
+      setStyle(this.iconsL[kl], 'display', '');
+      this._kindL = kl;
+    }
+    const kt = this.iconsT[s.tactical] ? s.tactical : 'flash';
+    if (kt !== this._kindT) {
+      setStyle(this.iconsT[this._kindT], 'display', 'none');
+      setStyle(this.iconsT[kt], 'display', '');
+      this._kindT = kt;
+    }
     setClass(this.slotL, 'empty', lc <= 0);
     setClass(this.slotT, 'empty', tc <= 0);
   }
