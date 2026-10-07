@@ -44,14 +44,26 @@ export class HealthFx {
     this.hpFill = el('i', null, track);
     el('u', null, track); // segment dividers, drawn over the fill
 
+    // Armour (EXPANSION §10.3): a helmet pip, then one plate per vest tier
+    // step (soft vest 2, plate carrier 3). Empty-but-visible when broken, so the
+    // tier you are wearing is always readable; hidden for NONE.
     this.armour = el('div', 'ow-armour', this.vitals);
     el('div', 'ow-vt-lbl', this.armour, 'Armour');
     const plates = el('div', 'ow-arm-plates', this.armour);
+    const hp = el('div', 'ow-plate ow-helm', plates);
+    this.helmPip = hp;
+    this.helmFill = el('i', null, hp);
     this.plates = new Array(3);
+    this.plateBox = new Array(3);
     for (let i = 0; i < 3; i++) {
       const p = el('div', 'ow-plate', plates);
+      this.plateBox[i] = p;
       this.plates[i] = el('i', null, p);
     }
+    this.armMsg = el('div', 'ow-arm-msg', this.vitals, 'ARMOUR BROKEN');
+    this.armMsgT = 1;
+    this._tiers = '';
+    setStyle(this.armMsg, 'opacity', '0');
 
     this.hpShown = 1;
     this._lastHp = -1;
@@ -73,6 +85,12 @@ export class HealthFx {
   onDamage(intensity = 1) {
     this.flashT = 0;
     this.flashPeak = 0.35 + 0.65 * clamp01(intensity);
+  }
+
+  /** Doug's own plate gave out: the readout flashes ARMOUR BROKEN. */
+  onArmorBroken(slot) {
+    setText(this.armMsg, slot === 'helmet' ? 'HELMET BROKEN' : 'ARMOUR BROKEN');
+    this.armMsgT = 0;
   }
 
   onRegenStart() {
@@ -153,18 +171,51 @@ export class HealthFx {
     setStyle(this.hpNum, 'transform', `scale(${(1 + this.beatEnergy * 0.05).toFixed(3)})`);
 
     // --- armour plates ----------------------------------------------------
-    const maxA = s.maxArmour || 150;
-    const armour = Math.max(0, s.armour ?? 0);
-    this.armourShown = damp(this.armourShown, armour > 0 ? 1 : 0, 10, dt);
-    setStyle(this.armour, 'opacity', this.armourShown.toFixed(3));
-    setStyle(this.armour, 'display', this.armourShown < 0.01 ? 'none' : '');
-    if (this.armourShown > 0.01) {
-      const per = maxA / 3;
-      for (let i = 0; i < 3; i++) {
-        const f = clamp01((armour - i * per) / per);
-        setStyle(this.plates[i], 'transform', `scaleX(${f.toFixed(3)})`);
-        setStyle(this.plates[i], 'opacity', f > 0.001 ? '1' : '0');
+    if (s.helmetTier !== undefined) {
+      // tiered kit (player.getHudState from src/player)
+      const ht = s.helmetTier, vt = s.vestTier;
+      const nPlates = vt === 'heavy' ? 3 : vt === 'light' ? 2 : 0;
+      const wearing = ht !== 'none' || nPlates > 0;
+      this.armourShown = damp(this.armourShown, wearing ? 1 : 0, 10, dt);
+      setStyle(this.armour, 'opacity', this.armourShown.toFixed(3));
+      setStyle(this.armour, 'display', this.armourShown < 0.01 ? 'none' : '');
+      const key = ht + vt;
+      if (key !== this._tiers) {
+        this._tiers = key;
+        setStyle(this.helmPip, 'display', ht === 'none' ? 'none' : '');
+        setClass(this.helmPip, 'heavy', ht === 'heavy');
+        for (let i = 0; i < 3; i++) setStyle(this.plateBox[i], 'display', i < nPlates ? '' : 'none');
       }
+      if (this.armourShown > 0.01) {
+        const hf = clamp01(s.helmetFrac ?? 0);
+        setStyle(this.helmFill, 'transform', `scaleX(${hf.toFixed(3)})`);
+        const vf = clamp01(s.vestFrac ?? 0) * nPlates;
+        for (let i = 0; i < nPlates; i++) {
+          const f = clamp01(vf - i);
+          setStyle(this.plates[i], 'transform', `scaleX(${f.toFixed(3)})`);
+          setStyle(this.plates[i], 'opacity', f > 0.001 ? '1' : '0');
+        }
+      }
+    } else {
+      const maxA = s.maxArmour || 150;
+      const armour = Math.max(0, s.armour ?? 0);
+      this.armourShown = damp(this.armourShown, armour > 0 ? 1 : 0, 10, dt);
+      setStyle(this.armour, 'opacity', this.armourShown.toFixed(3));
+      setStyle(this.armour, 'display', this.armourShown < 0.01 ? 'none' : '');
+      setStyle(this.helmPip, 'display', 'none');
+      if (this.armourShown > 0.01) {
+        const per = maxA / 3;
+        for (let i = 0; i < 3; i++) {
+          const f = clamp01((armour - i * per) / per);
+          setStyle(this.plates[i], 'transform', `scaleX(${f.toFixed(3)})`);
+          setStyle(this.plates[i], 'opacity', f > 0.001 ? '1' : '0');
+        }
+      }
+    }
+    if (this.armMsgT < 1) {
+      this.armMsgT = Math.min(1, this.armMsgT + dt / 1.8);
+      const a = this.armMsgT < 0.08 ? this.armMsgT / 0.08 : 1 - ease.outQuad(clamp01((this.armMsgT - 0.55) / 0.45));
+      setStyle(this.armMsg, 'opacity', clamp01(a).toFixed(3));
     }
   }
 

@@ -155,6 +155,10 @@ export function normaliseLoadout(l) {
     }
     out.primaryKit = normaliseKit(l.primaryKit);
     out.secondaryKit = normaliseKit(l.secondaryKit);
+    // armour tiers (src/combat/armor.js): anything unknown falls back to light
+    for (const k of ['helmet', 'vest']) {
+      if (out[k] !== 'none' && out[k] !== 'light' && out[k] !== 'heavy') out[k] = 'light';
+    }
   }
   return out;
 }

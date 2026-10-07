@@ -660,6 +660,8 @@ export class GameSystem {
 
   /** Top up ammo and equipment. Returns true when something was refilled. */
   refill() {
+    // resupply restores armour plates too (EXPANSION §10.3)
+    this.ctx.peek('player')?.restoreArmor?.();
     const w = this.ctx.peek('weapons');
     if (!w) return false;
     if (typeof w.resupply === 'function') {
@@ -702,8 +704,10 @@ export class GameSystem {
       // Equipment (src/weapons/equipment.js) takes the lethal / tactical ids.
       if (typeof wp.setLoadout !== 'function') wp.equipment?.setLoadout?.(L.lethal, L.tactical);
     }
-    this.refill();
     const p = this.ctx.peek('player');
+    // EXPANSION §10.1: the loadout's helmet + vest (src/combat/armor.js)
+    p?.setArmor?.({ helmet: L.helmet, vest: L.vest });
+    this.refill();
     if (p?.respawn && this.modeId === 'survival') p.respawn(this._plazaSpawnIndex());
     if (p?.health) {
       p.health.max = this._baseMaxHealth * (kit?.armour ?? 1);
@@ -1093,6 +1097,12 @@ export class GameSystem {
         attract: () => self.attract(),
         /** Equip any weapon id (or +1 'frag' / 'flash') for testing. */
         give: (id) => self.ctx.peek('weapons')?.give?.(id) ?? null,
+        /** Armour tiers for Doug: FLOP.armor('heavy', 'none'); no args reports. */
+        armor: (helmet, vest) => {
+          const p = self.ctx.peek('player');
+          if (!p?.setArmor) return null;
+          return helmet === undefined && vest === undefined ? p.armorState : p.setArmor({ helmet, vest });
+        },
         /** Every weapon id the arsenal knows. */
         get weapons() {
           return self.ctx.peek('weapons')?.allWeaponIds ?? [];

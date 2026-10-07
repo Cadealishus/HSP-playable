@@ -1,5 +1,6 @@
 import { el, svg, setText, setStyle, setClass, damp, ease } from './util.js';
 import { ACTIONS } from '../core/input.js';
+import { ARMOR, ARMOR_TIERS } from '../combat/armor.js';
 import { mapPreview, crest } from './screens.js';
 
 /**
@@ -986,9 +987,17 @@ export class MainMenu {
     const eq = this.host.equipment?.();
     if (eq?.lethal?.length) out.push({ key: 'lethal', label: 'LETHAL', options: eq.lethal });
     if (eq?.tactical?.length) out.push({ key: 'tactical', label: 'TACTICAL', options: eq.tactical });
-    const ar = this.host.armor?.();
-    if (ar?.helmet?.length) out.push({ key: 'helmet', label: 'HELMET', options: ar.helmet });
-    if (ar?.vest?.length) out.push({ key: 'vest', label: 'VEST', options: ar.vest });
+    // EXPANSION §10.3 armour, straight from the ARMOR registry (src/combat/armor.js)
+    for (const key of ['helmet', 'vest']) {
+      out.push({
+        key,
+        label: key === 'helmet' ? 'HELMET' : 'VEST',
+        options: ARMOR_TIERS.map((t) => {
+          const a = ARMOR[key][t];
+          return { id: t, label: a.label, desc: a.desc, armor: a };
+        }),
+      });
+    }
     return out;
   }
 
@@ -1032,6 +1041,24 @@ export class MainMenu {
       row('RATE OF FIRE', w.rpm ? `${w.rpm} RPM` : null);
       row('MAGAZINE', w.magSize);
       row('FIRE MODES', Array.isArray(w.modes) ? w.modes.join(' · ').toUpperCase() : null);
+    } else if (o?.armor) {
+      // protection versus speed, as bars against the heaviest tier
+      const a = o.armor;
+      const maxP = Math.max(...ARMOR_TIERS.map((t) => ARMOR[a.slot][t].protect));
+      if (o.desc) el('div', 'ow-mm-text', c, o.desc);
+      const bars = el('div', 'ow-mm-bars', c);
+      const bar = (k, f, txt) => {
+        const r = el('div', 'ow-mm-bar', bars);
+        el('div', 'k', r, k);
+        const t = el('div', 't', r);
+        const fill = el('i', null, t);
+        fill.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`;
+        el('div', 'v', r, txt);
+      };
+      bar('PROTECTION', maxP > 0 ? a.protect / maxP : 0, a.protect > 0 ? `${Math.round(a.protect * 100)}% · ${a.hp} HP` : 'NONE');
+      // speed: 0.9 .. 1.05 mapped across the bar
+      bar('MOBILITY', (a.moveMult - 0.88) / (1.05 - 0.88), `${a.moveMult >= 1 ? '+' : ''}${Math.round((a.moveMult - 1) * 100)}%`);
+      if (a.deflect) row('SPECIAL', 'STOPS ONE SNIPER HEADSHOT');
     } else if (o?.desc) {
       row('EFFECT', o.desc);
     }

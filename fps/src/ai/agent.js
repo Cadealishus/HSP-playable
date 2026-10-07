@@ -27,7 +27,7 @@ import { isEnemy, isAlly, normTeam, LAYER_ESF } from './teams.js';
 import { roleFor, resolveWeapon, weaponFor, PLAYER_DAMAGE_SCALE } from './roles.js';
 import { Perception } from './perception.js';
 import { Brain, S } from './brain.js';
-import { createArmor, resolveDamage, zoneOf } from '../combat/armor.js';
+import { createArmor, setArmor as setArmorTiers, resolveDamage, zoneOf } from '../combat/armor.js';
 
 /**
  * FLOP OPS death tuning. Deaths are the comedy; the physics stays honest.
@@ -1483,6 +1483,26 @@ export class Agent {
         this._boneB.x, this._boneB.y, this._boneB.z
       );
     }
+  }
+
+  /**
+   * Re-dress a live bot (net puppets mirror a remote player's kit, a mode can
+   * up-armour a survivor): new tiers with full plates, and the body swaps to the
+   * matching cached geometry so the visible kit always matches the protection.
+   */
+  setArmor(spec = {}) {
+    const a = this.armor;
+    const h0 = a.helmet.tier, v0 = a.vest.tier;
+    setArmorTiers(a, spec.helmet ?? h0, spec.vest ?? v0);
+    if (a.helmet.tier !== h0 || a.vest.tier !== v0) {
+      const def = this.ai.variant(this.variantName, {
+        team: this.team, weapon: this.modelStyle, helmet: a.helmet.tier, vest: a.vest.tier,
+      });
+      this.def = def;
+      this.mesh.geometry = def.geometry;
+      this.mesh.material = def.materials;
+    }
+    return a;
   }
 
   dispose() {

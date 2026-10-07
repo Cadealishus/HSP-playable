@@ -90,6 +90,11 @@ Emit and listen via `ctx.events`. Payloads are plain objects. The canonical set:
 | `player:footstep` | `{ position, surface, running }` | player |
 | `player:state` | `{ stance, sprinting, sliding, ads }` | player |
 | `explosion` | `{ position, radius, damage }` | any |
+| `armor:hit` | `{ target, slot: 'helmet'\|'vest', tier, broke, deflected, absorbed, point, ammo, byPlayer? }` — armour took (part of) a hit (src/combat/armor.js resolveDamage); audio pings deflects, cracks breaks. Preallocated, copy what you keep | player / ai |
+| `armor:break` | same payload, when that plate hit 0 hp: HUD shows ARMOUR BROKEN | player / ai |
+| `armor:changed` | `{ target, helmet, vest }` — `player.setArmor()` re-tiered Doug | player |
+| `armor:pickup` | `{ amount, position }` — Doug walked over a heavy bot's dropped plate | ai |
+| `player:slide` | `{ position, speed, surface, duration }` — a slide started (slide scrape audio) | player |
 | `resize` | `{ width, height }` | engine |
 | `ai:bark` | `{ kind, agent, position, voice }` — `position` (agent's world position) drives spatialisation, `voice` seeds per-agent formant variation; kinds per `src/audio/vox.js` BARKS; consumed by audio | ai |
 | `ai:radio` | `{ enemy, kind, text }`: a deadpan hostile radio line (`spot`/`cover`/`grenade`/`mandown`, from `src/ai/radio.js`), rate-limited; the UI subtitles it under `enemy.name` | ai |
