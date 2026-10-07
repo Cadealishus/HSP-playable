@@ -85,6 +85,10 @@ import { Health } from './health.js';
 import { LowHealthPass } from './lowhealth.js';
 import { STANCE, MOVE, CAMERA, HEALTH, FOOTSTEP, JUMP_SPEED } from './tuning.js';
 import { clamp, clamp01, lerp, approach, DEG } from './springs.js';
+import {
+  createArmor, setArmor as setArmorTiers, restoreArmor, armorMoveMult, armorFraction,
+  resolveDamage, ARMOR,
+} from '../combat/armor.js';
 
 export class PlayerSystem {
   static id = 'player';
@@ -123,12 +127,27 @@ export class PlayerSystem {
     };
     this._mantlePayload = { kind: 'none', height: 0 };
     this._jumpPayload = { position: new THREE.Vector3() };
+    this._slidePayload = { position: new THREE.Vector3(), speed: 0, surface: 'concrete', duration: MOVE.slide.duration };
     // Preallocated HUD snapshot polled by `ui` (see getHudState).
     this._hudState = {
       health: HEALTH.max, maxHealth: HEALTH.max, regen: false, dead: false,
       move: 0, sprint: false, crouch: false, ads: false, airborne: false,
       suppression: 0, position: null,
+      armour: 0, maxArmour: 0, helmetTier: 'light', vestTier: 'light', helmetFrac: 1, vestFrac: 1,
+      sliding: false,
     };
+
+    // ---- armour (EXPANSION §10.3) -------------------------------------
+    /** { helmet: {tier, hp, max}, vest: {tier, hp, max} } — the light tiers by default */
+    this.armor = createArmor('light', 'light');
+    /** product of the tiers' move costs, read by Movement.targetSpeed() */
+    this.armorMoveMult = armorMoveMult(this.armor);
+    this._armorHit = {
+      target: this, slot: null, broke: false, deflected: false, absorbed: 0,
+      point: new THREE.Vector3(), hasPoint: false, ammo: null,
+    };
+    this._armorRes = {};
+    this._burn = { dps: 0, left: 0, tick: 0, from: new THREE.Vector3(), hasFrom: false };
 
     this._tmp = new THREE.Vector3();
     /** Last emitted discrete state, compared field-wise so no string is built. */
@@ -298,6 +317,7 @@ export class PlayerSystem {
 
     this._updateAds(dt);
     this._drainMovementEvents();
+    this._updateBurn(dt);
     this.health.update(dt);
 
     this.rig.update(dt, this.movement, this.health);
@@ -395,6 +415,11 @@ export class PlayerSystem {
     if (m.slideStarted) {
       m.slideStarted = false;
       this.rig.onSlideStart(m._slideSide);
+      const sp = this._slidePayload;
+      sp.position.copy(m.position);
+      sp.speed = m.horizontalSpeed;
+      sp.surface = m.character?.groundSurfaceName ?? 'concrete';
+      this.ctx.events.emit('player:slide', sp);
     }
     if (m.slideEnded) m.slideEnded = false;
 
@@ -454,7 +479,26 @@ export class PlayerSystem {
     // `point` to where the round landed (which is the player), and `from` to the
     // muzzle. Using `point` pinned every arc to dead ahead.
     const from = e.from ?? e.source?.position ?? e.point ?? null;
-    this.applyDamage(e.amount ?? 0, from, { type: 'bullet' });
+    const o = this._dmgOpts ?? (this._dmgOpts = { type: 'bullet', zone: 'torso', ammo: null, point: null, kind: 'bullet' });
+    o.type = e.melee ? 'melee' : 'bullet';
+    o.kind = e.melee ? 'melee' : e.kind === 'fire' || e.kind === 'blast' ? e.kind : 'bullet';
+    o.zone = e.zone ?? (e.headshot ? 'head' : this._zoneAt(e.point));
+    o.ammo = e.ammo ?? null;
+    o.point = e.point ?? null;
+    const dealt = this.applyDamage(e.amount ?? 0, from, o);
+    // the HUD reads `amount` off the event: report what armour let through
+    if (typeof dealt === 'number') e.amount = dealt;
+  }
+
+  /**
+   * Armour zone of a hit on Doug, from the impact point's height on his
+   * capsule: the top ~16 % is the head, under the belt line is legs.
+   */
+  _zoneAt(point) {
+    if (!point) return 'torso';
+    const h = STANCE[this.movement.stance].height;
+    const t = (point.y - this.movement.renderPosition.y) / Math.max(0.4, h);
+    return t > 0.86 ? 'head' : t < 0.45 ? 'limb' : 'torso';
   }
 
   _onExplosion(e) {
@@ -469,7 +513,7 @@ export class PlayerSystem {
     this.rig.addTrauma(clamp01(falloff * 1.4));
     this.health.addSuppression(HEALTH.suppression.perExplosion * falloff);
     if (clear && falloff > 0.02) {
-      this.applyDamage((e.damage ?? 90) * falloff, e.position, { type: 'explosion' });
+      this.applyDamage((e.damage ?? 90) * falloff, e.position, { type: 'explosion', kind: 'blast', zone: 'torso' });
     }
   }
 
@@ -513,6 +557,14 @@ export class PlayerSystem {
     h.ads = this.adsAmount > 0.5;
     h.airborne = !m.grounded;
     h.position = this.position;
+    const a = this.armor;
+    h.helmetTier = a.helmet.tier;
+    h.vestTier = a.vest.tier;
+    h.helmetFrac = armorFraction(a, 'helmet');
+    h.vestFrac = armorFraction(a, 'vest');
+    h.armour = a.helmet.hp + a.vest.hp;
+    h.maxArmour = a.helmet.max + a.vest.max;
+    h.sliding = m.sliding;
     return h;
   }
 
@@ -638,8 +690,109 @@ export class PlayerSystem {
     this.rig.addTrauma(a);
   }
 
-  applyDamage(amount, from, opts) {
-    return this.health.damage(amount, from ?? null, { yaw: this.movement.yaw, ...opts });
+  /**
+   * Every wound Doug takes. `opts` { type, kind: 'bullet'|'blast'|'fire'|'melee',
+   * zone: 'head'|'torso'|'limb', ammo, point }. Armour resolves first (the ONE
+   * resolveDamage, src/combat/armor.js); fall damage and scripted hits that pass
+   * no `kind`/`zone` go straight to health as before. Returns health dealt.
+   */
+  applyDamage(amount, from, opts = null) {
+    if (this.health.dead || !(amount > 0)) return 0;
+    let dmg = amount;
+    if (opts && (opts.kind || opts.zone) && opts.type !== 'fall') {
+      const r = resolveDamage({
+        amount, zone: opts.zone ?? 'torso', ammo: opts.ammo ?? null,
+        armor: this.armor, kind: opts.kind ?? 'bullet',
+      }, this._armorRes);
+      dmg = r.health;
+      if (r.slot && (r.absorbed > 0.01 || r.broke)) this._emitArmorHit(r, opts.point ?? null, opts.ammo ?? null);
+      if (r.burnDps > 0) this.ignite(r.burnDps, r.burnDur, from);
+      if (dmg <= 0) return 0;
+    }
+    const o = this._healthOpts ?? (this._healthOpts = { yaw: 0, type: 'bullet' });
+    o.yaw = this.movement.yaw;
+    o.type = opts?.type ?? 'bullet';
+    return this.health.damage(dmg, from ?? null, o);
+  }
+
+  _emitArmorHit(r, point, ammo) {
+    const e = this._armorHit;
+    e.slot = r.slot;
+    e.broke = r.broke;
+    e.deflected = r.deflected;
+    e.absorbed = r.absorbed;
+    e.ammo = ammo;
+    e.hasPoint = !!point;
+    if (point) e.point.copy(point);
+    else e.point.copy(this.rig.eyePosition);
+    e.tier = this.armor[r.slot].tier;
+    this.ctx.events.emit('armor:hit', e);
+    if (r.broke) this.ctx.events.emit('armor:break', e);
+  }
+
+  /** Incendiary rounds / fire: a damage-over-time, ticked through the armour. */
+  ignite(dps, dur, from = null) {
+    const b = this._burn;
+    b.dps = Math.max(b.dps, dps);
+    b.left = Math.max(b.left, dur);
+    b.hasFrom = !!from;
+    if (from) b.from.copy(from);
+  }
+
+  _updateBurn(dt) {
+    const b = this._burn;
+    if (b.left <= 0) return;
+    if (this.health.dead) { b.left = 0; return; }
+    b.left -= dt;
+    b.tick += dt;
+    if (b.tick < 0.25 && b.left > 0) return;
+    const amount = b.dps * b.tick;
+    b.tick = 0;
+    if (b.left <= 0) b.dps = 0;
+    const o = this._burnOpts ?? (this._burnOpts = { type: 'fire', kind: 'fire', zone: 'torso', ammo: null, point: null });
+    this.applyDamage(amount, b.hasFrom ? b.from : null, o);
+  }
+
+  /**
+   * EXPANSION §10.1: `player.setArmor({ helmet, vest })` from the loadout.
+   * Tiers are 'none' | 'light' | 'heavy'; plates start full.
+   */
+  setArmor(spec = {}) {
+    const a = this.armor;
+    setArmorTiers(a, spec.helmet ?? a.helmet.tier, spec.vest ?? a.vest.tier);
+    this.armorMoveMult = armorMoveMult(a);
+    this.ctx?.events?.emit?.('armor:changed', { target: this, helmet: a.helmet.tier, vest: a.vest.tier });
+    return this.armorState;
+  }
+
+  /** Resupply: plates back to full (survival breaks, respawns). */
+  restoreArmor() {
+    restoreArmor(this.armor);
+    return this.armorState;
+  }
+
+  /** Add plate hp (an armour plate pickup), up to the tier's max. */
+  addArmor(amount = 40) {
+    const a = this.armor;
+    let left = amount;
+    for (const s of [a.vest, a.helmet]) {
+      const room = s.max - s.hp;
+      const add = Math.min(room, left);
+      s.hp += add;
+      left -= add;
+    }
+    return amount - left;
+  }
+
+  get armorState() {
+    const a = this.armor;
+    return {
+      helmet: a.helmet.tier, vest: a.vest.tier,
+      helmetHp: a.helmet.hp, helmetMax: a.helmet.max,
+      vestHp: a.vest.hp, vestMax: a.vest.max,
+      moveMult: this.armorMoveMult,
+      labels: [ARMOR.helmet[a.helmet.tier].label, ARMOR.vest[a.vest.tier].label],
+    };
   }
   heal(a) {
     this.health.heal(a);
@@ -692,6 +845,8 @@ export class PlayerSystem {
     const world = this.ctx.peek('world');
     const sp = world?.spawn?.(index);
     this.health.reset(true);
+    restoreArmor(this.armor);
+    this._burn.left = 0;
     if (!sp?.position) return;
     const gy = this.physics.groundHeight(sp.position.x, sp.position.z, sp.position.y + 6);
     const feetY = Number.isFinite(gy) ? gy + 0.03 : sp.position.y;

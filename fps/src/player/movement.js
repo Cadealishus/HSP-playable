@@ -623,6 +623,8 @@ export class Movement {
       base *= lerp(1, MOVE.adsScale, clamp01(this.adsAmount));
     }
     base *= lerp(1, 0.6, clamp01(Math.abs(this.leanAmount)));
+    // armour weight (src/combat/armor.js moveMult; 1 with the default light kit)
+    base *= this.player?.armorMoveMult ?? 1;
     return base;
   }
 

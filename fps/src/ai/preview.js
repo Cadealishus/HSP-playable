@@ -91,11 +91,23 @@ const materials = new SoldierMaterials(rng.fork(), {
 
 const view = q.get('view') ?? 'front';
 const variantName = q.get('variant') ?? 'vanguard';
-const names = view === 'line' ? Object.keys(VARIANTS) : [variantName];
+// armour (EXPANSION §10.3): ?helmet=&vest= for one figure, ?armor=tiers for the
+// none / light / heavy line-up of one variant, ?armor=mix for the off-diagonal kits
+const T = ['none', 'light', 'heavy'];
+const armorMode = q.get('armor');
+let names = view === 'line' ? Object.keys(VARIANTS) : [variantName];
+let kits = names.map(() => (q.get('helmet') || q.get('vest') ? { helmet: q.get('helmet') ?? 'light', vest: q.get('vest') ?? 'light' } : null));
+if (armorMode === 'tiers') {
+  names = T.map(() => variantName);
+  kits = T.map((t) => ({ helmet: t, vest: t }));
+} else if (armorMode === 'mix') {
+  names = T.map(() => variantName);
+  kits = [{ helmet: 'heavy', vest: 'none' }, { helmet: 'none', vest: 'heavy' }, { helmet: 'light', vest: 'heavy' }];
+}
 const actors = [];
 
 for (let i = 0; i < names.length; i++) {
-  const def = buildSoldier(names[i], { rng: rng.fork(), materials });
+  const def = buildSoldier(names[i], { rng: rng.fork(), materials, armor: kits[i] });
   const { bones, skeleton, root } = RIG.createSkeleton();
   const mesh = new THREE.SkinnedMesh(def.geometry, def.materials);
   mesh.castShadow = true;

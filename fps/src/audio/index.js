@@ -53,7 +53,7 @@ import { RadioComms } from './radio.js';
 import { WEAPON_PROFILES, resolveProfile, weaponShot, bulletWhizz, dryFire } from './weapons.js';
 import {
   surfaceImpact, footstep, shellCasing, reloadPhase, explosion, bodyFall, uiSound,
-  heartbeat, cloth,
+  heartbeat, cloth, slideScrape, armorRicochet, armorBreak,
 } from './foley.js';
 import { bark as voxBark, barkFor } from './vox.js';
 import { classifySpace, SPACE_KEYS } from './ir.js';
@@ -415,6 +415,9 @@ export class AudioSystem {
       case 'explosion': return explosion(actx, bank, rng, { when, distance: dist, radius: o.radius, level: o.level });
       case 'bodyfall': return bodyFall(actx, bank, rng, { when, level: o.level });
       case 'cloth': return cloth(actx, bank, rng, { when, level: o.level });
+      case 'slide': return slideScrape(actx, bank, rng, { when, surface: o.surface, dur: o.dur, level: o.level });
+      case 'ricochet': return armorRicochet(actx, bank, rng, { when, level: o.level, heavy: o.heavy });
+      case 'armorBreak': return armorBreak(actx, bank, rng, { when, level: o.level });
       case 'heartbeat': return heartbeat(actx, bank, rng, { when, level: o.level });
       case 'bark': return voxBark(actx, bank, rng, { when, bark: o.bark, f0: o.f0, tract: o.tract, level: o.level, radio: o.radio });
       case 'radio': return this.comms.transmission(o.speaker, when, o.dur, o.level ?? 1);
@@ -662,6 +665,8 @@ export class AudioSystem {
     on('player:footstep', (p) => this._onFootstep(p));
     on('player:land', (p) => this._onLand(p));
     on('player:state', (p) => this._onPlayerState(p));
+    on('player:slide', (p) => this._onSlide(p));
+    on('armor:hit', (p) => this._onArmorHit(p));
     on('damage:dealt', (p) => this._onDamageDealt(p));
     on('damage:taken', (p) => this._onDamageTaken(p));
     on('actor:death', (p) => this._onDeath(p));
@@ -831,6 +836,25 @@ export class AudioSystem {
       level: clamp(v / 7, 0.35, 1.7), gear: 1,
     }, 'foley', 0.7);
     if (v > 8.5) this._playDry('cloth', { level: 0.8 }, 'foley', 0.15);
+  }
+
+  /** EXPANSION §10.5: the slide scrape, head-locked (it is Doug's own body). */
+  _onSlide(p) {
+    if (!this.running || !p) return;
+    this._playDry('slide', { surface: p.surface, dur: p.duration ?? 0.75, level: 1 }, 'foley', 0.18);
+  }
+
+  /** EXPANSION §10.3: helmet deflects ping and whine; a breaking plate cracks. */
+  _onArmorHit(p) {
+    if (!this.running || !p) return;
+    const own = p.target?.isPlayer === true;
+    if (!p.deflected && !p.broke) return;
+    const pt = p.point;
+    const play = (kind, o, pri) => (own || !pt
+      ? this._playDry(kind, o, 'foley', 0.2)
+      : this._playAt(kind, pt.x, pt.y, pt.z, o, 'foley', pri));
+    if (p.deflected) play('ricochet', { level: own ? 0.8 : 1, heavy: p.tier === 'heavy' }, 0.7);
+    if (p.broke) play('armorBreak', { level: own ? 0.9 : 1 }, 0.75);
   }
 
   _onPlayerState(p) {

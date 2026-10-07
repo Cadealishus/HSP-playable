@@ -365,6 +365,135 @@ export function cloth(actx, bank, rng, o = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Slide + armour (EXPANSION §10.3 / §10.5)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A slide: boots and knee pads dragged over the ground for ~0.75 s. A
+ * band-passed noise bed whose centre falls as the slide slows, gritty
+ * debris ticks on hard ground, and a cloth swish on the drop.
+ * @param {object} o { when, surface, dur, level }
+ */
+export function slideScrape(actx, bank, rng, o = {}) {
+  const t0 = o.when ?? actx.currentTime;
+  const dur = clamp(o.dur ?? 0.75, 0.25, 1.2);
+  const lvl = o.level ?? 1;
+  const surface = o.surface ?? 'concrete';
+  const soft = surface === 'dirt' || surface === 'sand' || surface === 'foliage' || surface === 'fabric';
+  const out = gain(actx, 0.5);
+  // the scrape bed
+  {
+    const src = bank.source(soft ? 'brown' : 'white', rng, rng.range(0.8, 1.15));
+    const bp = biquad(actx, 'bandpass', soft ? 900 : 2300, soft ? 0.6 : 0.9);
+    const lp = biquad(actx, 'lowpass', soft ? 2600 : 6200, 0.7);
+    const g = gain(actx, 0);
+    series(src, bp, lp, g).connect(out);
+    sweep(bp.frequency, t0, soft ? 1100 : 2900, soft ? 380 : 900, dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.42 * lvl, t0 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.2 * lvl, t0 + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.start(t0, src._offset, dur + 0.05);
+  }
+  // body drop: the hip meeting the floor
+  {
+    const b = osc(actx, 'sine', 95);
+    const g = gain(actx, 0);
+    b.connect(g); g.connect(out);
+    sweep(b.frequency, t0, 140, 60, 0.12);
+    ad(g.gain, t0, 0.5 * lvl, 0.003, 0.11);
+    b.start(t0); b.stop(t0 + 0.2);
+  }
+  // grit
+  const n = soft ? 3 : 7;
+  for (let i = 0; i < n; i++) {
+    const gt = t0 + rng.range(0.03, dur * 0.85);
+    struckResonator(actx, bank, rng, gt, [
+      { f: rng.range(2400, 7600), q: rng.range(10, 24), g: rng.range(0.02, 0.05) * lvl, decay: rng.range(0.01, 0.04) },
+    ], 0.0015).connect(out);
+  }
+  // cloth on the drop
+  {
+    const src = bank.source('white', rng, rng.range(0.7, 1.1));
+    const bp = biquad(actx, 'bandpass', 1800, 0.55);
+    const g = gain(actx, 0);
+    series(src, bp, g).connect(out);
+    ad(g.gain, t0, 0.22 * lvl, 0.02, 0.16);
+    src.start(t0, src._offset, 0.3);
+  }
+  return { node: out, end: t0 + dur + 0.2, send: 0.22 };
+}
+
+/**
+ * A round deflecting off a helmet: a bright struck shell ring plus the
+ * whining ricochet sweeping away. `o.heavy` lowers the shell partials.
+ */
+export function armorRicochet(actx, bank, rng, o = {}) {
+  const t0 = o.when ?? actx.currentTime;
+  const lvl = o.level ?? 1;
+  const k = o.heavy ? 0.82 : 1;
+  const out = gain(actx, 0.3);
+  struckResonator(actx, bank, rng, t0, [
+    { f: 2150 * k * semis(rng.range(-1.5, 1.5)), q: 40, g: 0.5 * lvl, decay: 0.32 },
+    { f: 3870 * k * semis(rng.range(-1.5, 1.5)), q: 34, g: 0.34 * lvl, decay: 0.2 },
+    { f: 6100 * k, q: 22, g: 0.18 * lvl, decay: 0.1 },
+  ], 0.003).connect(out);
+  // the whine
+  {
+    const w = osc(actx, 'sine', 3400);
+    const g = gain(actx, 0);
+    w.connect(g); g.connect(out);
+    const up = rng.float() < 0.5;
+    sweep(w.frequency, t0 + 0.01, up ? 2600 : 4200, up ? 4800 : 1500, 0.32);
+    ad(g.gain, t0 + 0.01, 0.12 * lvl, 0.02, 0.3);
+    w.start(t0); w.stop(t0 + 0.4);
+  }
+  {
+    const src = bank.source('white', rng, 1);
+    const hp = biquad(actx, 'highpass', 4200, 0.7);
+    const g = gain(actx, 0);
+    series(src, hp, g).connect(out);
+    hit(g.gain, t0, 0.6 * lvl, 0.012);
+    src.start(t0, src._offset, 0.04);
+  }
+  return { node: out, end: t0 + 0.5, send: 0.45 };
+}
+
+/**
+ * A plate giving up: a dull ceramic crack, a crunch of fragments and a short
+ * low thud. Deliberately unglamorous; it should sound like bad news.
+ */
+export function armorBreak(actx, bank, rng, o = {}) {
+  const t0 = o.when ?? actx.currentTime;
+  const lvl = o.level ?? 1;
+  const out = gain(actx, 0.34);
+  {
+    const src = bank.source('crackle', rng, rng.range(0.9, 1.2));
+    const bp = biquad(actx, 'bandpass', 2600, 0.8);
+    const g = gain(actx, 0);
+    series(src, bp, g).connect(out);
+    sweep(bp.frequency, t0, 4200, 1300, 0.12);
+    ad(g.gain, t0, 0.9 * lvl, 0.001, 0.13);
+    src.start(t0, src._offset, 0.3);
+  }
+  {
+    const b = osc(actx, 'triangle', 160);
+    const g = gain(actx, 0);
+    b.connect(g); g.connect(out);
+    sweep(b.frequency, t0, 210, 70, 0.14);
+    ad(g.gain, t0, 0.55 * lvl, 0.002, 0.14);
+    b.start(t0); b.stop(t0 + 0.22);
+  }
+  for (let i = 0; i < 6; i++) {
+    const gt = t0 + 0.012 + i * rng.range(0.008, 0.03);
+    struckResonator(actx, bank, rng, gt, [
+      { f: rng.range(1500, 5200), q: rng.range(8, 18), g: rng.range(0.04, 0.09) * lvl, decay: rng.range(0.012, 0.04) },
+    ], 0.0015).connect(out);
+  }
+  return { node: out, end: t0 + 0.4, send: 0.3 };
+}
+
+/* ------------------------------------------------------------------ */
 /* Shell casings                                                      */
 /* ------------------------------------------------------------------ */
 

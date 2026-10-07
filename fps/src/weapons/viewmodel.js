@@ -311,6 +311,7 @@ export class Viewmodel {
     this.adsT = 0;
     this.adsTarget = 0;
     this.sprintT = 0;
+    this.slideT = 0;
     this.lowReadyT = 0;
     this.bobPhase = 0;
     this.stepT = 0;
@@ -867,6 +868,18 @@ export class Viewmodel {
     rx += this.recRot.x + this.settle.y;
     ry += this.recRot.y + this.settle.x;
     rz += this.recRot.z + this.settle.z;
+
+    /* -------- slide (EXPANSION §10.5): the gun cants in and drops ----- */
+    this.slideT = damp(this.slideT, s.slide ? 1 : 0, s.slide ? 10 : 6, dt);
+    if (this.slideT > 1e-3) {
+      const sl = this.slideT * lerp(1, 0.35, ads);
+      rz += 0.26 * sl;
+      ry += 0.05 * sl;
+      rx += 0.04 * sl;
+      px -= 0.018 * sl;
+      py -= 0.022 * sl;
+      pz += 0.012 * sl;
+    }
 
     /* -------- jump / land --------------------------------------------- */
     this.jumpSpring.step(dt, 0);
