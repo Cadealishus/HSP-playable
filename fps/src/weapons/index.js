@@ -16,6 +16,8 @@ import { RocketSim } from './rockets.js';
 import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
 import { Equipment } from './equipment.js';
 import { WeaponOverlays } from './overlay.js';
+import { Gunsmith, applyKit, resolveKit, emptyKit, isStockKit, statsOf, slotOptions, ATTACHMENTS, SLOTS } from './attachments.js';
+import { AMMO, AMMO_IDS, ammoDef } from './ammo.js';
 
 /**
  * WEAPONS — weapon meshes, the first-person viewmodel rig, ADS, recoil, sway,
@@ -130,6 +132,8 @@ export class WeaponSystem {
       // for the line of fire, the pellet count, and fx overrides.
       id: null, class: null, noise: 90, suppression: 1, suppressed: false, pellets: 1,
       flashScale: undefined, intensity: undefined, light: undefined,
+      // GUNSMITH (EXPANSION §10.2): the round's AMMO def and the kit.
+      ammo: AMMO.fmj, kit: null, laser: false,
     };
     this._reloadPayload = { weapon: null, phase: 'start' };
     // `weapon:shell` carries the canonical { position, velocity } plus the real
@@ -180,6 +184,7 @@ export class WeaponSystem {
       lethalCount: 0, tacticalCount: 0, lethal: 'frag', tactical: 'flash',
       cook: -1, cookKind: null, cookRemaining: 0, throwing: false,
       scoped: false,
+      ammoType: 'FMJ', ammoTypeId: 'fmj',
     };
     this._overlayState = { scope: 0, style: 'sniper', swayX: 0, swayY: 0, flash: 0, blur: 0, cook: -1, cookText: '', danger: false };
   }
@@ -215,6 +220,9 @@ export class WeaponSystem {
       tris += entry.tris;
       const st = {
         def,
+        base: def,
+        kit: emptyKit(),
+        entry,
         pattern: buildRecoilPattern(def, Rng),
         mag: 0,
         chambered: true,
@@ -225,6 +233,7 @@ export class WeaponSystem {
       this._fill(st);
       this.states.set(id, st);
     }
+    this.gunsmith = new Gunsmith(ctx, this.viewmodel, this.mats);
     this.rockets = new RocketSim(ctx, this.mats);
     this.viewmodel.setActive(this.activeId);
     this.viewmodel.play('draw');
@@ -338,6 +347,16 @@ export class WeaponSystem {
     };
   }
 
+  /** GUNSMITH: the active weapon's ammo type id ('fmj' | 'hp' | 'ap' | 'incendiary' | 'subsonic'). */
+  get ammoId() {
+    return this.state?.def.ammo?.id ?? 'fmj';
+  }
+
+  /** The active weapon's AMMO def (src/weapons/ammo.js). */
+  currentAmmo() {
+    return this.state?.def.ammo ?? AMMO.fmj;
+  }
+
   get fireMode() {
     return this.state?.mode ?? 'semi';
   }
@@ -408,6 +427,9 @@ export class WeaponSystem {
     // normalised 0..1 rather than raw degrees.
     h.spread = Math.min(1, Math.max(0, this._spread / 6));
     h.firing = this.firing;
+    const am = s.def.projectile ? null : s.def.ammo ?? AMMO.fmj;
+    h.ammoType = am ? am.tag : '';
+    h.ammoTypeId = am ? am.id : null;
     const eq = this.equipment;
     if (eq) {
       h.lethalCount = eq.lethalCount;
@@ -468,6 +490,16 @@ export class WeaponSystem {
     if (!this.loadout.primary && !this.loadout.secondary) this.loadout.secondary = SECONDARY_ID;
     if (lo.lethal) this.loadout.lethal = lo.lethal;
     if (lo.tactical) this.loadout.tactical = lo.tactical;
+    // GUNSMITH (EXPANSION §10.1): kits ride with their slot's weapon. A slot
+    // given a weapon but no kit gets the stock gun.
+    if (lo.primaryKit !== undefined || lo.primary) {
+      if (this.loadout.primary) this.setKit(this.loadout.primary, lo.primaryKit ?? null);
+    }
+    if (lo.secondaryKit !== undefined || lo.secondary) {
+      if (this.loadout.secondary) this.setKit(this.loadout.secondary, lo.secondaryKit ?? null);
+    }
+    this.loadout.primaryKit = this.loadout.primary ? { ...this.states.get(this.loadout.primary).kit } : null;
+    this.loadout.secondaryKit = this.loadout.secondary ? { ...this.states.get(this.loadout.secondary).kit } : null;
     this.carried = [this.loadout.primary, this.loadout.secondary].filter(Boolean);
     this.equipment?.setLoadout(this.loadout.lethal, this.loadout.tactical);
     this.loadout.lethal = this.equipment?.lethal ?? this.loadout.lethal;
@@ -515,14 +547,108 @@ export class WeaponSystem {
       this.viewmodel.stopClip();
       this._shellReload = true;
       this._shellStop = false;
-      this.viewmodel.play('reloadStart');
+      this._playReload('reloadStart');
       return true;
     }
     this.viewmodel.stopClip();
     const empty = s.mag === 0 && !s.chambered;
-    this.viewmodel.play(empty ? 'reloadEmpty' : 'reloadTac');
+    this._playReload(empty ? 'reloadEmpty' : 'reloadTac');
     this._pendingReloadEmpty = empty;
     return true;
+  }
+
+  /** A reload clip at the kit's speed (fast mag 0.72x the time, extended 1.12x). */
+  _playReload(name) {
+    const d = this.viewmodel.play(name);
+    const m = this.state?.def.reloadMult ?? 1;
+    if (m !== 1) this.viewmodel.clipRate = 1 / m;
+    return d * m;
+  }
+
+  /* ====================================================================== */
+  /*  GUNSMITH                                                              */
+  /* ====================================================================== */
+
+  /**
+   * Put a kit on a weapon (EXPANSION §10.1/§10.2): `{ optic, muzzle, barrel,
+   * underbarrel, magazine, laser, ammo }`, ids or null. Disallowed ids are
+   * dropped. Rebuilds the modded def, the recoil pattern and the meshes.
+   * Ammunition in the magazine is clamped to the new capacity (no refill).
+   * @returns {object|null} the resolved kit
+   */
+  setKit(id, kit) {
+    const st = this.states.get(id);
+    if (!st) return null;
+    const resolved = resolveKit(st.base, kit);
+    const def = isStockKit(resolved) ? { ...st.base, recoil: st.base.recoil, kit: resolved, ammo: AMMO.fmj } : applyKit(st.base, resolved);
+    const entry = st.entry ?? this.viewmodel.weapons.get(st.base.model);
+    if (entry) this.gunsmith.apply(entry, def);
+    const recoilChanged = def.recoil !== st.def.recoil && JSON.stringify(def.recoil) !== JSON.stringify(st.def.recoil);
+    st.def = def;
+    st.kit = resolved;
+    if (recoilChanged) st.pattern = buildRecoilPattern(def, Rng);
+    if (st.mag > def.magSize) {
+      st.reserve += st.mag - def.magSize;
+      st.mag = def.magSize;
+    }
+    return { ...resolved };
+  }
+
+  /** One slot of a weapon's kit (debug: FLOP.kit). Weapon defaults to the active one. */
+  setAttachment(slot, attId, weaponId = this.activeId) {
+    const st = this.states.get(weaponId);
+    if (!st) return null;
+    const k = { ...st.kit };
+    if (slot === 'ammo') k.ammo = attId ?? 'fmj';
+    else if (SLOTS.includes(slot)) k[slot] = attId ?? null;
+    else return null;
+    const out = this.setKit(weaponId, k);
+    this._syncLoadoutKits();
+    return out;
+  }
+
+  _syncLoadoutKits() {
+    const L = this.loadout;
+    if (L.primary) L.primaryKit = { ...this.states.get(L.primary).kit };
+    if (L.secondary) L.secondaryKit = { ...this.states.get(L.secondary).kit };
+  }
+
+  /** The kit currently on a weapon. */
+  kitOf(id = this.activeId) {
+    const st = this.states.get(id);
+    return st ? { ...st.kit } : null;
+  }
+
+  /**
+   * Menu data for the GUNSMITH page: slots with their options (stock first),
+   * and the ammo list. Allocates; menu-time only.
+   */
+  gunsmithInfo(id) {
+    const st = this.states.get(id);
+    if (!st) return null;
+    return { id, slots: slotOptions(st.base) };
+  }
+
+  /** Stat bars for a weapon under a kit: { base: [...], kit: [...] } (statsOf rows). */
+  kitStats(id, kit) {
+    const st = this.states.get(id);
+    if (!st) return null;
+    const resolved = resolveKit(st.base, kit);
+    return { base: statsOf(st.base), kit: statsOf(applyKit(st.base, resolved)), kit2: resolved };
+  }
+
+  /** `window.FLOP.kit(slot, id)` / `FLOP.ammo(id)`: the game owns window.FLOP, so re-attach. */
+  _installFlopHook() {
+    try {
+      const F = typeof window !== 'undefined' ? window.FLOP : null;
+      if (!F || F.kit) return;
+      F.kit = (slot, id, weapon) => (slot === undefined ? this.kitOf() : this.setAttachment(slot, id ?? null, weapon));
+      F.ammo = (id, weapon) => this.setAttachment('ammo', id ?? 'fmj', weapon);
+      F.attachments = Object.keys(ATTACHMENTS);
+      F.ammoTypes = AMMO_IDS.slice();
+    } catch {
+      /* no window */
+    }
   }
 
   inspect() {
@@ -617,6 +743,7 @@ export class WeaponSystem {
         falloffExp: def.falloffExp,
         maxRange: def.maxRange,
         weapon: def,
+        ammo: def.ammo ?? AMMO.fmj,
         tracer: def.tracerEvery > 0 && (pellets > 1 ? k < 2 : this.stats.fired % def.tracerEvery === 0),
       });
     }
@@ -806,7 +933,7 @@ export class WeaponSystem {
       return;
     }
     const more = s.mag < s.def.magSize && s.reserve > 0 && !this._shellStop;
-    vm.play(more ? 'reloadShell' : 'reloadEnd');
+    this._playReload(more ? 'reloadShell' : 'reloadEnd');
   }
 
   /**
@@ -847,8 +974,8 @@ export class WeaponSystem {
     if (!proxy) return;
     const mag = w.parts.magazine;
     mag.updateMatrixWorld();
-    proxy.group.position.setFromMatrixPosition(mag.matrixWorld);
-    proxy.group.quaternion.setFromRotationMatrix(mag.matrixWorld);
+    // decompose, so an extended magazine (scaled, attachments.js) drops extended
+    mag.matrixWorld.decompose(proxy.group.position, proxy.group.quaternion, proxy.group.scale);
     proxy.group.visible = true;
     // Magazine geometry hangs below its origin, so bias the body centre down.
     const half = w.magLen * 0.45;
@@ -981,10 +1108,11 @@ export class WeaponSystem {
     const cfg = ctx.config;
     const sc = def.scope;
     cfg.adsFovScale = sc ? Math.min(1, sc.fov / Math.max(1, cfg.fov)) : def.adsFov ?? this._baseAdsFov;
-    cfg.adsSensScale = sc ? sc.sens : this._baseAdsSens;
+    cfg.adsSensScale = sc ? sc.sens : this._baseAdsSens * (def.adsSens ?? 1);
     this.moveSpeedScale = def.moveMult ?? 1;
     player?.setMoveSpeedScale?.(this.moveSpeedScale);
     this.rockets?.update(dt);
+    if ((ctx.time.frame & 63) === 0) this._installFlopHook();
 
     this.stats.live = this.sim.stats.live;
     this.stats.fired = this.sim.stats.fired;
@@ -1036,6 +1164,7 @@ export class WeaponSystem {
       this.debugMode !== null || (!this._uiScreen && !(gs === 'attract' || gs === 'down' || gs === 'over'));
     vm.update(dt, this._state);
     this._updateOverlays(dt);
+    this.gunsmith?.update(this.physics, vm.anchor.visible && !vm.scopeHide);
 
     // ---- muzzle flash / audio, now that the pose is final ---------------
     if (this._pendingShots > 0) {
@@ -1054,6 +1183,9 @@ export class WeaponSystem {
       fp.flashScale = def.flashScale;
       fp.intensity = def.flashIntensity;
       fp.light = def.flashLight;
+      fp.ammo = def.ammo ?? AMMO.fmj;
+      fp.kit = def.kit ?? null;
+      fp.laser = def.laser === true;
       for (let i = 0; i < this._pendingShots; i++) {
         ctx.events.emit('weapon:fire', this._firePayload);
       }
@@ -1333,7 +1465,7 @@ export class WeaponSystem {
   loadoutInfo() {
     const out = [];
     for (const id of WEAPON_ORDER) {
-      const d = this.states.get(id)?.def ?? WEAPON_DEFS[id];
+      const d = this.states.get(id)?.base ?? WEAPON_DEFS[id];
       out.push({
         id,
         displayName: d.displayName,
@@ -1348,6 +1480,9 @@ export class WeaponSystem {
         damage: d.projectile ? d.projectile.damage : d.damage * (d.pellets ?? 1),
         pellets: d.pellets ?? 1,
         reserve: d.reserve,
+        // GUNSMITH: which slots this gun takes (stat bars via kitStats()).
+        allows: d.allows ?? {},
+        ammoTypes: d.projectile ? [] : AMMO_IDS.slice(),
       });
     }
     return out;
@@ -1373,6 +1508,7 @@ export class WeaponSystem {
     for (const off of this._off ?? []) off();
     this._off_gs?.();
     this.rockets?.dispose();
+    this.gunsmith?.dispose();
     this.equipment?.dispose();
     this.overlays?.dispose();
     this.sim?.clear();

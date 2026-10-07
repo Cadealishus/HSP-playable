@@ -713,7 +713,11 @@ export class PhysicsSystem {
    * Returns an array of impact records (reused; copy what you keep).
    */
   fireBullet(opts) {
+    // EXPANSION 10.2: the shot's `ammo` / `weapon` / `shooter` are stamped on every
+    // impact and damage:dealt it produces (emitImpact reads them synchronously).
+    this._shot = opts;
     const n = this.ballistics.fire({ rng: this.rng, ...opts });
+    this._shot = null;
     const res = this._impactResult;
     res.length = 0;
     for (let i = 0; i < n; i++) res.push(this.ballistics.impacts[i]);
@@ -734,15 +738,29 @@ export class PhysicsSystem {
     p.body = hit?.body ?? null;
     p.actor = hit?.actor ?? null;
     p.part = hit?.part ?? null;
+    const shot = this._shot;
+    p.ammo = shot?.ammo ?? 'fmj';
+    p.weapon = shot?.weapon ?? null;
     this.ctx.events.emit('bullet:impact', p);
 
     if (p.actor && !exit) {
+      // `ammo` (AMMO def or id, src/weapons/ammo.js) and `zone` ('head' | 'torso'
+      // | 'limb') feed src/combat/armor.js resolveDamage. A round with no
+      // ammo named (AI fire) is FMJ.
+      const part = hit?.part ?? null;
+      const zone = part === 'head' || part === 'neck' ? 'head'
+        : part && /arm|leg|hand|foot|thigh|shin|calf|limb/i.test(part) ? 'limb' : 'torso';
       this.ctx.events.emit('damage:dealt', {
         target: p.actor,
         amount: damage * (hit?.collider?.damageScale ?? 1),
-        headshot: hit?.part === 'head',
+        headshot: part === 'head',
         killed: false,
         point: p.point,
+        part,
+        zone,
+        ammo: shot?.ammo ?? 'fmj',
+        weapon: shot?.weapon ?? null,
+        shooter: shot?.shooter ?? null,
       });
     }
   }

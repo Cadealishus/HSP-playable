@@ -201,18 +201,21 @@ export function buildPistol(opts = {}) {
   body.add(spring, 'steel_bright', { y: bore - 0.0125, z: zSlideFront + 0.0025 });
   spring.dispose();
 
+  // The machine pistol's compensator is its own assembly: a muzzle attachment
+  // (attachments.js) threads onto the barrel in its place.
+  const stockMuzzle = new Assembly('pistol-muzzle');
   if (auto) {
     // Two-port compensator clamped to the dust cover, and the auto selector.
     const comp = box(slideW - 0.001, slideH + 0.004, 0.032, 0.0022, 2);
-    body.add(comp, 'steel_black', { y: bore - 0.002, z: zSlideFront - 0.016 });
+    stockMuzzle.add(comp, 'steel_black', { y: bore - 0.002, z: zSlideFront - 0.016 });
     comp.dispose();
     for (const dz of [-0.008, -0.02]) {
       const cut = box(0.012, 0.004, 0.006, 0.0008, 1);
-      body.add(cut, 'cavity', { y: bore + slideH * 0.5 + 0.0012, z: zSlideFront + dz });
+      stockMuzzle.add(cut, 'cavity', { y: bore + slideH * 0.5 + 0.0012, z: zSlideFront + dz });
       cut.dispose();
     }
     const cb = tubeZ(0.0052, 0.0036, 0.034, 12, 0.0002);
-    body.add(cb, 'cavity', { y: bore, z: zSlideFront - 0.016 });
+    stockMuzzle.add(cb, 'cavity', { y: bore, z: zSlideFront - 0.016 });
     cb.dispose();
     const sel = box(0.004, 0.009, 0.012, 0.001, 1);
     body.add(sel, 'steel', { x: -slideW * 0.5 - 0.001, y: bore - 0.004, z: zSlideRear - 0.02 });
@@ -278,8 +281,13 @@ export function buildPistol(opts = {}) {
     label: auto ? 'WREN 9' : 'P19 SIDEARM',
     fxClass: 'pistol',
     body,
-    moving: { magazine, trigger, slide: slideAsm },
+    moving: auto ? { magazine, trigger, slide: slideAsm, stockMuzzle } : { magazine, trigger, slide: slideAsm },
     nodes: {
+      /** GUNSMITH mount points (attachments.js): the barrel crown and the dust-cover rail. */
+      mounts: {
+        muzzle: { y: bore, z: zSlideFront - 0.0005, r: 0.0058, pistol: true },
+        side: { x: 0, y: bore - 0.0235, z: -0.086, s: 0 },
+      },
       muzzle: [0, bore, zSlideFront - (auto ? 0.034 : 0.004)],
       chamber: [0, bore, zSlideRear - 0.05],
       eject: [slideW * 0.5 + 0.004, bore + 0.005, zSlideRear - 0.05],

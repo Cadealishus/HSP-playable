@@ -29,6 +29,7 @@ class Projectile {
     this.age = 0;
     this.dropoff = 0.5;
     this.weapon = null;
+    this.ammo = null;
     this.mask = undefined;
   }
 }
@@ -43,7 +44,14 @@ export class ProjectileSim {
     this._hitDir = new THREE.Vector3();
     this._tracerFrom = new THREE.Vector3();
     this._tracerTo = new THREE.Vector3();
-    this._tracerPayload = { from: this._tracerFrom, to: this._tracerTo, speed: 800, weapon: null };
+    // `warm` / `ammo` (GUNSMITH): the fx tracer's tint for the round's ammo type.
+    this._tracerPayload = { from: this._tracerFrom, to: this._tracerTo, speed: 800, weapon: null, warm: 1, ammo: null };
+    // Reused fireBullet options (no per-hit allocation). `ammo` / `weapon` /
+    // `shooter` ride into physics so every damage:dealt names the round (10.2).
+    this._hitOpts = {
+      origin: null, dir: null, maxDist: 0, damage: 0, penetration: 1, dropoff: 1, mask: undefined,
+      ammo: null, weapon: null, shooter: null,
+    };
     this.stats = { fired: 0, impacts: 0, live: 0 };
   }
 
@@ -84,6 +92,7 @@ export class ProjectileSim {
     p.travelled = 0;
     p.age = 0;
     p.weapon = o.weapon ?? null;
+    p.ammo = o.ammo ?? null;
     p.mask = o.mask;
     this.live.push(p);
     this.stats.fired++;
@@ -104,6 +113,8 @@ export class ProjectileSim {
     this._tracerTo.copy(p.pos).addScaledVector(p.dir, dist);
     this._tracerPayload.speed = speed;
     this._tracerPayload.weapon = p.weapon;
+    this._tracerPayload.ammo = p.ammo;
+    this._tracerPayload.warm = p.ammo?.tracer?.warm ?? 1;
     this.ctx.events.emit('bullet:tracer', this._tracerPayload);
   }
 
@@ -131,15 +142,18 @@ export class ProjectileSim {
           // `bullet:impact` for every entry and exit face it goes through.
           const range01 = Math.min(1, p.travelled / p.maxRange);
           const falloff = 1 - (1 - p.dropoff) * Math.pow(range01, p.falloffExp);
-          phys.fireBullet({
-            origin: p.prev,
-            dir: this._hitDir,
-            maxDist: Math.min(24, Math.max(1.5, p.maxRange - p.travelled + segLen)),
-            damage: p.damage * falloff,
-            penetration: p.penetration,
-            dropoff: 1,
-            mask: p.mask,
-          });
+          const ho = this._hitOpts;
+          ho.origin = p.prev;
+          ho.dir = this._hitDir;
+          ho.maxDist = Math.min(24, Math.max(1.5, p.maxRange - p.travelled + segLen));
+          ho.damage = p.damage * falloff;
+          ho.penetration = p.penetration;
+          ho.dropoff = 1;
+          ho.mask = p.mask;
+          ho.ammo = p.ammo ?? 'fmj';
+          ho.weapon = p.weapon;
+          ho.shooter = 'player';
+          phys.fireBullet(ho);
           this.stats.impacts++;
           this._retire(p);
           this.live.splice(i, 1);
@@ -158,6 +172,7 @@ export class ProjectileSim {
   _retire(p) {
     p.alive = false;
     p.weapon = null;
+    p.ammo = null;
   }
 
   clear() {
