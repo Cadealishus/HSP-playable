@@ -1145,6 +1145,12 @@ const CSS = `
 .ow-mh-brow .n { flex:1; overflow:hidden; text-overflow:ellipsis; }
 .ow-mh-brow .s { font-family: var(--fd); font-size: max(12px, calc(15px * var(--k))); color: var(--ink); }
 .ow-mh-brow.me, .ow-mh-brow.me .s { color: var(--acc); }
+.ow-mr-standings { display:flex; flex-direction:column; gap:4px; margin: 10px 0 4px; }
+.ow-mr-srow { display:flex; gap:14px; align-items:baseline; font-family: var(--fd); font-weight:600; letter-spacing:.12em; color: var(--ink-2); font-size: 15px; }
+.ow-mr-srow .p { color: var(--ink-3); width: 34px; }
+.ow-mr-srow .n { flex:1; }
+.ow-mr-srow .s { color: var(--ink); font-size: 18px; }
+.ow-mr-srow.me, .ow-mr-srow.me .s { color: var(--acc); }
 
 .ow-mh-respawn { position:absolute; left:50%; top:38%; transform: translate(-50%,-50%); text-align:center;
   padding: calc(var(--u) * 5) calc(var(--u) * 24);
