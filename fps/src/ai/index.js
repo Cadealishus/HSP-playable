@@ -67,6 +67,9 @@ import { PlayerProxy, normTeam, isAlly, isEnemy, relation, setRelation as setTea
 import { BOT_DAMAGE_SCALE, roleFor, modelFor, resolveWeapon } from './roles.js';
 import { Rng } from '../core/rng.js';
 import { armorForRole, ARMOR } from '../combat/armor.js';
+
+/** Armour a dropped plate restores (player.addArmor: vest first, then helmet). */
+const PLATE_HP = 60;
 import { IffTags } from './iff.js';
 import { Comms } from './comms.js';
 import { Projectiles } from './projectiles.js';
@@ -920,8 +923,74 @@ export class AiSystem {
   /** Called by Agent.die(): drop the IFF tag, free any claims. */
   onAgentDeath(a) {
     this.iff.detach(a);
+    // a heavy hostile drops a spare armour plate (EXPANSION §10.3)
+    if (a.team === 'hostile' && a.armor?.vest?.tier === 'heavy' && !a.isMannequin && !a.isNetPlayer) this._dropPlate(a);
     // a dead hostage-taker lets go
     if (a.holding) a.holding.release?.();
+  }
+
+  /**
+   * Armour plate pickups: a heavy bot's spare plate lands where he fell. Walk
+   * over it to restore up to PLATE_HP of armour (player.addArmor). Pooled (4),
+   * drawn with the soldier laminate material so it compiles nothing new, and
+   * gone after 25 s.
+   */
+  _dropPlate(a) {
+    if (!this._plates) {
+      this._plates = [];
+      this._plateGeo = new THREE.BoxGeometry(0.25, 0.03, 0.31);
+      this._platePayload = { amount: 0, position: new THREE.Vector3() };
+    }
+    const def = a.def;
+    const idx = def?.geometry?.groups?.find((g) => def.materials[g.materialIndex]?.name?.includes?.('plate'))?.materialIndex;
+    const mat = def?.materials?.[idx ?? 0] ?? def?.materials?.[0];
+    let pk = this._plates.find((x) => !x.live);
+    if (!pk) {
+      if (this._plates.length < 4) {
+        pk = { mesh: new THREE.Mesh(this._plateGeo, mat), live: false, t: 0, y: 0 };
+        pk.mesh.castShadow = true;
+        pk.mesh.userData.owNoShadow = true;
+        this.root.add(pk.mesh);
+        this._plates.push(pk);
+      } else {
+        pk = this._plates.reduce((o, x) => (x.t > o.t ? x : o), this._plates[0]);
+      }
+    }
+    pk.mesh.material = mat;
+    pk.live = true;
+    pk.t = 0;
+    const gy = this.groundAt(a.position.x + 0.4, a.position.z, a.position.y + 1.5);
+    pk.y = (Number.isFinite(gy) ? gy : a.position.y) + 0.02;
+    pk.mesh.position.set(a.position.x + 0.4, pk.y, a.position.z);
+    pk.mesh.rotation.set(0, a.yaw + 0.6, 0);
+    pk.mesh.visible = true;
+  }
+
+  _updatePlates(dt) {
+    const list = this._plates;
+    if (!list) return;
+    const player = this.ctx.peek('player');
+    const pp = player?.feetPosition ?? player?.position;
+    for (const pk of list) {
+      if (!pk.live) continue;
+      pk.t += dt;
+      pk.mesh.rotation.y += dt * 0.6;
+      pk.mesh.position.y = pk.y + 0.06 + Math.sin(pk.t * 2.4) * 0.025;
+      if (pk.t > 25) { pk.live = false; pk.mesh.visible = false; continue; }
+      if (!pp || player.dead || !player.addArmor) continue;
+      const dx = pp.x - pk.mesh.position.x, dz = pp.z - pk.mesh.position.z, dy = pp.y - pk.y;
+      if (dx * dx + dz * dz < 1.4 && Math.abs(dy) < 1.2) {
+        const got = player.addArmor(PLATE_HP);
+        if (got > 0) {
+          pk.live = false;
+          pk.mesh.visible = false;
+          const e = this._platePayload;
+          e.amount = got;
+          e.position.copy(pk.mesh.position);
+          this.ctx.events.emit('armor:pickup', e);
+        }
+      }
+    }
   }
 
   /**
@@ -1819,6 +1888,7 @@ export class AiSystem {
     }
 
     this._syncActors(ctx);
+    this._updatePlates(ctx.time.dt);
     if (ctx.input?.pressed?.('F3')) this.debug.toggle();
     this._installFlopHook();
     this._rays = this.rayBudget;
@@ -2396,6 +2466,7 @@ export class AiSystem {
     }
     this._grenades.length = 0;
     this._grenadeGeo?.dispose();
+    this._plateGeo?.dispose();
     this._grenadeMat?.dispose();
     this.ground?.dispose();
     this.iff?.dispose();

@@ -667,6 +667,7 @@ export class AudioSystem {
     on('player:state', (p) => this._onPlayerState(p));
     on('player:slide', (p) => this._onSlide(p));
     on('armor:hit', (p) => this._onArmorHit(p));
+    on('armor:pickup', () => this._playDry('cloth', { level: 1.1 }, 'foley', 0.12));
     on('damage:dealt', (p) => this._onDamageDealt(p));
     on('damage:taken', (p) => this._onDamageTaken(p));
     on('actor:death', (p) => this._onDeath(p));
