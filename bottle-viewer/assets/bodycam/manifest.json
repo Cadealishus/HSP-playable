@@ -1,0 +1,87 @@
+{
+  "version": "bodycam",
+  "generatedAt": "2026-10-07T23:44:16.084Z",
+  "glbBytes": 11442896,
+  "textures": [
+    {
+      "name": "glass_albedo",
+      "role": "baseColor (dust)",
+      "width": 2048,
+      "height": 2048,
+      "pngBytes": 659859
+    },
+    {
+      "name": "glass_thickness",
+      "role": "thickness (KHR_materials_volume, G)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 8552
+    },
+    {
+      "name": "glass_normal",
+      "role": "normal (seams, stipple, waviness, scratches)",
+      "width": 2048,
+      "height": 2048,
+      "pngBytes": 1034482
+    },
+    {
+      "name": "glass_orm",
+      "role": "ORM (prints, smudge, dust, scuffs, scratches)",
+      "width": 2048,
+      "height": 2048,
+      "pngBytes": 783951
+    },
+    {
+      "name": "label_albedo",
+      "role": "baseColor + alpha (paper, print, stain, tear)",
+      "width": 2048,
+      "height": 512,
+      "pngBytes": 1353001
+    },
+    {
+      "name": "label_normal",
+      "role": "normal (fibres, ink, seam, worn edges)",
+      "width": 2048,
+      "height": 512,
+      "pngBytes": 2902141
+    },
+    {
+      "name": "label_orm",
+      "role": "ORM (paper vs ink, stain, wear)",
+      "width": 2048,
+      "height": 512,
+      "pngBytes": 786405
+    },
+    {
+      "name": "cap_albedo",
+      "role": "baseColor (dust in knurl valleys)",
+      "width": 1024,
+      "height": 1024,
+      "pngBytes": 898784
+    },
+    {
+      "name": "cap_normal",
+      "role": "normal (plastic grain, moulding rings, gate)",
+      "width": 1024,
+      "height": 1024,
+      "pngBytes": 1694266
+    },
+    {
+      "name": "cap_orm",
+      "role": "ORM (plastic, dusty valleys, handling shine)",
+      "width": 1024,
+      "height": 1024,
+      "pngBytes": 682896
+    }
+  ],
+  "notes": {
+    "method": "Procedural: LatheGeometry glass solid (128 radial) with wall thickening, deep punt; wrinkled label band (128×24); 360-segment knurled cap with tamper bridges; textures generated in-browser (2K glass/label, 1K cap) with seeded noise, fingerprint whorls, scratch strokes, fibre strokes and an alpha-cut tear.",
+    "material": "glTF PBR + KHR_materials_transmission / volume (thickness map, attenuation) / ior / dispersion / specular; alphaMode MASK on the label"
+  },
+  "pageTimings": {
+    "importMs": 81.0999999998603,
+    "buildMs": 3630.3000000000466,
+    "exportMs": 890.1999999999534,
+    "totalMs": 4601.59999999986
+  }
+}

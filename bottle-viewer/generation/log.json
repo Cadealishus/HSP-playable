@@ -1,0 +1,88 @@
+{
+  "runs": [
+    {
+      "version": "flopops",
+      "run": 1,
+      "startedAt": "2026-10-07T23:30:30.972Z",
+      "wallMs": 3759,
+      "pageTimings": {
+        "importMs": 229.19999999995343,
+        "buildMs": 2004.4000000000233,
+        "exportMs": 397.20000000006985,
+        "totalMs": 2630.8000000000466
+      },
+      "glbBytes": 2372824,
+      "consoleErrors": 1
+    },
+    {
+      "version": "flopops",
+      "run": 2,
+      "startedAt": "2026-10-07T23:31:10.757Z",
+      "wallMs": 3287,
+      "pageTimings": {
+        "importMs": 99.89999999990687,
+        "buildMs": 1903.9000000000233,
+        "exportMs": 276.5999999999767,
+        "totalMs": 2280.399999999907
+      },
+      "glbBytes": 2274068,
+      "consoleErrors": 1
+    },
+    {
+      "version": "aaa",
+      "run": 1,
+      "startedAt": "2026-10-07T23:32:12.025Z",
+      "wallMs": 2121,
+      "pageTimings": {
+        "importMs": 78.29999999993015,
+        "buildMs": 739.8000000000466,
+        "exportMs": 276.0999999999767,
+        "totalMs": 1094.1999999999534
+      },
+      "glbBytes": 2535600,
+      "consoleErrors": 1
+    },
+    {
+      "version": "bodycam",
+      "run": 1,
+      "startedAt": "2026-10-07T23:40:05.712Z",
+      "wallMs": 7594,
+      "pageTimings": {
+        "importMs": 78.5,
+        "buildMs": 4416.399999999907,
+        "exportMs": 1086.6999999999534,
+        "totalMs": 5581.59999999986
+      },
+      "glbBytes": 11731120,
+      "consoleErrors": 1
+    },
+    {
+      "version": "aaa",
+      "run": 2,
+      "startedAt": "2026-10-07T23:44:13.351Z",
+      "wallMs": 2214,
+      "pageTimings": {
+        "importMs": 74.39999999990687,
+        "buildMs": 758.9000000001397,
+        "exportMs": 233.5,
+        "totalMs": 1066.8000000000466
+      },
+      "glbBytes": 2475284,
+      "consoleErrors": 1
+    },
+    {
+      "version": "bodycam",
+      "run": 2,
+      "startedAt": "2026-10-07T23:44:16.084Z",
+      "wallMs": 6076,
+      "pageTimings": {
+        "importMs": 81.0999999998603,
+        "buildMs": 3630.3000000000466,
+        "exportMs": 890.1999999999534,
+        "totalMs": 4601.59999999986
+      },
+      "glbBytes": 11442896,
+      "consoleErrors": 1
+    }
+  ]
+}

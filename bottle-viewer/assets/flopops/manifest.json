@@ -1,0 +1,64 @@
+{
+  "version": "flopops",
+  "generatedAt": "2026-10-07T23:31:10.757Z",
+  "glbBytes": 2274068,
+  "textures": [
+    {
+      "name": "glass_normal",
+      "role": "normal (game bake)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 160273
+    },
+    {
+      "name": "glass_orm",
+      "role": "ORM (game bake)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 470631
+    },
+    {
+      "name": "cap_albedo",
+      "role": "baseColor (game bake)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 473849
+    },
+    {
+      "name": "cap_normal",
+      "role": "normal (game bake)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 719812
+    },
+    {
+      "name": "cap_orm",
+      "role": "ORM (game bake)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 425395
+    },
+    {
+      "name": "label_albedo",
+      "role": "baseColor (canvas, 300 px/m)",
+      "width": 128,
+      "height": 32,
+      "pngBytes": 510
+    }
+  ],
+  "notes": {
+    "method": "Procedural geometry (THREE.CylinderGeometry, game PB style) + the game's own TextureForge bakes (glass, rubber) read back to PNG; canvas label at game signage density.",
+    "bakeSizes": {
+      "glass": 512,
+      "rubber": 512
+    },
+    "glassAlbedo": "Game glass albedo bake (uniform dark grey) replaced by the shared bottle green so colours match; normal + ORM are the game bakes.",
+    "notReproduced": "Game runtime shader extension (detail/macro/weather noise) and per-vertex wear/grime masks."
+  },
+  "pageTimings": {
+    "importMs": 99.89999999990687,
+    "buildMs": 1903.9000000000233,
+    "exportMs": 276.5999999999767,
+    "totalMs": 2280.399999999907
+  }
+}

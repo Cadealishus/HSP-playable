@@ -1,0 +1,66 @@
+{
+  "version": "aaa",
+  "generatedAt": "2026-10-07T23:44:13.351Z",
+  "glbBytes": 2475284,
+  "textures": [
+    {
+      "name": "glass_normal",
+      "role": "normal (scratches, waviness)",
+      "width": 1024,
+      "height": 1024,
+      "pngBytes": 223729
+    },
+    {
+      "name": "glass_orm",
+      "role": "ORM (scuff rings, scratches)",
+      "width": 1024,
+      "height": 1024,
+      "pngBytes": 141108
+    },
+    {
+      "name": "label_albedo",
+      "role": "baseColor (paper + print)",
+      "width": 1024,
+      "height": 256,
+      "pngBytes": 234093
+    },
+    {
+      "name": "label_normal",
+      "role": "normal (paper grain, ink)",
+      "width": 1024,
+      "height": 256,
+      "pngBytes": 525525
+    },
+    {
+      "name": "label_orm",
+      "role": "ORM (paper vs ink sheen)",
+      "width": 1024,
+      "height": 256,
+      "pngBytes": 138474
+    },
+    {
+      "name": "cap_normal",
+      "role": "normal (moulded plastic grain)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 394679
+    },
+    {
+      "name": "cap_orm",
+      "role": "ORM (plastic, handling shine)",
+      "width": 512,
+      "height": 512,
+      "pngBytes": 119973
+    }
+  ],
+  "notes": {
+    "method": "Procedural: LatheGeometry glass solid with wall thickness (64 radial), knurled lathe cap + tamper ring, CylinderGeometry label band; textures generated in-browser with seeded fBm, scratch strokes and paper grain (1K).",
+    "material": "glTF PBR + KHR_materials_transmission / volume / ior / specular"
+  },
+  "pageTimings": {
+    "importMs": 74.39999999990687,
+    "buildMs": 758.9000000001397,
+    "exportMs": 233.5,
+    "totalMs": 1066.8000000000466
+  }
+}

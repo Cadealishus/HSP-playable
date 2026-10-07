@@ -1,0 +1,6 @@
+{
+  "_note": "Generator runs that failed before writing output (not in log.json). Recorded by hand from the session.",
+  "flopops": [{ "at": "2026-10-07T23:30Z", "cause": "driver static server wrote headers before reading a missing file (shared tooling bug, fixed)" }],
+  "aaa": [],
+  "bodycam": []
+}

@@ -1,0 +1,17 @@
+three 0.180.0 (copied from the game's fps/node_modules)
+controls/OrbitControls.js
+environments/RoomEnvironment.js
+exporters/GLTFExporter.js
+geometries/RoundedBoxGeometry.js
+loaders/GLTFLoader.js
+postprocessing/EffectComposer.js
+postprocessing/MaskPass.js
+postprocessing/OutputPass.js
+postprocessing/Pass.js
+postprocessing/RenderPass.js
+postprocessing/ShaderPass.js
+postprocessing/UnrealBloomPass.js
+shaders/CopyShader.js
+shaders/LuminosityHighPassShader.js
+shaders/OutputShader.js
+utils/BufferGeometryUtils.js

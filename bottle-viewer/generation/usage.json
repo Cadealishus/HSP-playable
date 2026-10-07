@@ -1,0 +1,167 @@
+{
+  "tasks": [
+    {
+      "id": "shared",
+      "label": "Shared setup (spec, texture kit, geometry kit, generator driver)",
+      "method": "Hand-written JavaScript tooling; three.js r180 vendored from the game",
+      "tools": "Claude Code (file writes, shell), Node 22, headless Chromium (SwiftShader)",
+      "authoringWallMs": 378000,
+      "generatorRuns": null,
+      "revisions": null,
+      "lastRunWallMs": null,
+      "tokens": "Not available"
+    },
+    {
+      "id": "flopops",
+      "label": "Bottle 1: Current FLOP OPS style",
+      "method": "Code-built CylinderGeometry pieces + the game's own TextureForge bakes read back to PNG",
+      "tools": "tools/gen/build-flopops.js, game src/materials (read-only), GLTFExporter",
+      "authoringWallMs": 118000,
+      "generatorRuns": 3,
+      "successfulRuns": 2,
+      "failedRuns": 1,
+      "revisions": 2,
+      "lastRunWallMs": 3287,
+      "runs": [
+        {
+          "version": "flopops",
+          "run": 1,
+          "startedAt": "2026-10-07T23:30:30.972Z",
+          "wallMs": 3759,
+          "pageTimings": {
+            "importMs": 229.19999999995343,
+            "buildMs": 2004.4000000000233,
+            "exportMs": 397.20000000006985,
+            "totalMs": 2630.8000000000466
+          },
+          "glbBytes": 2372824,
+          "consoleErrors": 1
+        },
+        {
+          "version": "flopops",
+          "run": 2,
+          "startedAt": "2026-10-07T23:31:10.757Z",
+          "wallMs": 3287,
+          "pageTimings": {
+            "importMs": 99.89999999990687,
+            "buildMs": 1903.9000000000233,
+            "exportMs": 276.5999999999767,
+            "totalMs": 2280.399999999907
+          },
+          "glbBytes": 2274068,
+          "consoleErrors": 1
+        }
+      ],
+      "tokens": "Not available",
+      "credits": "Not available",
+      "cost": "Not available"
+    },
+    {
+      "id": "aaa",
+      "label": "Bottle 2: Call of Duty-inspired",
+      "method": "Code-built lathe solids + procedural 1K textures (seeded noise, scratch strokes, paper grain)",
+      "tools": "tools/gen/build-aaa.js, tools/gen/tex.js, GLTFExporter",
+      "authoringWallMs": 109000,
+      "generatorRuns": 2,
+      "successfulRuns": 2,
+      "failedRuns": 0,
+      "revisions": 1,
+      "lastRunWallMs": 2214,
+      "runs": [
+        {
+          "version": "aaa",
+          "run": 1,
+          "startedAt": "2026-10-07T23:32:12.025Z",
+          "wallMs": 2121,
+          "pageTimings": {
+            "importMs": 78.29999999993015,
+            "buildMs": 739.8000000000466,
+            "exportMs": 276.0999999999767,
+            "totalMs": 1094.1999999999534
+          },
+          "glbBytes": 2535600,
+          "consoleErrors": 1
+        },
+        {
+          "version": "aaa",
+          "run": 2,
+          "startedAt": "2026-10-07T23:44:13.351Z",
+          "wallMs": 2214,
+          "pageTimings": {
+            "importMs": 74.39999999990687,
+            "buildMs": 758.9000000001397,
+            "exportMs": 233.5,
+            "totalMs": 1066.8000000000466
+          },
+          "glbBytes": 2475284,
+          "consoleErrors": 1
+        }
+      ],
+      "tokens": "Not available",
+      "credits": "Not available",
+      "cost": "Not available"
+    },
+    {
+      "id": "bodycam",
+      "label": "Bottle 3: Bodycam-inspired",
+      "method": "Code-built lathe solids + procedural 2K textures (fingerprints, dust, fibres, alpha tear, thickness map)",
+      "tools": "tools/gen/build-bodycam.js, tools/gen/tex.js, GLTFExporter",
+      "authoringWallMs": 147000,
+      "generatorRuns": 2,
+      "successfulRuns": 2,
+      "failedRuns": 0,
+      "revisions": 1,
+      "lastRunWallMs": 6076,
+      "runs": [
+        {
+          "version": "bodycam",
+          "run": 1,
+          "startedAt": "2026-10-07T23:40:05.712Z",
+          "wallMs": 7594,
+          "pageTimings": {
+            "importMs": 78.5,
+            "buildMs": 4416.399999999907,
+            "exportMs": 1086.6999999999534,
+            "totalMs": 5581.59999999986
+          },
+          "glbBytes": 11731120,
+          "consoleErrors": 1
+        },
+        {
+          "version": "bodycam",
+          "run": 2,
+          "startedAt": "2026-10-07T23:44:16.084Z",
+          "wallMs": 6076,
+          "pageTimings": {
+            "importMs": 81.0999999998603,
+            "buildMs": 3630.3000000000466,
+            "exportMs": 890.1999999999534,
+            "totalMs": 4601.59999999986
+          },
+          "glbBytes": 11442896,
+          "consoleErrors": 1
+        }
+      ],
+      "tokens": "Not available",
+      "credits": "Not available",
+      "cost": "Not available"
+    },
+    {
+      "id": "viewer",
+      "label": "Viewer, benchmark and report (shared)",
+      "method": "Hand-written three.js app",
+      "tools": "Claude Code",
+      "authoringWallMs": 312000,
+      "generatorRuns": null,
+      "revisions": null,
+      "lastRunWallMs": null,
+      "tokens": "Not available"
+    }
+  ],
+  "notes": [
+    "Authoring wall time is measured between timestamp markers written by the generating session before and after each task (generation/authoring-events.txt). It includes the model's writing and thinking time between those markers, so it measures elapsed time, not cost or compute.",
+    "Generator runs are counted from generation/log.json (successful) plus generation/failed-runs.json (failed); each run after the first is counted as a revision attempt. \"Last run wall time\" is the Node-measured time for that run, from launching Chromium to writing the files.",
+    "Token counts, credits and monetary cost were not exposed to the generating session (no account usage API was available), so they are \"Not available\". Enter real values from your account in the Generation usage tab; they are stored in your browser and included in the exported report.",
+    "No AI image or 3D generation service was used; all three bottles are procedural code."
+  ]
+}

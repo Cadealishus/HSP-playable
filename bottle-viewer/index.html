@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bottle Realism Comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a range bench. Three identical bays across the top, instruments below. One committed dark look (a 3D lookdev tool), every colour set explicitly. */
+:root {
+  color-scheme: dark;
+  --bg: #121416;
+  --bay: #1a1d20;
+  --line: #2b3035;
+  --fg: #e6e2d8;
+  --muted: #9a9d9f;
+  --accent: #e2a23b;      /* FLOP OPS amber */
+  --measured: #6fc28a;
+  --estimate: #e2a23b;
+  --na: #8a8f94;
+  --bad: #e06a5a;
+  --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --body: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { margin: 0; font: 15px/1.5 var(--body); padding-inline: 16px; padding-block: 12px 40px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: 0.02em; text-wrap: balance; margin: 0; }
+h1 { font-size: 26px; text-transform: uppercase; letter-spacing: 0.06em; }
+h2 { font-size: 20px; text-transform: uppercase; letter-spacing: 0.05em; }
+h3 { font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+p { margin: 0; max-width: 72ch; }
+.wrap { max-width: 1680px; margin-inline: auto; display: grid; gap: 14px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+header.top p { color: var(--muted); font-size: 14px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 12px; background: var(--bay); border: 1px solid var(--line); border-radius: 6px; }
+.bar label, .ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg); white-space: nowrap; }
+.bar .sep { width: 1px; height: 22px; background: var(--line); }
+select, button, input[type=number], input[type=text] { font: 13px var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; }
+button { cursor: pointer; font-family: var(--display); font-size: 14px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 12px; }
+button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=checkbox] { accent-color: var(--accent); }
+.bays { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.bays.inspect { grid-template-columns: minmax(0, 1fr); }
+.bay { position: relative; background: var(--bay); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; display: grid; }
+.bay canvas { display: block; width: 100%; height: auto; touch-action: none; }
+.bay .tag { position: absolute; left: 10px; top: 8px; font-family: var(--display); font-size: 17px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; text-shadow: 0 1px 3px rgba(0,0,0,0.7); pointer-events: none; }
+.bay .sub { position: absolute; left: 10px; bottom: 8px; right: 10px; font-family: var(--mono); font-size: 11px; color: var(--fg); opacity: 0.85; text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none; }
+.bay .status { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono); font-size: 12px; color: var(--muted); pointer-events: none; }
+.bay .cam { position: absolute; right: 10px; top: 8px; font-family: var(--mono); font-size: 11px; color: var(--bad); text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); }
+.tabs button[aria-selected=true] { color: var(--fg); border-bottom-color: var(--accent); }
+.panel { display: grid; gap: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); }
+.pill { display: inline-block; font-family: var(--mono); font-size: 10.5px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; letter-spacing: 0.02em; text-transform: uppercase; vertical-align: 1px; }
+.pill.m { color: var(--measured); } .pill.e { color: var(--estimate); } .pill.n { color: var(--na); } .pill.s { color: var(--muted); }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--display); font-weight: 600; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: var(--bay); }
+td.num { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.note { font-size: 13px; color: var(--muted); max-width: 100ch; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.card { background: var(--bay); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.texgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.tex { display: grid; gap: 4px; font-size: 11.5px; font-family: var(--mono); color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.tex canvas { width: 100%; height: auto; image-rendering: pixelated; background: #000; border: 1px solid var(--line); }
+.progress { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+#benchHost canvas { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+.reco { display: grid; gap: 10px; }
+.reco b { font-family: var(--display); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.manual input { width: 9em; }
+@media (max-width: 900px) { .bays, .grid3 { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+<div class="wrap">
+  <header class="top">
+    <h1>Bottle Realism Comparison</h1>
+    <p>One reference bottle built three ways for FLOP OPS: the game's current prop style, a modern AAA prop, and a bodycam-grade photoreal prop. Same shape, size, colours, cap, label and fill level.</p>
+  </header>
+
+  <div class="bar" role="toolbar" aria-label="View controls">
+    <label for="layout">View
+      <select id="layout">
+        <option value="side">Side by side</option>
+        <option value="flopops">Inspect: Current</option>
+        <option value="aaa">Inspect: AAA</option>
+        <option value="bodycam">Inspect: Bodycam</option>
+      </select>
+    </label>
+    <label for="preset">Lighting
+      <select id="preset">
+        <option value="studio">Neutral studio</option>
+        <option value="outdoor">Bright outdoor</option>
+        <option value="indoor">Dim indoor</option>
+      </select>
+    </label>
+    <label for="channel">Shading
+      <select id="channel">
+        <option value="final">Final render</option>
+        <option value="albedo">Base colour only</option>
+        <option value="normal">Normal map</option>
+        <option value="orm">ORM (R occl · G rough · B metal)</option>
+        <option value="uv">UV checker</option>
+      </select>
+    </label>
+    <span class="sep" aria-hidden="true"></span>
+    <label for="auto"><input type="checkbox" id="auto"> Auto-rotate</label>
+    <label for="wire"><input type="checkbox" id="wire"> Wireframe</label>
+    <label for="post"><input type="checkbox" id="post" checked> Post-processing</label>
+    <label for="bodycam"><input type="checkbox" id="bodycam"> Bodycam camera effect</label>
+    <span class="sep" aria-hidden="true"></span>
+    <button id="reset" type="button">Reset camera</button>
+    <button id="shot" type="button">Screenshot</button>
+  </div>
+
+  <div class="bays" id="bays"></div>
+  <p class="note" id="fairness"></p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="metrics" id="tab-metrics" type="button">Metrics</button>
+    <button role="tab" aria-selected="false" data-tab="bench" id="tab-bench" type="button">Benchmark</button>
+    <button role="tab" aria-selected="false" data-tab="textures" id="tab-textures" type="button">Textures</button>
+    <button role="tab" aria-selected="false" data-tab="gen" id="tab-gen" type="button">Generation usage</button>
+    <button role="tab" aria-selected="false" data-tab="report" id="tab-report" type="button">Report</button>
+  </div>
+
+  <div class="legend"><span><span class="pill m">measured</span> measured in this browser</span><span><span class="pill e">estimate</span> calculated, not measured</span><span><span class="pill n">n/a</span> not exposed by this browser or tool</span><span><span class="pill s">static</span> read from the asset file</span></div>
+
+  <section class="panel" id="panel-metrics"></section>
+  <section class="panel" id="panel-bench" hidden></section>
+  <section class="panel" id="panel-textures" hidden></section>
+  <section class="panel" id="panel-gen" hidden></section>
+  <section class="panel" id="panel-report" hidden></section>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
