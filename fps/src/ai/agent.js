@@ -858,6 +858,36 @@ export class Agent {
       if (want === 0) want = this.desiredSpeed * 0.35;
     }
 
+    // fire on the ground (a molotov, EXPANSION §10.4): steer around it, and
+    // walk out of it if already standing in it. One query a frame, cheap
+    // (weapons.hazardAt scans a handful of fire slots).
+    const wpn = this._wpn ?? (this._wpn = this.ctx.peek('weapons') ?? null);
+    if (wpn?.hazardAt) {
+      const sx = this._steer.x, sz = this._steer.z;
+      const sl = Math.hypot(sx, sz);
+      const probe = this._v.set(this.position.x + (sl > 1e-3 ? (sx / sl) * 1.1 : 0), this.position.y, this.position.z + (sl > 1e-3 ? (sz / sl) * 1.1 : 0));
+      const hz = wpn.hazardAt(probe, this.radius + 0.35) ?? wpn.hazardAt(this.position, this.radius + 0.2);
+      if (hz) {
+        let ax = this.position.x - hz.pos.x;
+        let az = this.position.z - hz.pos.z;
+        const ad = Math.hypot(ax, az) || 1;
+        ax /= ad;
+        az /= ad;
+        const inside = ad < hz.r + this.radius;
+        // push out radially; when skirting, keep the tangential part of the route
+        const push = inside ? 2.5 : 1.4;
+        this._steer.x += ax * push;
+        this._steer.z += az * push;
+        if (!inside && sl > 1e-3) {
+          const side = (sx * -az + sz * ax) >= 0 ? 1 : -1;
+          this._steer.x += -az * side * 0.9;
+          this._steer.z += ax * side * 0.9;
+        }
+        want = Math.max(want, inside ? 4.2 : this.desiredSpeed * 0.8);
+        this.avoidingHazard = this.ctx.time.elapsed;
+      }
+    }
+
     if (this._steer.lengthSq() > 1e-6) this._steer.normalize();
 
     // speed: ease toward the request so starts and stops have weight

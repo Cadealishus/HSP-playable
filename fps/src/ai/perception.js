@@ -160,15 +160,18 @@ export class Perception {
       if (!ai.takeRays(1)) {
         continue; // budget spent: keep last frame's verdict for this pair
       }
+      // EXPANSION §10.4: a smoke grenade's cloud blocks sight like a wall
+      // (weapons.smokeBlocks, reached at runtime; false when no smoke is up)
+      const wp = this._wp ?? (this._wp = ai.ctx?.peek?.('weapons') ?? null);
       let seen = 0;
-      if (!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) seen++;
+      if ((!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) && !wp?.smokeBlocks?.(eye, p)) seen++;
       if (ai.takeRays(1)) {
         t.samplePoint(1, p);
-        if (!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) seen++;
+        if ((!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) && !wp?.smokeBlocks?.(eye, p)) seen++;
       }
       if (seen === 0 && ai.takeRays(1)) {
         t.samplePoint(2, p);
-        if (!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) seen++;
+        if ((!phys || phys.lineOfSight(eye, p, phys.MASK.SIGHT)) && !wp?.smokeBlocks?.(eye, p)) seen++;
       }
       if (seen === 0) {
         if (rec) rec.visible = false;

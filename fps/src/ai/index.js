@@ -493,7 +493,7 @@ export class AiSystem {
       this.tagHitWeapon(a, this._weaponOfHit(e, src));
       const armBefore = a.armor.helmet.hp + a.armor.vest.hp;
       a.applyDamage(amount, e.headshot ? 'head' : e.part ?? 'torso', e.point ?? a.position, inc, null, src,
-        e.ammo ?? null, e.melee ? 'melee' : null);
+        e.ammo ?? null, e.melee ? 'melee' : e.kind === 'fire' ? 'fire' : null);
       // the HUD can draw an armour hitmarker (EXPANSION §10.3)
       e.armored = a.armor.helmet.hp + a.armor.vest.hp < armBefore;
       e.armorBroke = this._armorEvent.target === a && this._armorEvent.broke && this._armorEvent.frame === frame;

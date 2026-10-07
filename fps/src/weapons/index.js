@@ -14,7 +14,8 @@ import { buildLmg } from './models/lmg.js';
 import { buildLauncher } from './models/launcher.js';
 import { RocketSim } from './rockets.js';
 import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
-import { Equipment } from './equipment.js';
+import { Equipment, equipmentRegistry } from './equipment.js';
+import { Melee } from './melee.js';
 import { WeaponOverlays } from './overlay.js';
 import { Gunsmith, applyKit, resolveKit, emptyKit, isStockKit, statsOf, slotOptions, ATTACHMENTS, SLOTS } from './attachments.js';
 import { AMMO, AMMO_IDS, ammoDef } from './ammo.js';
@@ -242,6 +243,10 @@ export class WeaponSystem {
     this.physics = ctx.peek('physics');
     this.equipment = new Equipment(ctx, this);
     this.equipment.build(this.mats, this.viewmodel);
+    this.sfx = this.equipment.sfx;
+    // Quick melee (V): the combat knife on the throwing arm (melee.js).
+    this.melee = new Melee(ctx, this);
+    this.melee.build(this.mats, this.viewmodel, this.mats.lib?.bakeMasks?.bind(this.mats.lib) ?? null, this.rng);
     this.overlays = new WeaponOverlays(ctx);
 
     // Player hooks (all optional: the viewmodel works standalone).
@@ -440,7 +445,9 @@ export class WeaponSystem {
       h.cookKind = h.cook >= 0 ? eq.th.kind : null;
       h.cookRemaining = eq.cookRemaining;
       h.throwing = eq.throwing;
+      h.concussed = eq.concussLevel;
     }
+    h.meleeActive = this.melee?.active === true;
     return h;
   }
 
@@ -451,7 +458,7 @@ export class WeaponSystem {
   setWeapon(id) {
     if (!this.states.has(id) || id === this.activeId || this._switchTo) return false;
     if (!this.carried.includes(id)) return false;
-    if (this.equipment?.throwing) return false;
+    if (this.equipment?.throwing || this.melee?.active) return false;
     this._abortShellReload();
     this._cycling = false;
     this._switchTo = id;
@@ -540,7 +547,7 @@ export class WeaponSystem {
   reload() {
     const s = this.state;
     if (!s || this.reloading || this.switching) return false;
-    if (this.equipment?.throwing) return false;
+    if (this.equipment?.throwing || this.melee?.active) return false;
     if (s.mag >= s.def.magSize || s.reserve <= 0) return false;
     this._cycling = false;
     if (s.def.reloadStyle === 'shell') {
@@ -684,7 +691,7 @@ export class WeaponSystem {
     if (!s) return false;
     if (this._shellReload && this._loaded(s) > 0) this._abortShellReload();
     if (this.reloading || this.switching || this._cycling || this._fireTimer > 0) return false;
-    if (this.equipment?.throwing || this.viewmodel.throwLower > 0.05) return false;
+    if (this.equipment?.throwing || this.melee?.active || this.viewmodel.throwLower > 0.05) return false;
     if (s.def.projectile) return this._fireProjectile(s);
     if (!s.chambered) {
       // Dry: lock the bolt back and let the player know by feel.
@@ -1066,7 +1073,9 @@ export class WeaponSystem {
 
     // ---- gather state ----------------------------------------------------
     const live = !input.frozen && input.enabled !== false && this.debugMode === null;
-    const throwing = this.equipment?.throwing === true;
+    // A knife swing blocks the gun exactly like a throw does.
+    if (this.melee) this.melee.update(dt, input, live);
+    const throwing = this.equipment?.throwing === true || this.melee?.active === true;
     st.ads = live ? (input.ads || player?.adsRequested === true) && !throwing : this.debugMode === 'ads';
     // A throw pending behind a sprint brings the sprint pose down first.
     st.sprint = live ? player?.sprinting === true && this._sinceShot > 0.3 && !throwing : false;
@@ -1109,7 +1118,9 @@ export class WeaponSystem {
     const sc = def.scope;
     cfg.adsFovScale = sc ? Math.min(1, sc.fov / Math.max(1, cfg.fov)) : def.adsFov ?? this._baseAdsFov;
     cfg.adsSensScale = sc ? sc.sens : this._baseAdsSens * (def.adsSens ?? 1);
-    this.moveSpeedScale = def.moveMult ?? 1;
+    // A concussion slows the legs too (equipment.slowMult, 1 when clear).
+    this.moveSpeedScale = (def.moveMult ?? 1) * (this.equipment?.slowMult ?? 1);
+    this._installFlopEquip();
     player?.setMoveSpeedScale?.(this.moveSpeedScale);
     this.rockets?.update(dt);
     if ((ctx.time.frame & 63) === 0) this._installFlopHook();
@@ -1453,6 +1464,52 @@ export class WeaponSystem {
     return id;
   }
 
+  /**
+   * EXPANSION §10.4 registry for the LOADOUT page: `{ lethal: [{id, label, desc,
+   * count, max}], tactical: [...] }`. ui reads this (`_equipmentInfo`).
+   */
+  equipmentInfo() {
+    return equipmentRegistry();
+  }
+
+  /** EXPANSION §10.4: live smoke between two points blocks sight (ai perception). */
+  smokeBlocks(from, to) {
+    return this.equipment ? this.equipment.smokeBlocks(from, to) : false;
+  }
+
+  /** EXPANSION §10.4: the live fire area containing `pos` (+ pad), or null (ai movement). */
+  hazardAt(pos, pad) {
+    return this.equipment ? this.equipment.hazardAt(pos, pad) : null;
+  }
+
+  /**
+   * `FLOP.equip(lethal, tactical)`: swap the equipment slots in place and fill
+   * them (debug / tests). Installed onto the game's FLOP object once it exists.
+   */
+  equip(lethal, tactical) {
+    const eq = this.equipment;
+    if (eq) {
+      eq.setLoadout(lethal, tactical);
+      this.loadout.lethal = eq.lethal;
+      this.loadout.tactical = eq.tactical;
+      eq.counts[eq.lethal] = eq.defs[eq.lethal].count;
+      eq.counts[eq.tactical] = eq.defs[eq.tactical].count;
+    }
+    return { lethal: eq?.lethal, tactical: eq?.tactical, lethalCount: eq?.lethalCount, tacticalCount: eq?.tacticalCount };
+  }
+
+  _installFlopEquip() {
+    try {
+      const F = globalThis.window?.FLOP;
+      if (F && F.equip === undefined) {
+        F.equip = (l, t) => this.equip(l, t);
+        F.melee = () => this.melee?.debugSwing();
+      }
+    } catch {
+      /* frozen / no window */
+    }
+  }
+
   /** The default primary (what a run starts with if the loadout names nothing). */
   get primaryId() {
     return PRIMARY_ID;
@@ -1510,6 +1567,7 @@ export class WeaponSystem {
     this.rockets?.dispose();
     this.gunsmith?.dispose();
     this.equipment?.dispose();
+    this.melee?.dispose();
     this.overlays?.dispose();
     this.sim?.clear();
     for (const p of this._droppedMags) {

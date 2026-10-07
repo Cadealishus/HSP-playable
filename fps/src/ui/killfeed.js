@@ -12,6 +12,16 @@ function rifleIcon(parent) {
   return s;
 }
 
+/** Combat knife / throwing knife (EXPANSION §10.4): a blade, guard and grip. */
+function knifeIcon(parent) {
+  const s = svg('svg', { viewBox: '0 0 28 11', fill: 'rgba(240,246,250,.9)' }, parent);
+  svg('polygon', { points: '11,4.2 22.5,4.2 27.4,5.3 22.8,7.1 11,7.1' }, s); // blade
+  svg('rect', { x: 9.6, y: 2.2, width: 1.4, height: 6.8 }, s); // guard
+  svg('rect', { x: 2.4, y: 4, width: 7.2, height: 3.3, rx: 1.2 }, s); // grip
+  svg('rect', { x: 0.8, y: 3.7, width: 1.6, height: 3.9, rx: 0.5 }, s); // pommel
+  return s;
+}
+
 function skullIcon(parent) {
   const s = svg('svg', { viewBox: '0 0 11 11', fill: 'rgba(243,241,235,.95)' }, parent);
   svg('path', { d: 'M5.5.8c2.4 0 4.1 1.7 4.1 4 0 1.5-.7 2.4-1.5 3v1.3H3v-1.3c-.9-.6-1.6-1.5-1.6-3 0-2.3 1.7-4 4.1-4z' }, s);
@@ -51,7 +61,9 @@ export class Killfeed {
         const w = el('span', 'ow-kf-w', row);
         const hs = el('span', 'ow-kf-hs', w);
         skullIcon(hs);
-        rifleIcon(w);
+        const gun = rifleIcon(w);
+        const knife = knifeIcon(w);
+        knife.style.display = 'none';
         const vv = el('span', 'ow-kf-vv', row, '');
         const v = el('span', 'ow-kf-v', row, 'ENEMY');
         const note = el('span', 'ow-kf-note', row, '');
@@ -61,6 +73,8 @@ export class Killfeed {
         row._vv = vv;
         row._v = v;
         row._hs = hs;
+        row._gun = gun;
+        row._knife = knife;
         row._note = note;
         return row;
       },
@@ -106,6 +120,9 @@ export class Killfeed {
     setText(n._a, (e.attacker ?? 'UNKNOWN').toUpperCase());
     setText(n._v, (e.victim ?? 'UNKNOWN').toUpperCase());
     setStyle(n._hs, 'display', e.headshot ? '' : 'none');
+    const knifed = e.weapon === 'knife' || e.weapon === 'throwing_knife' || e.weapon === 'melee';
+    setStyle(n._knife, 'display', knifed ? '' : 'none');
+    setStyle(n._gun, 'display', knifed ? 'none' : '');
     setClass(n, 'mine', !!e.mine);
     setStyle(n._a, 'color', e.attackerFriendly === false ? 'var(--enemy)' : '');
     setStyle(n._av, 'color', e.attackerFriendly === false ? 'var(--enemy)' : '');
