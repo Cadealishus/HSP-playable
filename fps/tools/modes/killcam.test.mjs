@@ -85,4 +85,21 @@ await t.eval(() => FLOP.killcam());
 await t.until('FLOP.kc.playing', 'FLOP.killcam() replays the last death', 10);
 await t.eval(() => FLOP.skipKillcam());
 await t.until('!FLOP.kc.playing', 'debug replay ends', 10);
+if (mode !== 'survival' && !A.nofinal) {
+  // FINAL KILLCAM: one kill from the limit, Doug finishes it
+  await t.frames(20);
+  await t.eval(() => {
+    const m = FLOP.mode;
+    if (m.score) m.score.esf = m.limit - 1;
+    if (m.player && 'score' in m.player) m.player.score = m.limit - 1;
+    FLOP.killAll('hostile');
+  });
+  await t.until('FLOP.kc.playing && FLOP.kc.final', 'final killcam plays at match end', 120);
+  await t.frames(6);
+  await page.screenshot({ path: resolve(SHOTS, `killcam-final-${mode}.png`) });
+  console.log('   final', JSON.stringify(await t.eval(() => FLOP.kc)));
+  await page.mouse.click(100, 100);
+  await t.until("FLOP.state.mode === 'over' && !FLOP.kc.playing", 'click skips; match report follows', 40);
+  console.log('   lastRun', JSON.stringify(await t.eval(() => FLOP.lastRun)));
+}
 await t.close();

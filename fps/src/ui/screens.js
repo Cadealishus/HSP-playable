@@ -347,7 +347,11 @@ export function matchAssessment(d = {}) {
   const won = d.winner === 'esf';
   const draw = d.winner === 'draw';
   const mode = d.label ?? 'The operation';
-  if (draw) lines.push(`${mode} ended level. Command has declared this a victory for morale.`);
+  if (d.ffa) {
+    if (draw) lines.push(`${mode} ended level. Command has declared everyone the winner, which is to say nobody.`);
+    else if (won) lines.push(`${mode} won. Doug finished first out of ${d.of ?? 8}. Command had money on it, retroactively.`);
+    else lines.push(`${mode} went to ${d.winnerName ?? 'someone else'}. Doug placed ${d.place ?? '?'} of ${d.of ?? 8}. Command calls that a placement.`);
+  } else if (draw) lines.push(`${mode} ended level. Command has declared this a victory for morale.`);
   else if (won) lines.push(`${mode} won ${d.scoreEsf ?? 0} to ${d.scoreHostile ?? 0}. Command is already drafting the press release.`);
   else lines.push(`${mode} lost ${d.scoreEsf ?? 0} to ${d.scoreHostile ?? 0}. Command is calling it a strategic repositioning.`);
   const k = d.kills | 0;
@@ -375,9 +379,9 @@ export class MatchOverScreen {
     this.title = el('div', 'ow-sc-title', card, 'VICTORY');
     const sc = (this.scoreRow = el('div', 'ow-rp-score ow-mr-score', card));
     this.esf = el('div', 'ow-sc-score esf', sc, '0');
-    el('div', 'ow-rp-unit', sc, 'ESF');
+    this.unitE = el('div', 'ow-rp-unit', sc, 'ESF');
     el('div', 'ow-mr-dash', sc, '—');
-    el('div', 'ow-rp-unit', sc, 'HOSTILE');
+    this.unitH = el('div', 'ow-rp-unit', sc, 'HOSTILE');
     this.hos = el('div', 'ow-sc-score hos', sc, '0');
     // Missions: the rank instead of a score line (SPECIAL OPERATIONS debrief).
     this.rankRow = el('div', 'ow-rp-score ow-mr-rank', card);
@@ -385,6 +389,17 @@ export class MatchOverScreen {
     this.rankLabel = el('div', 'ow-rp-unit', this.rankRow, '');
     setStyle(this.rankRow, 'display', 'none');
     this.delta = el('div', 'ow-sc-delta', card, '');
+    // FREE FOR ALL / GUN GAME: the top of the standings
+    this.standings = el('div', 'ow-mr-standings', card);
+    this.standRows = [];
+    for (let i = 0; i < 3; i++) {
+      const r = el('div', 'ow-mr-srow', this.standings);
+      r._p = el('span', 'p', r, '');
+      r._n = el('span', 'n', r, '');
+      r._s = el('b', 's', r, '');
+      this.standRows.push(r);
+    }
+    setStyle(this.standings, 'display', 'none');
     const stats = el('div', 'ow-sc-stats', card);
     this.stat = {};
     this.statK = {};
@@ -426,14 +441,31 @@ export class MatchOverScreen {
     const won = d.winner === 'esf';
     const draw = d.winner === 'draw';
     setText(this.op, `${d.label ?? ''}${d.mapName ? ' · ' + d.mapName : ''}`);
-    setText(this.title, draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT');
+    const ffa = !!d.ffa;
+    const ORD = ['1ST', '2ND', '3RD'];
+    setText(this.title, draw ? 'DRAW' : won ? 'VICTORY' : ffa ? `${d.place ? (ORD[d.place - 1] ?? d.place + 'TH') + ' PLACE' : 'DEFEAT'}` : 'DEFEAT');
+    setText(this.unitE, ffa ? 'YOU' : 'ESF');
+    setText(this.unitH, ffa ? (won ? 'RUNNER-UP' : d.winnerName ?? 'LEADER') : 'HOSTILE');
+    setStyle(this.standings, 'display', ffa && d.standings?.length ? '' : 'none');
+    if (ffa) {
+      for (let i = 0; i < this.standRows.length; i++) {
+        const r = this.standRows[i];
+        const s = d.standings?.[i];
+        setStyle(r, 'display', s ? '' : 'none');
+        if (!s) continue;
+        setText(r._p, ORD[i]);
+        setText(r._n, s.name);
+        setText(r._s, d.gun ? `TIER ${Math.min(d.tiers ?? 11, s.score + (s.score < (d.tiers ?? 11) ? 1 : 0))}` : String(s.score));
+        setClass(r, 'me', !!s.isPlayer);
+      }
+    }
     setClass(this.root, 'won', won);
     setClass(this.root, 'lost', !won && !draw);
     setText(this.esf, fmt(d.scoreEsf));
     setText(this.hos, fmt(d.scoreHostile));
     setText(
       this.delta,
-      d.mode === 'sd' ? `ROUNDS · FIRST TO ${d.limit ?? 4}` : d.reason === 'time' ? 'TIME LIMIT REACHED' : `SCORE LIMIT ${fmt(d.limit)}`
+      d.mode === 'sd' ? `ROUNDS · FIRST TO ${d.limit ?? 4}` : d.reason === 'time' ? 'TIME LIMIT REACHED' : d.gun ? `${d.tiers ?? 11} TIERS · FINISHED WITH THE KNIFE` : d.kc ? `CONFIRMED ${d.confirms ?? 0} · DENIED ${d.denies ?? 0}` : `SCORE LIMIT ${fmt(d.limit)}`
     );
     const k = d.kills | 0;
     const de = d.deaths | 0;
