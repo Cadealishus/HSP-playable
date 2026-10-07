@@ -232,8 +232,17 @@ const bp = (name) => {
  * Build one variant.
  * @returns { geometry, materials: THREE.Material[], weapon, stats }
  */
-export function buildSoldier(name, { rng, materials, weapon = null }) {
+export function buildSoldier(name, { rng, materials, weapon = null, armor = null }) {
   const V = VARIANTS[name] ?? VARIANTS.vanguard;
+  // EXPANSION §10.3 armour tiers dress the body. `armor` null keeps the
+  // variant's own authored kit ('legacy': civilians-free callers, the preview).
+  //   helmet  none = patrol cap (shemagh on the irregular) · light = the
+  //           high-cut helmet · heavy = full-cut bare shell + ballistic visor
+  //   vest    none = chest rig on a harness · light = soft vest ·
+  //           heavy = plate carrier + side plates, shoulder armour, collar, groin
+  const helmTier = armor ? armor.helmet ?? 'light' : 'legacy';
+  const vestTier = armor ? armor.vest ?? 'light' : 'legacy';
+  const hasHelmet = helmTier === 'legacy' ? !!V.helmet : helmTier !== 'none';
   const weaponStyle = weapon ?? V.weapon;
   const nz = new Noise(rng.fork());
   const B = new CharacterBuilder(RIG, { noise: nz, materials: MATERIALS });
@@ -467,97 +476,104 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
   }
 
   /* ---------------- load-bearing gear -------------------------------- */
-  B.add(P.plateCarrier(nz, V), {
-    material: 'plate',
-    bones: ['Spine', 'Spine1', 'Spine2', 'ClavicleR', 'ClavicleL'],
-    bias: [0.7, 1, 1, 0.45, 0.45],
-    colour: [0.72, 0.72, 0.72],
-    grime: 0.85,
-    dirt: 0.3,
-    dust: 0.30,
-    wear: 0.18,
-    name: 'carrier',
-  });
-  B.add(P.carrierWebbing(), {
-    material: 'gear',
-    bones: ['Spine1', 'Spine2'],
-    bias: [1, 1],
-    colour: GEAR.webbing,
-    grime: 1.0,
-    dust: 0.3,
-    wear: 0.26,
-    name: 'webbing',
-  });
+  if (vestTier === 'legacy' || vestTier === 'heavy') {
+    B.add(P.plateCarrier(nz, V), {
+      material: 'plate',
+      bones: ['Spine', 'Spine1', 'Spine2', 'ClavicleR', 'ClavicleL'],
+      bias: [0.7, 1, 1, 0.45, 0.45],
+      colour: [0.72, 0.72, 0.72],
+      grime: 0.85,
+      dirt: 0.3,
+      dust: 0.30,
+      wear: 0.18,
+      name: 'carrier',
+    });
+    B.add(P.carrierWebbing(), {
+      material: 'gear',
+      bones: ['Spine1', 'Spine2'],
+      bias: [1, 1],
+      colour: GEAR.webbing,
+      grime: 1.0,
+      dust: 0.3,
+      wear: 0.26,
+      name: 'webbing',
+    });
 
-  // magazine pouches across the front, deliberately not evenly loaded
-  const nPouch = V.fullCarrier ? 3 : 2;
-  for (let i = 0; i < nPouch; i++) {
-    const t = nPouch === 1 ? 0.5 : i / (nPouch - 1);
-    const x = (t - 0.5) * (nPouch > 2 ? 0.156 : 0.09);
+    // magazine pouches across the front, deliberately not evenly loaded
+    const nPouch = vestTier === 'heavy' || (vestTier === 'legacy' && V.fullCarrier) ? 3 : 2;
+    for (let i = 0; i < nPouch; i++) {
+      const t = nPouch === 1 ? 0.5 : i / (nPouch - 1);
+      const x = (t - 0.5) * (nPouch > 2 ? 0.156 : 0.09);
+      B.add(
+        P.pouch(nz, {
+          hx: 0.033, hy: 0.056, hz: 0.034,
+          x, y: 1.236 + rng.range(-0.006, 0.006), z: 0.148,
+          rx: -0.10, rz: rng.range(-0.05, 0.05),
+          lidTilt: i === 1 ? -0.5 : 0,
+          bend: 0.26,
+        }),
+        {
+          material: 'gear',
+          bones: ['Spine1', 'Spine2', 'Spine'],
+          bias: [1, 0.8, 0.4],
+          colour: i === 1 ? GEAR.pouchAlt : GEAR.pouch,
+          grime: 0.9,
+          dirt: 0.25,
+          dust: 0.5,
+          wear: 0.30,
+          name: `magPouch${i}`,
+        }
+      );
+      // a magazine sticking out of the open pouch
+      if (i === 1) {
+        const mag = P.pouch(nz, {
+          hx: 0.0145, hy: 0.042, hz: 0.023,
+          x, y: 1.308, z: 0.152, rx: -0.12,
+        });
+        B.add(mag, {
+          material: 'polymer',
+          bones: ['Spine1', 'Spine2'],
+          bias: [1, 0.8],
+          grime: 0.4,
+          wear: 0.2,
+          name: 'spareMag',
+        });
+      }
+    }
+
+    // radio on the left chest, admin pouch on the right, IFAK on the belt
     B.add(
       P.pouch(nz, {
-        hx: 0.033, hy: 0.056, hz: 0.034,
-        x, y: 1.236 + rng.range(-0.006, 0.006), z: 0.148,
-        rx: -0.10, rz: rng.range(-0.05, 0.05),
-        lidTilt: i === 1 ? -0.5 : 0,
-        bend: 0.26,
+        hx: 0.032, hy: 0.058, hz: 0.028,
+        x: 0.112, y: 1.336, z: 0.118, ry: 0.35, rz: 0.10, bend: 0.24,
       }),
       {
         material: 'gear',
-        bones: ['Spine1', 'Spine2', 'Spine'],
-        bias: [1, 0.8, 0.4],
-        colour: i === 1 ? GEAR.pouchAlt : GEAR.pouch,
+        bones: ['Spine2', 'ClavicleL', 'Spine1'],
+        bias: [1, 0.5, 0.5],
+        colour: GEAR.pouchAlt,
         grime: 0.9,
-        dirt: 0.25,
         dust: 0.5,
-        wear: 0.30,
-        name: `magPouch${i}`,
+        wear: 0.22,
+        name: 'radio',
       }
     );
-    // a magazine sticking out of the open pouch
-    if (i === 1) {
-      const mag = P.pouch(nz, {
-        hx: 0.0145, hy: 0.042, hz: 0.023,
-        x, y: 1.308, z: 0.152, rx: -0.12,
-      });
-      B.add(mag, {
-        material: 'polymer',
-        bones: ['Spine1', 'Spine2'],
-        bias: [1, 0.8],
-        grime: 0.4,
-        wear: 0.2,
-        name: 'spareMag',
-      });
-    }
-  }
-
-  // radio on the left chest, admin pouch on the right, IFAK on the belt
-  B.add(
-    P.pouch(nz, {
-      hx: 0.032, hy: 0.058, hz: 0.028,
-      x: 0.112, y: 1.336, z: 0.118, ry: 0.35, rz: 0.10, bend: 0.24,
-    }),
+    // antenna
     {
-      material: 'gear',
-      bones: ['Spine2', 'ClavicleL', 'Spine1'],
-      bias: [1, 0.5, 0.5],
-      colour: GEAR.pouchAlt,
-      grime: 0.9,
-      dust: 0.5,
-      wear: 0.22,
-      name: 'radio',
+      const ant = P.pouch(nz, { hx: 0.005, hy: 0.075, hz: 0.005, x: 0.116, y: 1.424, z: 0.104, rx: -0.18 });
+      B.add(ant, {
+        material: 'polymer',
+        bones: ['Spine2', 'ClavicleL'],
+        bias: [1, 0.6],
+        grime: 0.3,
+        name: 'antenna',
+      });
     }
-  );
-  // antenna
-  {
-    const ant = P.pouch(nz, { hx: 0.005, hy: 0.075, hz: 0.005, x: 0.116, y: 1.424, z: 0.104, rx: -0.18 });
-    B.add(ant, {
-      material: 'polymer',
-      bones: ['Spine2', 'ClavicleL'],
-      bias: [1, 0.6],
-      grime: 0.3,
-      name: 'antenna',
-    });
+    if (vestTier === 'heavy') addHeavyVest(B, nz, shR, shL);
+  } else if (vestTier === 'light') {
+    addSoftVest(B, nz, rng);
+  } else {
+    addChestRig(B, nz, rng);
   }
   B.add(P.belt(nz), {
     material: 'gear',
@@ -626,7 +642,7 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
       material: V.maskHard ? 'polymer' : 'gear',
       bones: ['Head', 'Neck'],
       bias: [1, 0.5],
-      colour: V.maskHard ? GEAR.mask : V.helmet ? GEAR.wrap : [0.78, 0.74, 0.66],
+      colour: V.maskHard ? GEAR.mask : hasHelmet ? GEAR.wrap : [0.78, 0.74, 0.66],
       grime: V.maskHard ? 0.5 : 0.85,
       dirt: V.maskHard ? 0.1 : 0.2,
       dust: V.maskHard ? 0.2 : 0.3,
@@ -635,15 +651,17 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
     });
   }
 
-  if (V.helmet) {
+  if (hasHelmet) {
     // A covered helmet is CLOTH, not plastic: the camo cover is the single
     // biggest reason a helmet reads as a helmet rather than a bowling ball. Its
     // tint deliberately lands off the uniform value so the head separates from
     // the torso at range. A bare shell goes on the laminate set instead.
-    B.add(P.helmet(nz, head, V), {
-      material: V.helmetCover ? 'cloth' : 'plate',
+    const heavy = helmTier === 'heavy';
+    const cover = heavy ? false : V.helmetCover ?? !V.helmet;
+    B.add(P.helmet(nz, head, heavy ? { ...V, fullCut: true } : V), {
+      material: cover ? 'cloth' : 'plate',
       bone: 'Head',
-      colour: V.helmetTint ?? [1, 1, 1],
+      colour: V.helmetTint ?? (cover ? [0.62, 0.6, 0.52] : [0.5, 0.51, 0.5]),
       grime: 0.6,
       dirt: 0.2,
       dust: 0.55,
@@ -651,7 +669,7 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
       name: 'helmet',
     });
     // rubber edge trim, its own near-black piece (see P.helmetLip)
-    B.add(P.helmetLip(head), {
+    B.add(P.helmetLip(head, heavy), {
       material: 'polymer',
       bone: 'Head',
       colour: [0.35, 0.34, 0.33],
@@ -676,7 +694,10 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
       wear: 0.18,
       name: 'chinStrap',
     });
-    if (V.goggles) {
+    if (heavy) {
+      B.add(P.visorFrame(nz, head), { material: 'polymer', bone: 'Head', grime: 0.45, wear: 0.35, name: 'visorFrame' });
+      B.add(P.helmetVisor(head), { material: 'glass', bone: 'Head', colour: [1, 1, 1], grime: 0.2, name: 'visor' });
+    } else if (V.goggles) {
       const g = P.goggles(head, V.gogglesDown);
       B.add(g.frame, { material: 'polymer', bone: 'Head', grime: 0.4, wear: 0.35, name: 'goggleFrame' });
       B.add(g.strap, {
@@ -711,7 +732,21 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
     });
   }
 
-  if (V.shades) {
+  if (!hasHelmet && !V.headWrap) {
+    // NO HELMET on a helmeted variant: a soft patrol cap in the uniform cloth
+    B.add(P.patrolCap(nz, head), {
+      material: 'cloth',
+      bone: 'Head',
+      colour: [0.86, 0.85, 0.82],
+      grime: 0.75,
+      dirt: 0.2,
+      dust: 0.45,
+      wear: 0.16,
+      name: 'cap',
+    });
+  }
+
+  if (V.shades || (!hasHelmet && !V.headWrap)) { // the cap tier wears shooting glasses
     const s = P.sunglasses(head);
     B.add(s.frame, { material: 'polymer', bone: 'Head', grime: 0.4, wear: 0.3, name: 'shadeFrame' });
     B.add(s.lens, {
@@ -805,6 +840,167 @@ export function buildSoldier(name, { rng, materials, weapon = null }) {
     stats: { vertices: built.vertices, triangles: built.triangles },
     variant: V,
   };
+}
+
+
+/* ---------------- armour tiers (EXPANSION §10.3) --------------------- */
+
+/** HEAVY: everything the plate carrier has, plus side plates, shoulder armour, collar, groin. */
+function addHeavyVest(B, nz, shR, shL) {
+  B.add(P.sidePlates(nz), {
+    material: 'plate',
+    bones: ['Spine', 'Spine1'],
+    bias: [0.6, 1],
+    colour: [0.72, 0.72, 0.72],
+    grime: 0.85,
+    dust: 0.3,
+    wear: 0.22,
+    name: 'sidePlates',
+  });
+  for (const [sh, side, suffix] of [[shR, -1, 'R'], [shL, 1, 'L']]) {
+    B.add(P.shoulderArmour(nz, sh, side), {
+      material: 'plate',
+      bones: [`UpperArm${suffix}`, `Clavicle${suffix}`],
+      bias: [1, 0.55],
+      colour: [0.72, 0.72, 0.72],
+      grime: 0.85,
+      dust: 0.35,
+      wear: 0.25,
+      name: `shoulderArmour${suffix}`,
+    });
+  }
+  B.add(P.throatGuard(nz), {
+    material: 'gear',
+    bones: ['Spine2', 'Neck', 'ClavicleR', 'ClavicleL'],
+    bias: [1, 0.35, 0.4, 0.4],
+    colour: GEAR.pouchAlt,
+    grime: 0.9,
+    dust: 0.3,
+    wear: 0.2,
+    name: 'throatGuard',
+  });
+  B.add(P.groinFlap(nz), {
+    material: 'gear',
+    bones: ['Hips', 'Spine'],
+    bias: [1, 0.45],
+    colour: GEAR.pouch,
+    grime: 0.95,
+    dirt: 0.4,
+    dust: 0.35,
+    wear: 0.22,
+    name: 'groinFlap',
+  });
+}
+
+/** LIGHT: a soft vest, a single admin pouch and a radio. No plates, no pouch wall. */
+function addSoftVest(B, nz, rng) {
+  B.add(P.softVest(nz), {
+    material: 'plate',
+    bones: ['Spine', 'Spine1', 'Spine2', 'ClavicleR', 'ClavicleL'],
+    bias: [0.7, 1, 1, 0.45, 0.45],
+    colour: [0.8, 0.8, 0.8],
+    grime: 0.85,
+    dirt: 0.3,
+    dust: 0.3,
+    wear: 0.14,
+    name: 'softVest',
+  });
+  // two flat magazine pouches low on the front panel, one admin pouch
+  for (let i = 0; i < 2; i++) {
+    const x = (i - 0.5) * 0.074 - 0.02;
+    B.add(P.pouch(nz, {
+      hx: 0.03, hy: 0.048, hz: 0.022,
+      x, y: 1.17 + rng.range(-0.005, 0.005), z: 0.148,
+      rx: -0.06, rz: rng.range(-0.04, 0.04), bend: 0.24,
+    }), {
+      material: 'gear',
+      bones: ['Spine1', 'Spine', 'Spine2'],
+      bias: [1, 0.6, 0.4],
+      colour: i === 1 ? GEAR.pouchAlt : GEAR.pouch,
+      grime: 0.9,
+      dust: 0.5,
+      wear: 0.28,
+      name: `magPouch${i}`,
+    });
+  }
+  B.add(P.pouch(nz, { hx: 0.03, hy: 0.04, hz: 0.016, x: 0.085, y: 1.262, z: 0.150, rz: 0.06, bend: 0.22 }), {
+    material: 'gear',
+    bones: ['Spine1', 'Spine2'],
+    bias: [1, 0.6],
+    colour: GEAR.pouchAlt,
+    grime: 0.9,
+    dust: 0.45,
+    wear: 0.2,
+    name: 'adminPouch',
+  });
+  addRadio(B, nz);
+}
+
+/** NONE: a bare chest rig on an X harness: magazine cells and a radio, no armour at all. */
+function addChestRig(B, nz, rng) {
+  B.add(P.chestRig(nz), {
+    material: 'plate',
+    bones: ['Spine', 'Spine1'],
+    bias: [0.6, 1],
+    colour: [0.66, 0.66, 0.66],
+    grime: 0.9,
+    dirt: 0.3,
+    dust: 0.35,
+    wear: 0.25,
+    name: 'chestRig',
+  });
+  B.add(P.rigHarness(), {
+    material: 'gear',
+    bones: ['Spine1', 'Spine2', 'ClavicleR', 'ClavicleL'],
+    bias: [1, 1, 0.45, 0.45],
+    colour: GEAR.webbing,
+    grime: 1.0,
+    dust: 0.3,
+    wear: 0.26,
+    name: 'harness',
+  });
+  for (let i = 0; i < 3; i++) {
+    const x = (i - 1) * 0.07;
+    B.add(P.pouch(nz, {
+      hx: 0.029, hy: 0.05, hz: 0.026,
+      x, y: 1.172 + rng.range(-0.006, 0.006), z: 0.152,
+      rx: -0.08, rz: rng.range(-0.05, 0.05), lidTilt: i === 2 ? -0.5 : 0, bend: 0.22,
+    }), {
+      material: 'gear',
+      bones: ['Spine1', 'Spine'],
+      bias: [1, 0.6],
+      colour: i === 1 ? GEAR.pouchAlt : GEAR.pouch,
+      grime: 0.9,
+      dust: 0.5,
+      wear: 0.3,
+      name: `magPouch${i}`,
+    });
+  }
+  // a magazine riding high out of the open cell (polymer: keeps the slot order)
+  B.add(P.pouch(nz, { hx: 0.0145, hy: 0.04, hz: 0.022, x: 0.07, y: 1.236, z: 0.156, rx: -0.1 }), {
+    material: 'polymer',
+    bones: ['Spine1', 'Spine'],
+    bias: [1, 0.6],
+    grime: 0.4,
+    wear: 0.2,
+    name: 'spareMag',
+  });
+}
+
+/** Radio pouch + antenna on the left chest (shared by the soft vest). */
+function addRadio(B, nz) {
+  B.add(P.pouch(nz, { hx: 0.03, hy: 0.054, hz: 0.026, x: 0.112, y: 1.33, z: 0.122, ry: 0.35, rz: 0.10, bend: 0.24 }), {
+    material: 'gear',
+    bones: ['Spine2', 'ClavicleL', 'Spine1'],
+    bias: [1, 0.5, 0.5],
+    colour: GEAR.pouchAlt,
+    grime: 0.9,
+    dust: 0.5,
+    wear: 0.22,
+    name: 'radio',
+  });
+  const ant = P.pouch(nz, { hx: 0.005, hy: 0.075, hz: 0.005, x: 0.116, y: 1.418, z: 0.108, rx: -0.18 });
+  B.add(ant, { material: 'polymer', bones: ['Spine2', 'ClavicleL'], bias: [1, 0.6], grime: 0.3, name: 'antenna' });
 }
 
 /**

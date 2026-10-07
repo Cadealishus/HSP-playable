@@ -192,7 +192,8 @@ export class Equipment {
     this._burnPayload = {
       target: null, amount: 0, headshot: false, killed: false, part: 'torso', zone: 'torso',
       point: new THREE.Vector3(), from: new THREE.Vector3(), incident: null, source: undefined,
-      weapon: 'molotov', kind: 'fire', ammo: { id: 'molotov', burn: { dps: EQUIPMENT_DEFS.molotov.dps, dur: EQUIPMENT_DEFS.molotov.afterburn } },
+      // No `burn` on the ammo: the DOT is these ticks themselves (armor.js would re-ignite).
+      weapon: 'molotov', kind: 'fire', ammo: { id: 'molotov' },
     };
     this._hitPayload = {
       target: null, amount: 0, headshot: false, killed: false, part: 'torso', zone: 'torso',

@@ -295,9 +295,44 @@ export class Viewmodel {
       this.holoGroup.add(m);
     }
 
+    /**
+     * CHEVRON — the 3x combat scope's reticle (optic.style === 'chevron',
+     * attachments.js acog). A filled chevron whose TIP is the point of aim over a
+     * thin stadia post, with a dark keyline so it holds against a bright sky.
+     * Unit-sized like the others and scaled as one shape in `_updateReticle`.
+     */
+    const chev = (k, dy = 0) => {
+      const sh = new THREE.Shape();
+      const P = [[0, 0], [0.92, -1.3], [0.56, -1.3], [0, -0.5], [-0.56, -1.3], [-0.92, -1.3]];
+      sh.moveTo(P[0][0] * k, P[0][1] * k + dy);
+      for (let i = 1; i < P.length; i++) sh.lineTo(P[i][0] * k, P[i][1] * k + dy);
+      sh.closePath();
+      return new THREE.ShapeGeometry(sh);
+    };
+    const cFill = chev(1);
+    const cKey = chev(1.22, 0.16);
+    const cPost = new THREE.PlaneGeometry(0.1, 2.4);
+    cPost.translate(0, -2.9, 0);
+    const cPostKey = new THREE.PlaneGeometry(0.22, 2.55);
+    cPostKey.translate(0, -2.9, 0);
+    this._reticleGeo.push(cFill, cKey, cPost, cPostKey);
+    this.chevFill = new THREE.Mesh(cFill, mats.reticle(0xff1407, 0.95));
+    this.chevPost = new THREE.Mesh(cPost, mats.reticle(0xff1407, 0.6));
+    this.chevKey = new THREE.Mesh(cKey, mats.reticleOutline(0.55));
+    this.chevPostKey = new THREE.Mesh(cPostKey, mats.reticleOutline(0.5));
+    this.chevKey.renderOrder = 19;
+    this.chevPostKey.renderOrder = 19;
+    this.chevFill.renderOrder = 21;
+    this.chevPost.renderOrder = 21;
+    this.chevGroup = new THREE.Object3D();
+    this.chevGroup.visible = false;
+    this.reticle.add(this.chevGroup);
+    for (const m of [this.chevKey, this.chevPostKey, this.chevPost, this.chevFill]) this.chevGroup.add(m);
+
     for (const m of [
       this.dotCore, this.dotHalo, this.dotRim, this.dotRing,
       this.holoRing, this.holoBloom, this.holoKey, this.holoDot, this.holoDotBloom,
+      this.chevFill, this.chevPost, this.chevKey, this.chevPostKey,
     ]) {
       m.frustumCulled = false;
       m.userData.owNoPrepass = true;
@@ -311,6 +346,7 @@ export class Viewmodel {
     this.adsT = 0;
     this.adsTarget = 0;
     this.sprintT = 0;
+    this.slideT = 0;
     this.lowReadyT = 0;
     this.bobPhase = 0;
     this.stepT = 0;
@@ -390,78 +426,18 @@ export class Viewmodel {
     group.visible = false;
     this.rig.add(group);
 
-    let tris = 0;
     const meshes = [];
-    const bake = this.mats.lib?.bakeMasks?.bind(this.mats.lib) ?? null;
+    const build = (asm, parent, wearScale = 1) => this._buildAsm(asm, parent, meshes, wearScale);
+    let tris = 0;
 
-    const build = (asm, parent, wearScale = 1) => {
-      const map = asm.build();
-      for (const [matKey, geo] of map) {
-        // Curvature masks: convex chamfers wear to bright metal, creases fill
-        // with grime. This is what stops the gun reading as clean plastic.
-        if (bake) {
-          /**
-           * Chamfered hard-surface geometry has no interior vertices on a face,
-           * so a per-vertex edge mask interpolates linearly from the chamfer all
-           * the way to the far side of the panel: a rail tooth, a mount top face
-           * or a handguard slat comes out uniformly worn, which is what turned
-           * the rail teeth into flat near-white bars and the mount into beige MDF.
-           *
-           * Bake the mask at full amplitude and then SHAPE it (below): raising the
-           * exponent is the only knob that pulls a vertex-interpolated ramp back
-           * onto the outer millimetre or two of the edge, because it pushes
-           * everything below the chamfer's own vertices toward zero.
-           */
-          const soft = matKey === 'polymer' || matKey === 'rubber' || matKey === 'polymer_tan';
-          bake(geo, { wear: 1, grime: 1, ao: 1, edgeThreshold: 0.16, rng: this.rng });
-          shapeMasks(geo, {
-            /**
-             * wearAmp comes DOWN and grimeAmp goes UP.
-             *
-             * With the viewmodel recalibrated to be diffuse-dominant (see
-             * materials.js `alu`), the wear layer's contrast against the base
-             * albedo is what decides whether a chamfer reads as polished alloy or
-             * as a white pencil line, and on small parts — where every vertex is
-             * convex — it decides whether a takedown pin reads as steel or as a
-             * cream plastic cube. 0.9 -> 0.62 on hard surfaces.
-             *
-             * Grime is the opposite: it is the only mask that paints the CONCAVE
-             * side of the geometry, so it is what puts dirt in the magwell corners,
-             * the trigger-guard fillet, the rail slots and the seam between the
-             * handguard panels. Those creases were reading perfectly clean, which
-             * is a large part of "props read as pasted-on decals" applied to a gun.
-             */
-            wearAmp: (soft ? 0.42 : 0.62) * wearScale,
-            wearExp: soft ? 3.4 : 2.8,
-            grimeAmp: 1.15,
-            grimeExp: 1.25,
-            aoAmp: 1.0,
-            aoExp: 1.15,
-          });
-        }
-        const mesh = new THREE.Mesh(geo, this.mats.get(matKey));
-        mesh.name = `${asm.name}-${matKey}`;
-        // The viewmodel does not cast into the cascades (it is not in the world
-        // scene), but it absolutely must RECEIVE the sun shadow: without this the
-        // gun is lit at full sun while the street around it is in shade, which is
-        // the single most obvious "pasted-on sticker" tell.
-        mesh.castShadow = false;
-        mesh.receiveShadow = true;
-        mesh.frustumCulled = false;
-        parent.add(mesh);
-        meshes.push(mesh);
-        tris += triCount(geo);
-      }
-    };
-
-    build(model.body, group);
+    tris += build(model.body, group);
 
     const parts = {};
     for (const [name, asm] of Object.entries(model.moving)) {
       const sub = new THREE.Object3D();
       sub.name = `${model.id}-${name}`;
       group.add(sub);
-      build(asm, sub, name === 'magazine' ? 0.8 : 1);
+      tris += build(asm, sub, name === 'magazine' ? 0.8 : 1);
       parts[name] = sub;
     }
 
@@ -514,6 +490,90 @@ export class Viewmodel {
     this._fitSupportHand(entry);
     this.weapons.set(model.id, entry);
     return entry;
+  }
+
+  /**
+   * Turn one Assembly into meshes under `parent` (curvature masks baked and
+   * shaped exactly like the stock weapon), pushing them onto `meshes`.
+   * @returns {number} triangles built
+   */
+  _buildAsm(asm, parent, meshes, wearScale = 1) {
+    let tris = 0;
+    const bake = this.mats.lib?.bakeMasks?.bind(this.mats.lib) ?? null;
+    const map = asm.build();
+    for (const [matKey, geo] of map) {
+      // Curvature masks: convex chamfers wear to bright metal, creases fill
+      // with grime. This is what stops the gun reading as clean plastic.
+      if (bake) {
+        /**
+         * Chamfered hard-surface geometry has no interior vertices on a face,
+         * so a per-vertex edge mask interpolates linearly from the chamfer all
+         * the way to the far side of the panel: a rail tooth, a mount top face
+         * or a handguard slat comes out uniformly worn, which is what turned
+         * the rail teeth into flat near-white bars and the mount into beige MDF.
+         *
+         * Bake the mask at full amplitude and then SHAPE it (below): raising the
+         * exponent is the only knob that pulls a vertex-interpolated ramp back
+         * onto the outer millimetre or two of the edge, because it pushes
+         * everything below the chamfer's own vertices toward zero.
+         */
+        const soft = matKey === 'polymer' || matKey === 'rubber' || matKey === 'polymer_tan';
+        bake(geo, { wear: 1, grime: 1, ao: 1, edgeThreshold: 0.16, rng: this.rng });
+        shapeMasks(geo, {
+          /**
+           * wearAmp comes DOWN and grimeAmp goes UP.
+           *
+           * With the viewmodel recalibrated to be diffuse-dominant (see
+           * materials.js `alu`), the wear layer's contrast against the base
+           * albedo is what decides whether a chamfer reads as polished alloy or
+           * as a white pencil line, and on small parts — where every vertex is
+           * convex — it decides whether a takedown pin reads as steel or as a
+           * cream plastic cube. 0.9 -> 0.62 on hard surfaces.
+           *
+           * Grime is the opposite: it is the only mask that paints the CONCAVE
+           * side of the geometry, so it is what puts dirt in the magwell corners,
+           * the trigger-guard fillet, the rail slots and the seam between the
+           * handguard panels. Those creases were reading perfectly clean, which
+           * is a large part of "props read as pasted-on decals" applied to a gun.
+           */
+          wearAmp: (soft ? 0.42 : 0.62) * wearScale,
+          wearExp: soft ? 3.4 : 2.8,
+          grimeAmp: 1.15,
+          grimeExp: 1.25,
+          aoAmp: 1.0,
+          aoExp: 1.15,
+        });
+      }
+      const mesh = new THREE.Mesh(geo, this.mats.get(matKey));
+      mesh.name = `${asm.name}-${matKey}`;
+      // The viewmodel does not cast into the cascades (it is not in the world
+      // scene), but it absolutely must RECEIVE the sun shadow: without this the
+      // gun is lit at full sun while the street around it is in shade, which is
+      // the single most obvious "pasted-on sticker" tell.
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      parent.add(mesh);
+      meshes.push(mesh);
+      tris += triCount(geo);
+    }
+    return tris;
+  }
+
+  /**
+   * GUNSMITH (attachments.js): build an attachment's Assembly into a named group
+   * under `parent` (the weapon group or one of its parts). The meshes join the
+   * entry's mesh list implicitly through the group; they share the weapon
+   * materials, so equipping one compiles nothing.
+   */
+  buildAssembly(asm, parent, name) {
+    const group = new THREE.Object3D();
+    group.name = name;
+    parent.add(group);
+    const meshes = [];
+    this._buildAsm(asm, group, meshes, 1);
+    group.userData.kitMeshes = meshes;
+    return group;
   }
 
   /**
@@ -868,6 +928,18 @@ export class Viewmodel {
     ry += this.recRot.y + this.settle.x;
     rz += this.recRot.z + this.settle.z;
 
+    /* -------- slide (EXPANSION §10.5): the gun cants in and drops ----- */
+    this.slideT = damp(this.slideT, s.slide ? 1 : 0, s.slide ? 10 : 6, dt);
+    if (this.slideT > 1e-3) {
+      const sl = this.slideT * lerp(1, 0.35, ads);
+      rz += 0.26 * sl;
+      ry += 0.05 * sl;
+      rx += 0.04 * sl;
+      px -= 0.018 * sl;
+      py -= 0.022 * sl;
+      pz += 0.012 * sl;
+    }
+
     /* -------- jump / land --------------------------------------------- */
     this.jumpSpring.step(dt, 0);
     this.landSpring.step(dt, 0);
@@ -1136,8 +1208,20 @@ export class Viewmodel {
     this.reticle.visible = true;
     this.reticle.position.copy(_v2);
     this.reticle.lookAt(this.anchor.getWorldPosition(_v));
-    this.dotGroup.visible = !holo;
+    const chevron = optic.style === 'chevron';
+    this.dotGroup.visible = !holo && !chevron;
     this.holoGroup.visible = holo;
+    this.chevGroup.visible = chevron;
+    if (chevron) {
+      // ~0.0042 rad tip-to-base: a chevron a 3x prism draws at about 1.5 MOA
+      // per unit, scaled up for legibility the same way the dot is.
+      this.chevGroup.scale.setScalar(s * lerp(0.0032, 0.0042, ads));
+      this.chevFill.material.opacity = alpha;
+      this.chevPost.material.opacity = alpha * 0.8;
+      this.chevKey.material.opacity = alpha * 0.55;
+      this.chevPostKey.material.opacity = alpha * 0.5;
+      return;
+    }
     if (holo) {
       const ringR = s * 0.034;
       this.holoGroup.scale.setScalar(ringR);

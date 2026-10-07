@@ -916,7 +916,7 @@ export class MissionMode {
       if (p && Number.isFinite(p.x)) {
         this._marker.pos.copy(p);
         this._marker.label = o.markerLabel ?? '';
-        this._marker.name = o.markerName ?? 'OBJECTIVE';
+        this._marker.name = (typeof o.markerName === 'function' ? o.markerName(this) : o.markerName) ?? 'OBJECTIVE';
         list.push(this._marker);
       }
       const esc = o.escort ? o.escort(this) : null;

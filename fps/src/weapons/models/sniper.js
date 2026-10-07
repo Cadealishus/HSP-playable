@@ -79,7 +79,10 @@ export function buildSniper(opts = {}) {
   cheek.dispose();
 
   /* ---- barrel + handguard + brake -------------------------------------- */
-  addBarrel(body, 'alu', 'cavity', {
+  // Barrel (with its flutes) and the brake are separate for attachments.js.
+  const barrelAsm = new Assembly(marksman ? 'marksman-barrel' : 'sniper-barrel');
+  const stockMuzzle = new Assembly(marksman ? 'marksman-muzzle' : 'sniper-muzzle');
+  addBarrel(barrelAsm, 'alu', 'cavity', {
     y: bore, zBreech: zActFront + 0.005, zMuzzle: zBarrelEnd,
     rChamber: 0.0142, rBarrel: marksman ? 0.0088 : 0.0112, rGas: marksman ? 0.0105 : 0.0112, gasAt: -0.4, knurl: false,
   });
@@ -88,11 +91,11 @@ export function buildSniper(opts = {}) {
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
       const fl = box(0.0026, 0.0016, 0.14, 0.0004, 1);
-      body.add(fl, 'cavity', { x: Math.sin(a) * 0.0108, y: bore + Math.cos(a) * 0.0108, z: hgZ1 - 0.085, rz: -a });
+      barrelAsm.add(fl, 'cavity', { x: Math.sin(a) * 0.0108, y: bore + Math.cos(a) * 0.0108, z: hgZ1 - 0.085, rz: -a });
       fl.dispose();
     }
   }
-  const muzzle = addMuzzleDevice(body, 'steel_soot', 'cavity', 'brake', zBarrelEnd, marksman ? 0.0088 : 0.0112, bore);
+  const muzzle = addMuzzleDevice(stockMuzzle, 'steel_soot', 'cavity', 'brake', zBarrelEnd, marksman ? 0.0088 : 0.0112, bore);
   addHandguard(body, 'alu', {
     matPanel: marksman ? 'polymer_tan' : 'polymer',
     y: bore, z0: hgZ0, z1: hgZ1, r: hgR - 0.0036, sides: 8, slatW: 0.019, slatT: 0.0036, slots: 5, braces: 3,
@@ -152,9 +155,16 @@ export function buildSniper(opts = {}) {
     label: marksman ? 'FALCON 762' : 'OSPREY 338',
     fxClass: marksman ? 'marksman' : 'sniper',
     body,
-    moving: { magazine, bolt, trigger },
+    moving: { magazine, bolt, trigger, barrel: barrelAsm, stockMuzzle },
     nodes: {
       muzzle: [0, bore, muzzle.crownZ],
+      /** GUNSMITH mount points (attachments.js). The scope stays: no `rail`. */
+      mounts: {
+        muzzle: { y: bore, z: zBarrelEnd, r: marksman ? 0.0088 : 0.0112 },
+        barrel: { pivot: hgZ1, end: zBarrelEnd },
+        under: marksman ? { y: bore - hgR, z: hgZ1 + 0.055 } : null,
+        side: { x: -(hgR + 0.002), y: bore, z: hgZ1 + 0.05, s: -1 },
+      },
       chamber: [0, bore, -0.02],
       eject: [rAct + 0.008, bore + 0.004, -0.02],
       ejectDir: [0.86, 0.46, 0.22],

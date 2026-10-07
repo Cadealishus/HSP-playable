@@ -237,6 +237,7 @@ export function netModeOf(Base, { ffa = false } = {}) {
         this.player.kills = k[0];
         this.player.deaths = Math.max(this.player.deaths, k[1]);
       }
+      this._kd = m.kd;
       if (ffa) {
         let best = 0;
         for (const id of Object.keys(m.kd ?? {})) if (id !== self) best = Math.max(best, m.kd[id][0]);
@@ -255,8 +256,39 @@ export function netModeOf(Base, { ffa = false } = {}) {
         h.scoreEsf = this.player.kills;
         h.scoreHostile = this.remote ? this.score.hostile : this._ffaLeaderOther();
         h.label = 'FREE FOR ALL';
+        h.ffa = this._ffaBoard();
       }
       return h;
+    }
+
+    /** The FFA board the mode HUD draws (place, leader, top 3), rebuilt 4x a second. */
+    _ffaBoard() {
+      const f = this._board ?? (this._board = { place: 1, of: 1, score: 0, leaderName: '', leaderScore: 0, leaderIsPlayer: true, top: [0, 1, 2].map(() => ({ name: '', score: 0, isPlayer: false, place: 0, tier: 0 })) });
+      if (this._boardT !== undefined && this.t - this._boardT < 0.25) return f;
+      this._boardT = this.t;
+      const self = this.net?.t?.selfId;
+      const rows = [{ key: self, kills: this.player.kills, me: true }];
+      if (this.remote) {
+        for (const id of Object.keys(this._kd ?? {})) if (id !== self) rows.push({ key: id, kills: this._kd[id][0], me: false });
+      } else for (const [id, hm] of this.humans) rows.push({ key: id, kills: hm.kills, me: false });
+      rows.sort((a, b) => b.kills - a.kills || (a.me ? -1 : b.me ? 1 : 0));
+      const name = (r) => (r.me ? 'YOU' : this.net?._nameOf?.(r.key) ?? 'OPERATOR');
+      f.of = rows.length;
+      f.place = rows.findIndex((r) => r.me) + 1;
+      f.score = this.player.kills;
+      const lead = rows[0].me && rows.length > 1 ? rows[1] : rows[0];
+      f.leaderName = name(lead);
+      f.leaderScore = lead.kills;
+      f.leaderIsPlayer = rows[0].me;
+      for (let i = 0; i < f.top.length; i++) {
+        const r = rows[i];
+        const t = f.top[i];
+        t.name = r ? name(r) : '';
+        t.score = r ? r.kills : 0;
+        t.isPlayer = !!r?.me;
+        t.place = i + 1;
+      }
+      return f;
     }
 
     _ffaLeaderOther() {

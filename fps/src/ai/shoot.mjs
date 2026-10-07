@@ -52,8 +52,10 @@ if (!(await portOpen(PORT))) {
 
 const browser = await chromium.launch({
   headless: true,
+  ...(args.sw ? { executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' } : {}),
   args: [
-    '--use-angle=metal',
+    args.sw ? '--use-angle=swiftshader' : '--use-angle=metal',
+    ...(args.sw ? ['--enable-unsafe-swiftshader'] : []),
     '--ignore-gpu-blocklist',
     '--enable-gpu-rasterization',
     '--force-color-profile=srgb',
@@ -66,7 +68,7 @@ page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack ?? ''}`));
 
 const qs = new URLSearchParams();
-for (const k of ['view', 'variant', 'clip', 'phase', 'aim']) if (args[k]) qs.set(k, args[k]);
+for (const k of ['view', 'variant', 'clip', 'phase', 'aim', 'helmet', 'vest', 'armor']) if (args[k]) qs.set(k, args[k]);
 
 let failed = null;
 try {

@@ -165,7 +165,11 @@ export function buildSmg() {
   addPistolGrip(body, 'polymer', 'rubber', { y: 0.033, z: 0.018, angle: 0.36, len: 0.102, w: 0.03 });
 
   /* ---- barrel + handguard --------------------------------------------- */
-  addBarrel(body, 'steel', 'cavity', {
+  // Barrel, muzzle device and optic are separate so attachments.js can swap them.
+  const barrelAsm = new Assembly('smg-barrel');
+  const stockMuzzle = new Assembly('smg-muzzle');
+  const stockOptic = new Assembly('smg-optic');
+  addBarrel(barrelAsm, 'steel', 'cavity', {
     y: bore,
     zBreech: -0.09,
     zMuzzle: zBarrelEnd,
@@ -175,7 +179,7 @@ export function buildSmg() {
     gasAt: -0.2,
     knurl: false,
   });
-  const muzzle = addMuzzleDevice(body, 'steel_soot', 'cavity', 'trilug', zBarrelEnd, 0.0062, bore);
+  const muzzle = addMuzzleDevice(stockMuzzle, 'steel_soot', 'cavity', 'trilug', zBarrelEnd, 0.0062, bore);
   addHandguard(body, 'alu', {
     y: bore,
     z0: hgZ0,
@@ -217,7 +221,7 @@ export function buildSmg() {
   addSlingLoop(body, 'steel', 0.0165, bore - 0.022, zRecRear + 0.026, 0.007, { ry: Math.PI / 2 });
 
   /* ---- sights -------------------------------------------------------- */
-  const optic = buildOptic(body, {
+  const optic = buildOptic(stockOptic, {
     rTube: 0.0138,
     // Same aperture-budget argument as the rifle (see buildOptic): a shorter tube
     // is what makes the sight picture fill the housing in ADS.
@@ -316,9 +320,16 @@ export function buildSmg() {
     label: 'MERLIN 9',
     fxClass: 'smg',
     body,
-    moving: { magazine, charging, bolt, trigger, selector },
+    moving: { magazine, charging, bolt, trigger, selector, barrel: barrelAsm, stockMuzzle, stockOptic },
     nodes: {
       muzzle: [0, bore, muzzle.crownZ],
+      /** GUNSMITH mount points (attachments.js). */
+      mounts: {
+        rail: { y: railTop, z: opticZ },
+        muzzle: { y: bore, z: zBarrelEnd, r: 0.0062 },
+        barrel: { pivot: hgZ1, end: zBarrelEnd },
+        side: { x: -(hgR + 0.0032), y: bore, z: -0.245, s: -1 },
+      },
       chamber: [0, bore, portZ],
       eject: [rRec + 0.006, bore + 0.002, portZ],
       ejectDir: [0.9, 0.4, 0.18],

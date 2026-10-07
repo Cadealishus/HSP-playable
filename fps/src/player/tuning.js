@@ -94,14 +94,16 @@ export const MOVE = {
     minEntry: 6.2,
     /** Speed at which the slide gives up and becomes a crouch walk. */
     exitSpeed: 2.95,
-    duration: 0.9,
+    /** EXPANSION §10.5: ~0.75 s, momentum carried and decaying, ends in a crouch. */
+    duration: 0.75,
     /**
      * Exponential drag (1/s) plus a linear brake, tuned together so an 8.8 m/s
-     * entry bleeds to the exit speed at ~0.8 s on concrete — inside the 0.9 s
-     * hard cap, later on smooth surfaces, sooner in sand.
+     * entry is down to ~4 m/s at the 0.75 s hard cap on concrete (the crouch
+     * walk then takes over), lasts the full window downhill and on smooth
+     * surfaces, and dies sooner in sand.
      */
-    drag: 0.75,
-    brake: 0.85,
+    drag: 0.85,
+    brake: 1.1,
     cooldown: 0.55,
     minSpeedToStart: 5.2,
     /** Steering authority while sliding — enough to curve, not to turn around. */

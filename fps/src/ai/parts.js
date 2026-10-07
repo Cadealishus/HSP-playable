@@ -479,7 +479,10 @@ export function helmet(nz, base, p = {}) {
   const out = emptyMesh();
   const bx = base[0], by = base[1], bz = base[2];
   const cy = by + 0.100; // shell centre (just above the brow)
-  const rx = 0.121, ry = 0.158, rz = 0.135;
+  // heavy (full-cut) shell: a little bigger and thicker, and it comes down over
+  // the ears instead of the high-cut scallop
+  const k = p.fullCut ? 1.045 : 1;
+  const rx = 0.121 * k, ry = 0.158 * k, rz = 0.135 * k;
 
   // --- shell: revolved dome, bottom edge scalloped per angle
   const seg = 26, rows = 12;
@@ -501,9 +504,11 @@ export function helmet(nz, base, p = {}) {
     if (dy > 0.012) return;
     const ang = Math.atan2(v.x - bx, v.z - bz);
     const side = Math.abs(Math.sin(ang));
-    const lift = side ** 2 * 0.042 - Math.max(0, Math.cos(ang)) * 0.010;
-    const k = Math.min(1, Math.max(0, (0.012 - dy) / 0.06));
-    v.y += lift * k;
+    const lift = p.fullCut
+      ? side ** 2 * 0.004 - Math.max(0, Math.cos(ang)) * 0.012 - Math.max(0, -Math.cos(ang)) * 0.016
+      : side ** 2 * 0.042 - Math.max(0, Math.cos(ang)) * 0.010;
+    const kk = Math.min(1, Math.max(0, (0.012 - dy) / 0.06));
+    v.y += lift * kk;
   });
   computeNormals(shell);
   displace(shell, (x, y, z) => nz.fbm3(x * 40, y * 40, z * 40, 3) * 0.0016);
@@ -517,17 +522,20 @@ export function helmet(nz, base, p = {}) {
  * bumper band following the scalloped rim. In its own material it is the line
  * that makes shell, goggles and face read as three things instead of one lump.
  */
-export function helmetLip(base) {
+export function helmetLip(base, fullCut = false) {
   const bx = base[0], by = base[1], bz = base[2];
   const cy = by + 0.100;
-  const rx = 0.121, rz = 0.135;
+  const k = fullCut ? 1.045 : 1;
+  const rx = 0.121 * k, rz = 0.135 * k;
   const lipPts = [];
   const nLip = 36;
   for (let i = 0; i <= nLip; i++) {
     const a = (i / nLip) * Math.PI * 2;
     const sx = Math.sin(a), sz = Math.cos(a);
     const side = Math.abs(sx);
-    const lift = side ** 2 * 0.042 - Math.max(0, sz) * 0.010;
+    const lift = fullCut
+      ? side ** 2 * 0.004 - Math.max(0, sz) * 0.012 - Math.max(0, -sz) * 0.016
+      : side ** 2 * 0.042 - Math.max(0, sz) * 0.010;
     lipPts.push([bx + sx * rx * 0.975, cy + lift - 0.002, bz - 0.004 + sz * rz * 0.975]);
   }
   const lip = ribbon(lipPts, 0.016, 0.010, { seg: 6, up: [0, 1, 0], upright: true });
@@ -849,8 +857,12 @@ export function sling(gripPoint, stockPoint) {
     [0.120, 1.330, -0.070],
     [0.150, 1.250, 0.040],
     [0.110, 1.235, 0.135],
-    [gripPoint[0] + 0.02, gripPoint[1] + 0.03, gripPoint[2] + 0.02],
+    // ends clipped to the chest: the gun lives on the right hand and moves with
+    // the arms, so a body-bound run out to the foregrip stretched into a
+    // straight rod across the chest in every pose but the bind pose
+    [0.070, 1.226, 0.158],
   ];
+  void gripPoint;
   const m = ribbon(pts, 0.032, 0.009, { seg: 6, up: [0, 1, 0] });
   computeNormals(m);
   return m;
@@ -1079,4 +1091,322 @@ export function knuckleGuard(wrist, gripAxis, palmNormal) {
   computeNormals(g);
   transformMesh(g, m);
   return g;
+}
+
+/* ================================================================== */
+/* Armour tiers (EXPANSION §10.3)                                     */
+/* ================================================================== */
+
+/**
+ * NO HELMET: a soft patrol cap. A shallow crown that hugs the skull, a stiff
+ * curved bill and a seam over the top, so the head reads "unprotected" at 30 m
+ * against the hard dome of a helmet.
+ */
+export function patrolCap(nz, base) {
+  const out = emptyMesh();
+  const bx = base[0], by = base[1], bz = base[2];
+  const crown = ellipsoid(0.106, 0.142, 0.117, { seg: 24, rows: 11, v0: 0.42, v1: 1 });
+  computeNormals(crown);
+  place(crown, bx, by + 0.110, bz - 0.006);
+  // a flat top, the way a cap's crown sits on the head
+  warp(crown, (v) => {
+    const top = by + 0.236;
+    if (v.y > top) v.y = top + (v.y - top) * 0.35;
+  });
+  computeNormals(crown);
+  displace(crown, (x, y, z) => nz.fbm3(x * 30, y * 26, z * 30, 3) * 0.0026);
+  appendMesh(out, crown);
+  // headband
+  const band = [];
+  for (let i = 0; i <= 28; i++) {
+    const a = (i / 28) * Math.PI * 2;
+    band.push([bx + Math.sin(a) * 0.104, by + 0.122 - Math.max(0, Math.cos(a)) * 0.004, bz - 0.006 + Math.cos(a) * 0.115]);
+  }
+  const hb = ribbon(band, 0.022, 0.008, { seg: 6, up: [0, 1, 0], upright: true });
+  computeNormals(hb);
+  appendMesh(out, hb);
+  // the bill: a curved slab out over the brow
+  const bill = boxRound(0.074, 0.0045, 0.05, { n: 2.4, seg: 22, rows: 4, roundY: 0.5 });
+  warp(bill, (v) => {
+    if (v.z < -0.035) v.z = -0.035; // straight back edge where it meets the band
+    v.y -= v.x * v.x * 1.6; // curved down at the sides
+  });
+  computeNormals(bill);
+  place(bill, bx, by + 0.126, bz + 0.142, 0.16, 0, 0);
+  appendMesh(out, bill);
+  // centre seam ridge
+  const seam = [];
+  for (let i = 0; i <= 8; i++) {
+    const a = (i / 8 - 0.5) * 2.4;
+    seam.push([bx, by + 0.110 + Math.cos(a) * 0.128 - 0.004, bz - 0.006 + Math.sin(a) * 0.112]);
+  }
+  const sm = ribbon(seam, 0.007, 0.003, { seg: 5, up: [1, 0, 0] });
+  computeNormals(sm);
+  appendMesh(out, sm);
+  return out;
+}
+
+/**
+ * HEAVY HELMET: the ballistic visor, a curved smoked polycarbonate shield
+ * hanging off the brow down to the chin. `visorFrame` is its hinge bar and
+ * pivots, in a separate (polymer) material so the glass reads as an insert.
+ */
+export function helmetVisor(base) {
+  const bx = base[0], by = base[1], bz = base[2];
+  const v = boxRound(0.106, 0.074, 0.0045, { n: 3.4, seg: 24, rows: 9, roundY: 0.3 });
+  // narrower at the chin
+  warp(v, (p) => {
+    const t = Math.max(0, -p.y / 0.074);
+    p.x *= 1 - 0.18 * t * t;
+  });
+  computeNormals(v);
+  place(v, bx, by + 0.074, bz + 0.142, -0.1, 0, 0);
+  bendY(v, 0.128, bz + 0.142);
+  computeNormals(v);
+  return v;
+}
+
+export function visorFrame(nz, base) {
+  const out = emptyMesh();
+  const bx = base[0], by = base[1], bz = base[2];
+  const cy = by + 0.100;
+  // hinge bar across the brow, following the shell
+  const pts = [];
+  for (let i = 0; i <= 10; i++) {
+    const a = (i / 10 - 0.5) * 2.1;
+    pts.push([bx + Math.sin(a) * 0.128, cy + 0.052 - Math.abs(Math.sin(a)) * 0.006, bz - 0.004 + Math.cos(a) * 0.144]);
+  }
+  const bar = ribbon(pts, 0.022, 0.012, { seg: 6, up: [0, 1, 0], upright: true });
+  computeNormals(bar);
+  appendMesh(out, bar);
+  for (const side of [-1, 1]) {
+    // side pivot
+    const pv = revolve([[0.0001, -0.006], [0.017, -0.006], [0.018, 0.0], [0.014, 0.006], [0.0001, 0.007]], 14,
+      { capStart: false, capEnd: false });
+    computeNormals(pv);
+    place(pv, bx + side * 0.130, cy + 0.020, bz + 0.040, 0, 0, side * Math.PI * 0.5);
+    appendMesh(out, pv);
+    // the visor's side arm, pivot to the shield edge
+    const arm = ribbon([
+      [bx + side * 0.128, cy + 0.022, bz + 0.046],
+      [bx + side * 0.118, cy + 0.000, bz + 0.098],
+      [bx + side * 0.104, cy - 0.020, bz + 0.124],
+    ], 0.014, 0.006, { seg: 5, up: [1, 0, 0] });
+    computeNormals(arm);
+    appendMesh(out, arm);
+  }
+  displace(out, (x, y, z) => nz.fbm3(x * 50, y * 50, z * 50, 2) * 0.0006);
+  return out;
+}
+
+/** Torso section for a vest at height y: the jacket's own table (jacketTorso). */
+const TORSO = [
+  [1.055, 0.146, 0.100, -0.014], [1.120, 0.150, 0.104, -0.010], [1.185, 0.161, 0.112, -0.004],
+  [1.250, 0.172, 0.113, 0.002], [1.310, 0.184, 0.117, 0.005], [1.365, 0.195, 0.118, 0.004],
+  [1.418, 0.198, 0.111, -0.002],
+];
+function torsoSection(y, out) {
+  let i = 0;
+  while (i < TORSO.length - 2 && TORSO[i + 1][0] < y) i++;
+  const a = TORSO[i], b = TORSO[i + 1];
+  const t = Math.max(0, Math.min(1, (y - a[0]) / (b[0] - a[0])));
+  out.hx = a[1] + (b[1] - a[1]) * t;
+  out.hz = a[2] + (b[2] - a[2]) * t;
+  out.zo = a[3] + (b[3] - a[3]) * t;
+  return out;
+}
+
+/** The vest's top edge: high over chest and shoulder blades, cut down under the arms. */
+function vestTop(x, high, low) {
+  const t = Math.max(0, Math.min(1, (Math.abs(x) - 0.085) / 0.075));
+  return high - (high - low) * t * t * (3 - 2 * t);
+}
+
+/** Point on the vest surface at angle a (0 = front) and height y, `pad` off the jacket. */
+function vestPoint(a, y, pad, n, sec) {
+  const e = 2 / n;
+  const sx = Math.sin(a), sz = Math.cos(a);
+  torsoSection(y, sec);
+  const x = (sec.hx + pad) * Math.sign(sx) * Math.abs(sx) ** e;
+  let z = sec.zo + (sec.hz + pad) * Math.sign(sz) * Math.abs(sz) ** e;
+  const t = Math.max(0, Math.min(1, (y - 1.1) / 0.3));
+  z += z > sec.zo ? 0.016 * t : -0.006 * t;
+  return [x, y, z];
+}
+
+/**
+ * LIGHT VEST: soft armour. Flat panels that wrap the torso close, cut under
+ * the arms, bound with tape at the edges and hung off thin shoulder straps.
+ * No plates, no pouch wall: it reads as a slim second layer over the jacket.
+ */
+export function softVest(nz) {
+  const out = emptyMesh();
+  const sec = { hx: 0, hz: 0, zo: 0 };
+  const seg = 40, rows = 10, n = 2.9;
+  const pad = 0.014;
+  const y0 = 1.075, y1 = 1.415, low = 1.30;
+  // built as a grid in (angle, height) so the arm-hole cut is part of the shape
+  const P = out.p, N = out.n, UV = out.uv, I = out.i;
+  for (let r = 0; r < rows; r++) {
+    const v = r / (rows - 1);
+    for (let c = 0; c <= seg; c++) {
+      const a = (c / seg) * Math.PI * 2;
+      // x first at the nominal height, to find the cut
+      const p0 = vestPoint(a, y0 + (y1 - y0) * v, pad, n, sec);
+      const top = vestTop(p0[0], y1, low);
+      const y = y0 + (top - y0) * v;
+      const p = vestPoint(a, y, pad, n, sec);
+      P.push(p[0], p[1], p[2]);
+      N.push(0, 0, 0);
+      UV.push((c / seg) * 1.1, y - y0);
+    }
+  }
+  const cols = seg + 1;
+  for (let r = 0; r + 1 < rows; r++) {
+    for (let c = 0; c < seg; c++) {
+      const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
+      I.push(a, b, d, b, e, d); // angle runs clockwise seen from above: outward winding
+    }
+  }
+  computeNormals(out);
+  displace(out, (x, y, z) => nz.fbm3(x * 30, y * 30, z * 30, 3) * 0.0016);
+
+  // binding tape along the cut top and the hem
+  const rim = (topEdge) => {
+    const pts = [];
+    for (let i = 0; i <= 56; i++) {
+      const a = (i / 56) * Math.PI * 2;
+      const p0 = vestPoint(a, y1, pad, n, sec);
+      const y = topEdge ? vestTop(p0[0], y1, low) - 0.003 : y0 + 0.004;
+      pts.push(vestPoint(a, y, pad + 0.002, n, sec));
+    }
+    const r = ribbon(pts, 0.013, 0.007, { seg: 6, up: [0, 1, 0], upright: true });
+    computeNormals(r);
+    return r;
+  };
+  appendMesh(out, rim(true));
+  appendMesh(out, rim(false));
+
+  // thin shoulder straps
+  for (const side of [-1, 1]) {
+    const s = ribbon([
+      [side * 0.080, 1.405, 0.139],
+      [side * 0.094, 1.462, 0.050],
+      [side * 0.097, 1.458, -0.034],
+      [side * 0.086, 1.405, -0.120],
+    ], 0.056, 0.011, { seg: 8, up: [0, 1, 0] });
+    computeNormals(s);
+    appendMesh(out, s);
+  }
+  // side adjustment tabs over the wrap
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < 2; k++) {
+      const y = 1.13 + k * 0.075;
+      const p = vestPoint(side * Math.PI * 0.5, y, pad + 0.004, n, sec);
+      const st = boxRound(0.006, 0.011, 0.046, { n: 4, seg: 12, rows: 4, roundY: 0.4 });
+      computeNormals(st);
+      place(st, p[0], y, p[2] + 0.012, 0, 0, 0);
+      appendMesh(out, st);
+    }
+  }
+  return out;
+}
+
+/** HEAVY VEST: shoulder armour over each deltoid. */
+export function shoulderArmour(nz, shoulder, side) {
+  const m = ellipsoid(0.076, 0.084, 0.08, { seg: 18, rows: 8, v0: 0.52, v1: 1 });
+  warp(m, (v) => { v.y *= 0.6; });
+  computeNormals(m);
+  place(m, shoulder[0] + side * 0.028, shoulder[1] - 0.006, shoulder[2] - 0.004, 0, 0, -side * 1.05);
+  displace(m, (x, y, z) => nz.fbm3(x * 34, y * 34, z * 34, 3) * 0.0016);
+  return m;
+}
+
+/** HEAVY VEST: the throat guard, a stiff half-collar between the shoulder straps. */
+export function throatGuard(nz) {
+  const pts = [];
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16 - 0.5) * 3.0;
+    pts.push([Math.sin(a) * 0.106, 1.452 - Math.cos(a) * 0.01, -0.004 + Math.cos(a) * 0.116]);
+  }
+  const c = ribbon(pts, 0.05, 0.016, { seg: 8, up: [0, 1, 0], upright: true });
+  computeNormals(c);
+  warp(c, (v) => {
+    // flares out at the bottom like a collar insert
+    const t = Math.max(0, Math.min(1, (1.452 - v.y) / 0.025));
+    v.x *= 1 + 0.07 * t;
+    if (v.z > 0) v.z += 0.012 * t;
+  });
+  computeNormals(c);
+  displace(c, (x, y, z) => nz.fbm3(x * 40, y * 40, z * 40, 2) * 0.0016);
+  return c;
+}
+
+/** HEAVY VEST: groin protector hanging off the carrier's front hem. */
+export function groinFlap(nz) {
+  const m = boxRound(0.07, 0.062, 0.012, { n: 3.6, seg: 18, rows: 8, roundY: 0.25 });
+  warp(m, (v) => {
+    const t = Math.max(0, -v.y / 0.062);
+    v.x *= 1 - 0.25 * t;
+  });
+  computeNormals(m);
+  place(m, 0, 1.0, 0.134, 0.12, 0, 0);
+  bendY(m, 0.2, 0.134);
+  computeNormals(m);
+  displace(m, (x, y, z) => nz.fbm3(x * 34, y * 34, z * 34, 3) * 0.002);
+  return m;
+}
+
+/** HEAVY VEST: side plate pouches on the cummerbund. */
+export function sidePlates(nz) {
+  const out = emptyMesh();
+  for (const side of [-1, 1]) {
+    const m = boxRound(0.018, 0.066, 0.06, { n: 4, seg: 16, rows: 8, roundY: 0.3 });
+    computeNormals(m);
+    place(m, side * 0.176, 1.168, 0.0, 0, 0, side * 0.05);
+    displace(m, (x, y, z) => nz.fbm3(x * 34, y * 34, z * 34, 3) * 0.0016);
+    appendMesh(out, m);
+  }
+  return out;
+}
+
+/**
+ * NO VEST: a bare chest rig, the militia option. A narrow stiffened panel
+ * low on the chest (its magazine cells are added as pouches), on an X harness.
+ */
+export function chestRig(nz) {
+  const panel = boxRound(0.118, 0.05, 0.016, { n: 4.5, seg: 22, rows: 8, roundY: 0.3 });
+  computeNormals(panel);
+  place(panel, 0, 1.158, 0.128, -0.05, 0, 0);
+  bendY(panel, 0.2, 0.128);
+  computeNormals(panel);
+  displace(panel, (x, y, z) => nz.fbm3(x * 34, y * 34, z * 34, 3) * 0.002);
+  return panel;
+}
+
+export function rigHarness() {
+  const out = emptyMesh();
+  for (const side of [-1, 1]) {
+    // over the shoulder, crossing the back
+    const s = ribbon([
+      [side * 0.09, 1.20, 0.142],
+      [side * 0.092, 1.33, 0.144],
+      [side * 0.098, 1.462, 0.05],
+      [side * 0.090, 1.442, -0.06],
+      [side * 0.02, 1.32, -0.126],
+      [-side * 0.11, 1.17, -0.118],
+    ], 0.034, 0.006, { seg: 6, up: [0, 1, 0] });
+    computeNormals(s);
+    appendMesh(out, s);
+  }
+  // waist strap round the back
+  const pts = [];
+  for (let i = 0; i <= 20; i++) {
+    const a = Math.PI * 0.42 + (i / 20) * Math.PI * 1.16;
+    pts.push([Math.sin(a) * 0.162, 1.15, -0.008 + Math.cos(a) * 0.118]);
+  }
+  const w = ribbon(pts, 0.028, 0.006, { seg: 6, up: [0, 1, 0], upright: true });
+  computeNormals(w);
+  appendMesh(out, w);
+  return out;
 }

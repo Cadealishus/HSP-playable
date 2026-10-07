@@ -89,7 +89,9 @@ export function buildLmg() {
     y: bore, zBreech: zRecFront + 0.01, zMuzzle: zBarrelEnd,
     rChamber: 0.014, rBarrel: 0.0108, rGas: 0.013, gasAt: -0.46,
   });
-  const muzzle = addMuzzleDevice(body, 'steel_soot', 'cavity', 'a2', zBarrelEnd, 0.0108, bore);
+  const stockMuzzle = new Assembly('lmg-muzzle');
+  const stockOptic = new Assembly('lmg-optic');
+  const muzzle = addMuzzleDevice(stockMuzzle, 'steel_soot', 'cavity', 'a2', zBarrelEnd, 0.0108, bore);
   const gas = rodZ(0.0085, 0.0085, 0.28, 16, 0.001);
   body.add(gas, 'steel_soot', { y: bore - 0.024, z: -0.33 });
   gas.dispose();
@@ -121,7 +123,7 @@ export function buildLmg() {
 
   /* ---- optic: the rifle's tube dot on the cover rail ----------------------- */
   const opticY = railTop + 0.038;
-  const optic = buildOptic(body, {
+  const optic = buildOptic(stockOptic, {
     rTube: 0.0155, len: 0.052, hood: 0.007, y: opticY, z: -0.06, railTop, matBody: 'alu_fine', matSteel: 'steel',
   });
 
@@ -168,9 +170,15 @@ export function buildLmg() {
     label: 'BUZZARD 762',
     fxClass: 'lmg',
     body,
-    moving: { magazine, bolt, trigger },
+    moving: { magazine, bolt, trigger, stockMuzzle, stockOptic },
     nodes: {
       muzzle: [0, bore, muzzle.crownZ],
+      /** GUNSMITH mount points (attachments.js). */
+      mounts: {
+        rail: { y: railTop, z: -0.06 },
+        muzzle: { y: bore, z: zBarrelEnd, r: 0.0108 },
+        side: { x: -(hsR + 0.002), y: bore - 0.01, z: -0.36, s: -1 },
+      },
       chamber: [0, bore, -0.02],
       eject: [0.01, bore - recH / 2 - 0.01, -0.02],
       ejectDir: [0.3, -0.8, 0.2],
