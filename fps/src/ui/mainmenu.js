@@ -315,7 +315,7 @@ export class MainMenu {
         tag: `${modes.length} MODES`,
         onSelect: () => this.go('mp'),
         panel: (p) =>
-          this._blurb(p, 'MULTIPLAYER / BOTS', 'Doug and five ESF operators against six hostiles. Command has assured everyone the bots are on our side.', modes.map((m) => [m.label, m.blurb])),
+          this._blurb(p, 'MULTIPLAYER / BOTS', 'Doug and five ESF operators against six hostiles, or Doug against everyone. Command has assured everyone the bots are on our side, where applicable.', modes.map((m) => [m.label, m.blurb])),
       });
     }
     items.push({

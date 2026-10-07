@@ -169,7 +169,7 @@ export class FxSystem {
     };
     this._off = [];
     on('bullet:impact', (e) => this.onImpact(e));
-    on('bullet:tracer', (e) => this.tracer(e.from, e.to, e.speed));
+    on('bullet:tracer', (e) => this.tracer(e.from, e.to, e.speed, e));
     on('weapon:fire', (e) => this.onWeaponFire(e));
     on('weapon:shell', (e) => this.spawnShell(e.position, e.velocity, e));
     on('explosion', (e) => this.explosion(e));
@@ -500,10 +500,11 @@ export class FxSystem {
   }
 
   /** A travelling tracer round. */
-  tracer(from, to, speed) {
+  /** `e.warm` (GUNSMITH ammo types) tints the streak: < 1 deeper orange, > 1 paler. */
+  tracer(from, to, speed, e) {
     if (!from || !to) return;
     this.now = this.ctx.time.elapsed;
-    spawnTracer(this, from, to, speed);
+    spawnTracer(this, from, to, speed, e && e.warm !== undefined && e.warm !== 1 ? e : undefined);
   }
 
   /** Full explosion: fireball, shockwave, debris, smoke column, light, scorch. */

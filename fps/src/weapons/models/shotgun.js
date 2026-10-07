@@ -50,16 +50,19 @@ export function buildShotgun() {
   addPin(body, 'steel', 0, bore - 0.03, 0.03, 0.0028, recW + 0.002);
   // Top rail + ghost-ring rear sight at the back of it.
   addRail(body, 'alu', zRecFront + 0.01, zRecRear - 0.006, railTop - 0.009);
+  // The ghost ring is its own assembly: an optic attachment (attachments.js)
+  // replaces it rather than standing in front of it.
+  const stockOptic = new Assembly('shotgun-optic');
   const ringBase = box(0.03, 0.012, 0.02, 0.0012, 1);
-  body.add(ringBase, 'alu', { y: railTop + 0.006, z: 0.03 });
+  stockOptic.add(ringBase, 'alu', { y: railTop + 0.006, z: 0.03 });
   ringBase.dispose();
   for (const sx of [-1, 1]) {
     const ear = box(0.004, 0.02, 0.018, 0.0008, 1);
-    body.add(ear, 'alu', { x: sx * 0.012, y: railTop + 0.019, z: 0.03 });
+    stockOptic.add(ear, 'alu', { x: sx * 0.012, y: railTop + 0.019, z: 0.03 });
     ear.dispose();
   }
   const ghost = latheZ([[0, 0.0045], [0, 0.0072], [0.004, 0.0072], [0.004, 0.0045]], 24);
-  body.add(ghost, 'steel', { y: railTop + 0.022, z: 0.028 });
+  stockOptic.add(ghost, 'steel', { y: railTop + 0.022, z: 0.028 });
   ghost.dispose();
 
   /* ---- trigger guard / grip / stock (the rifle's ergonomics) ----------- */
@@ -138,8 +141,13 @@ export function buildShotgun() {
     label: 'SHRIKE 12',
     fxClass: 'shotgun',
     body,
-    moving: { magazine, pump, trigger },
+    moving: { magazine, pump, trigger, stockOptic },
     nodes: {
+      /** GUNSMITH mount points (attachments.js). The top rail's real face is 9 mm under `railTop`. */
+      mounts: {
+        rail: { y: railTop - 0.009, z: -0.05 },
+        side: { x: -(recW / 2 + 0.0015), y: bore - 0.012, z: -0.105, s: -1 },
+      },
       muzzle: [0, bore, zBarrelEnd],
       chamber: [0, bore, -0.06],
       eject: [recW / 2 + 0.006, bore + 0.004, -0.06],

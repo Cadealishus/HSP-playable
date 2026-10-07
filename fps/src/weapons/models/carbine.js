@@ -298,16 +298,22 @@ export function buildCarbine(opts = {}) {
   S.add('inner', latheX([[0, 0], [2.3, 0], [2.3, 0.6], [0, 0.6]], 14).rotateZ(Math.PI).translate(-24.9, hgC - 4, -214));
 
   /* ---------------- barrel, gas system, muzzle ---------------- */
-  S.add('steel', latheZ([[0, 186], [9.3, 186, 0.3], [9.3, 432, 1], [8.0, 436, 0.5], [7.6, 440], [7.6, 469, 0.4], [6.9, 470.5, 0.3], [6.9, 476, 0.3], [7.6, 477.5, 0.4], [7.6, 521], [0, 521]], 28));
+  // Barrel, birdcage and holo are separate assemblies for attachments.js.
+  const barrelAsm = new Assembly('carbine-barrel');
+  const stockMuzzle = new Assembly('carbine-muzzle');
+  const stockOptic = new Assembly('carbine-optic');
+  const SB = new MM(barrelAsm);
+  const SM = new MM(stockMuzzle);
+  SB.add('steel', latheZ([[0, 186], [9.3, 186, 0.3], [9.3, 432, 1], [8.0, 436, 0.5], [7.6, 440], [7.6, 469, 0.4], [6.9, 470.5, 0.3], [6.9, 476, 0.3], [7.6, 477.5, 0.4], [7.6, 521], [0, 521]], 28));
   S.add('steel', latheZ([[0, 180], [2.6, 180], [2.6, 441], [0, 441]], 10).translate(0, 13, 0));
   // Gas block + A2 birdcage are sooted: combustion products vent there by design.
   S.add('steelSoot', latheZ([[0, 440], [12.2, 440, 1.4], [12.2, 463, 1.4], [0, 463]], 28));
   S.add('steelSoot', profileX([[440, 4, 1], [463, 4, 1], [463, 17.5, 3], [440, 17.5, 3]], -8, 8, { bevel: 1.2 }));
   for (const u of [446, 457]) S.add('steelDark', screwHead(2.4, 1.4).rotateZ(-Math.PI / 2).translate(0, -12, -u));
   const fr = 11.1, fi = 6.6;
-  S.add('steelSoot', latheZ([[fi, 520], [11.6, 520, 0.4], [11.6, 523.5, 0.4], [fi, 523.5]], 32, { closed: true }));
-  S.add('steelSoot', latheZ([[fi, 523.5], [fr, 523.5, 0.8], [fr, 547, 0.6], [fi, 547]], 32, { closed: true }));
-  S.add('steelSoot', latheZ([[fi, 569], [fr, 569, 0.6], [10.2, 575, 1.2], [fi, 575, 0.6]], 32, { closed: true }));
+  SM.add('steelSoot', latheZ([[fi, 520], [11.6, 520, 0.4], [11.6, 523.5, 0.4], [fi, 523.5]], 32, { closed: true }));
+  SM.add('steelSoot', latheZ([[fi, 523.5], [fr, 523.5, 0.8], [fr, 547, 0.6], [fi, 547]], 32, { closed: true }));
+  SM.add('steelSoot', latheZ([[fi, 569], [fr, 569, 0.6], [10.2, 575, 1.2], [fi, 575, 0.6]], 32, { closed: true }));
   const slotW = 0.34;
   const slotCenters = [0, 1, 2, 4, 5].map((k) => (k * Math.PI) / 3);
   for (let k = 0; k < 6; k++) {
@@ -317,9 +323,9 @@ export function buildCarbine(opts = {}) {
     const next = a + Math.PI / 3 - (slotCenters.includes(a + Math.PI / 3) || k === 5 ? slotW / 2 : -slotW / 2);
     const g = lathe([[fi, 546.5], [fr, 546.5], [fr, 569.5], [fi, 569.5]], 6, { closed: true, phi0: start, phiLen: next - start });
     g.rotateX(-Math.PI / 2);
-    S.add('steelSoot', g);
+    SM.add('steelSoot', g);
   }
-  S.add('inner', latheZ([[0, 523], [fi - 0.05, 523], [fi - 0.05, 575.5], [0, 575.5]], 16));
+  SM.add('inner', latheZ([[0, 523], [fi - 0.05, 523], [fi - 0.05, 575.5], [0, 575.5]], 16));
 
   /* ---------------- folded front BUIS ---------------- */
   // No rear BUIS: at the ADS eye point a folded rear leaf on the receiver is
@@ -347,7 +353,7 @@ export function buildCarbine(opts = {}) {
   }
 
   /* ---------------- holographic sight ---------------- */
-  const holo = buildHolo(S);
+  const holo = buildHolo(new MM(stockOptic));
 
   /* ---------------- moving parts ---------------- */
   // Magazine: rest node at the magwell mouth (u 137, v -26).
@@ -416,9 +422,17 @@ export function buildCarbine(opts = {}) {
     label: suppressed ? 'KESTREL 556 SD' : 'KESTREL 556',
     fxClass: 'carbine',
     body,
-    moving: { magazine, charging, bolt, trigger },
+    moving: { magazine, charging, bolt, trigger, barrel: barrelAsm, stockMuzzle, stockOptic },
     nodes: {
       muzzle: [0, BORE, muzzleZ],
+      /** GUNSMITH mount points (attachments.js). The SD's can is integral: no muzzle, no barrel. */
+      mounts: {
+        rail: { y: BORE + RAIL_V / 1000, z: Z0 - 0.105 },
+        muzzle: suppressed ? null : { y: BORE, z: Z0 - 0.52, r: 0.0076 },
+        barrel: suppressed ? null : { pivot: Z0 - hgU1 / 1000, end: Z0 - 0.521 },
+        under: { y: BORE + hgC / 1000 - 0.022, z: Z0 - 0.365 },
+        side: { x: -0.0232, y: BORE + hgC / 1000, z: Z0 - 0.385, s: -1 },
+      },
       chamber: P(103, 0),
       eject: P(103, 2, 16),
       ejectDir: [0.86, 0.44, 0.26],
@@ -573,6 +587,19 @@ function buildHolo(S) {
       apertureH: (WIN_H / 2) * 0.001,
     },
   };
+}
+
+/**
+ * The same holographic sight on any rail (attachments.js): its clamp base on
+ * `railTop`, its window at `zWindow`. Returns the sight node and the reticle's
+ * glass description in the rail's weapon space.
+ */
+export function buildHoloAt(asm, railTop, zWindow) {
+  const oy = BORE + RAIL_V / 1000 - railTop;
+  const oz = Z0 - WIN_U / 1000 - zWindow;
+  const r = buildHolo(new MM(asm, [0, oy, oz]));
+  const sight = [0, railTop + WC / 1000, zWindow];
+  return { sight, optic: { ...r.optic, center: sight, lensZ: zWindow } };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { Assembly, box, latheZ, rodZ, ring, tubeZ } from '../geometry.js';
+import { Assembly, box, blob, dome, latheZ, rodZ, ring, tubeZ } from '../geometry.js';
 
 /**
  * Hand grenades: the frag (lethal) and the flashbang (tactical).
@@ -139,5 +139,197 @@ export function buildFlash() {
   asm.add(band, 'polymer_tan', { ...UP, y: -0.046 });
   band.dispose();
   addFuze(asm, H / 2 + 0.004, R);
+  return { asm, radius: R, halfHeight: H / 2 - R };
+}
+
+/* ========================================================================== */
+/*  the comment-pass throwables (EXPANSION §10.4)                             */
+/* ========================================================================== */
+
+/**
+ * Semtex: a 70 x 45 x 26 mm block of plastic explosive in a tan wrapper, a
+ * black detonator/timer unit strapped across the top with a red status LED,
+ * and a rubber adhesive pad underneath (the bit that does the sticking).
+ * Authored centred on its centre of mass, +Y through the detonator.
+ */
+export function buildSemtex() {
+  const asm = new Assembly('semtex');
+  const W = 0.045;
+  const H = 0.026;
+  const L = 0.07;
+  const block = box(W, H, L, 0.005, 2);
+  asm.add(block, 'polymer_tan', {});
+  block.dispose();
+  // Two straps of black tape round the block.
+  for (const z of [-0.022, 0.022]) {
+    const strap = box(W + 0.0016, H + 0.0016, 0.009, 0.0012, 1);
+    asm.add(strap, 'rubber', { z });
+    strap.dispose();
+  }
+  // Adhesive pad on the underside.
+  const pad = box(W * 0.86, 0.0034, L * 0.86, 0.0014, 1);
+  asm.add(pad, 'rubber', { y: -H / 2 - 0.0012 });
+  pad.dispose();
+  // Detonator / timer unit.
+  const det = box(0.03, 0.013, 0.036, 0.0024, 2);
+  asm.add(det, 'polymer', { y: H / 2 + 0.006 });
+  det.dispose();
+  const face = box(0.018, 0.0016, 0.012, 0.0005, 1);
+  asm.add(face, 'steel_black', { y: H / 2 + 0.0128, z: 0.006 });
+  face.dispose();
+  // The LED: a small dome on the timer face, emissive red (see equipment.js).
+  const led = dome(0.0024, 10, 0.5);
+  asm.add(led, 'eq_led', { y: H / 2 + 0.0128, z: -0.008, rx: -Math.PI / 2 });
+  led.dispose();
+  // Detonator cap going into the block, and its leads.
+  const cap = rodZ(0.0032, 0.0032, 0.03, 10, 0.0006);
+  asm.add(cap, 'alu', { x: 0.012, y: H / 2 + 0.004, z: 0.024 });
+  cap.dispose();
+  for (const s of [-1, 1]) {
+    const lead = rodZ(0.0008, 0.0008, 0.024, 6, 0.0002);
+    asm.add(lead, s > 0 ? 'copper' : 'steel_black', { x: 0.006 * s, y: H / 2 + 0.011, z: 0.022, rx: 0.4 });
+    lead.dispose();
+  }
+  return { asm, radius: 0.03, halfHeight: 0 };
+}
+
+/**
+ * Molotov: a 0.5 l bottle (68 mm body, 230 mm tall with the neck) about half
+ * full of fuel, a rag stuffed in the neck and hanging down the shoulder.
+ * Origin near the centre of mass (low, where the fuel is); +Y up the neck.
+ */
+export function buildMolotov() {
+  const asm = new Assembly('molotov');
+  const R = 0.034;
+  const y0 = -0.07;
+  // Outer glass, lathed bottom-to-top: heel, body, shoulder, neck, lip.
+  const glass = latheZ(
+    [
+      [y0, 0],
+      [y0, R * 0.78],
+      [y0 + 0.004, R * 0.97],
+      [y0 + 0.012, R],
+      [y0 + 0.13, R],
+      [y0 + 0.15, R * 0.86],
+      [y0 + 0.17, R * 0.5],
+      [y0 + 0.182, 0.0128],
+      [y0 + 0.218, 0.0124],
+      [y0 + 0.221, 0.0146],
+      [y0 + 0.227, 0.0146],
+      [y0 + 0.229, 0.011],
+      [y0 + 0.229, 0],
+    ],
+    28
+  );
+  asm.add(glass, 'eq_bottle', UP);
+  glass.dispose();
+  // Fuel inside, just under the glass.
+  const fuel = latheZ(
+    [
+      [y0 + 0.004, 0],
+      [y0 + 0.004, R * 0.9],
+      [y0 + 0.011, R - 0.0026],
+      [y0 + 0.098, R - 0.0026],
+      [y0 + 0.098, 0],
+    ],
+    24
+  );
+  asm.add(fuel, 'eq_fuel', UP);
+  fuel.dispose();
+  // A scrap of label.
+  const label = tubeZ(R + 0.0004, R - 0.001, 0.05, 28, 0.0002);
+  asm.add(label, 'polymer_tan', { ...UP, y: y0 + 0.07 });
+  label.dispose();
+  // Rag: wadded into the neck, a knot on top and a tail down the shoulder.
+  const wad = rodZ(0.0118, 0.0135, 0.034, 10, 0.002);
+  asm.add(wad, 'sleeve', { ...UP, y: y0 + 0.226 });
+  wad.dispose();
+  const knot = blob(0.03, 0.022, 0.026, 0.009, 3);
+  asm.add(knot, 'sleeve', { y: y0 + 0.248, rz: 0.4, ry: 0.5 });
+  knot.dispose();
+  const tail = [
+    { x: 0.016, y: y0 + 0.236, rz: -0.9, len: 0.03 },
+    { x: 0.03, y: y0 + 0.21, rz: -0.35, len: 0.034 },
+    { x: 0.038, y: y0 + 0.18, rz: -0.1, len: 0.03 },
+  ];
+  for (const s of tail) {
+    const g = box(0.012, s.len, 0.026, 0.0035, 2);
+    asm.add(g, 'sleeve', { x: s.x, y: s.y, rz: s.rz, ry: 0.15 });
+    g.dispose();
+  }
+  return { asm, radius: R, halfHeight: 0.06 };
+}
+
+/**
+ * Smoke: an M18-pattern canister, 63 mm x 114 mm, olive drab with a tan top
+ * band (the colour of the smoke), four emission ports in the top face, on the
+ * same fuze as the frag.
+ */
+export function buildSmoke() {
+  const asm = new Assembly('smoke');
+  const R = 0.0315;
+  const H = 0.114;
+  const body = rodZ(R, R, H, 30, 0.0016);
+  asm.add(body, 'paint_od', UP);
+  body.dispose();
+  const band = tubeZ(R + 0.0005, R - 0.002, 0.022, 30, 0.0002);
+  asm.add(band, 'polymer_tan', { ...UP, y: H / 2 - 0.022 });
+  band.dispose();
+  // Rolled seams top and bottom.
+  for (const s of [-1, 1]) {
+    const seam = ring(R - 0.0002, 0.0012, 30, 6);
+    asm.add(seam, 'paint_od', { y: s * (H / 2 - 0.001), rx: Math.PI / 2 });
+    seam.dispose();
+  }
+  // Emission ports in the top face.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const port = rodZ(0.004, 0.004, 0.003, 10, 0.0004);
+    asm.add(port, 'cavity', { x: Math.sin(a) * R * 0.62, y: H / 2 + 0.0004, z: Math.cos(a) * R * 0.62, rx: -Math.PI / 2 });
+    port.dispose();
+  }
+  addFuze(asm, H / 2 + 0.002, R);
+  return { asm, radius: R, halfHeight: H / 2 - R };
+}
+
+/**
+ * Concussion: a stubby 52 mm x 96 mm black steel body with alloy end caps,
+ * grip ribs and two tan identification bands; no vent holes (all bang, no light).
+ */
+export function buildConcussion() {
+  const asm = new Assembly('concussion');
+  const R = 0.026;
+  const H = 0.096;
+  const body = rodZ(R, R, H - 0.012, 28, 0.001);
+  asm.add(body, 'steel_black', UP);
+  body.dispose();
+  for (const s of [-1, 1]) {
+    const cap = latheZ(
+      [
+        [0, 0],
+        [0, R + 0.001],
+        [0.002, R + 0.0014],
+        [0.007, R + 0.0014],
+        [0.009, R * 0.84],
+        [0.009, 0],
+      ],
+      28
+    );
+    asm.add(cap, 'alu', s > 0 ? { ...UP, y: H / 2 - 0.009 } : { rx: Math.PI / 2, y: -H / 2 + 0.009 });
+    cap.dispose();
+  }
+  for (const y of [-0.016, 0.004]) {
+    const band = tubeZ(R + 0.0005, R - 0.001, 0.008, 28, 0.0002);
+    asm.add(band, 'polymer_tan', { ...UP, y });
+    band.dispose();
+  }
+  // Raised grip ribs.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const rib = box(0.004, 0.03, 0.002, 0.0006, 1);
+    asm.add(rib, 'steel_black', { x: Math.sin(a) * (R + 0.0006), y: 0.03, z: Math.cos(a) * (R + 0.0006), ry: a });
+    rib.dispose();
+  }
+  addFuze(asm, H / 2 + 0.002, R);
   return { asm, radius: R, halfHeight: H / 2 - R };
 }

@@ -120,20 +120,46 @@ export function mapSupports(m, mode) {
   return !!m && !m.missionOnly && mapModes(m).includes(mode);
 }
 
-/** Sanitise a loadout: string ids only, defaults for anything missing. */
+/** Attachment slots of a weapon kit (EXPANSION 10.1). */
+export const KIT_SLOTS = ['optic', 'muzzle', 'barrel', 'underbarrel', 'magazine', 'laser'];
+
+/** A kit with every slot null and FMJ. */
+export function emptyKit() {
+  return { optic: null, muzzle: null, barrel: null, underbarrel: null, magazine: null, laser: null, ammo: 'fmj' };
+}
+
+/**
+ * Sanitise a weapon kit: string ids or null per slot, `ammo` a string (FMJ when
+ * missing). Whether a gun accepts an id is the weapons system's call
+ * (attachments.js resolveKit); this only guarantees the shape.
+ */
+export function normaliseKit(k) {
+  const out = emptyKit();
+  if (k && typeof k === 'object') {
+    for (const s of KIT_SLOTS) if (typeof k[s] === 'string' && k[s]) out[s] = k[s];
+    if (typeof k.ammo === 'string' && k.ammo) out.ammo = k.ammo;
+  }
+  return out;
+}
+
+/**
+ * Sanitise a loadout (EXPANSION 10.1): string ids only, defaults for anything
+ * missing. Old saved shapes ({ primary, secondary, lethal, tactical } only) load
+ * as stock guns with FMJ, a light helmet and a light vest.
+ */
 export function normaliseLoadout(l) {
-  const out = { ...DEFAULT_LOADOUT };
+  const out = { ...DEFAULT_LOADOUT, primaryKit: emptyKit(), secondaryKit: emptyKit(), helmet: 'light', vest: 'light' };
   if (l && typeof l === 'object') {
-    for (const k of ['primary', 'secondary', 'lethal', 'tactical']) {
+    for (const k of ['primary', 'secondary', 'lethal', 'tactical', 'helmet', 'vest']) {
       if (typeof l[k] === 'string' && l[k]) out[k] = l[k];
     }
-    // EXPANSION §10.1/§10.3: armour tiers (src/combat/armor.js), light by default
+    out.primaryKit = normaliseKit(l.primaryKit);
+    out.secondaryKit = normaliseKit(l.secondaryKit);
+    // armour tiers (src/combat/armor.js): anything unknown falls back to light
     for (const k of ['helmet', 'vest']) {
-      if (l[k] === 'none' || l[k] === 'light' || l[k] === 'heavy') out[k] = l[k];
+      if (out[k] !== 'none' && out[k] !== 'light' && out[k] !== 'heavy') out[k] = 'light';
     }
   }
-  if (!out.helmet) out.helmet = 'light';
-  if (!out.vest) out.vest = 'light';
   return out;
 }
 

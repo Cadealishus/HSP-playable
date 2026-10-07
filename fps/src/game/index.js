@@ -422,7 +422,12 @@ export class GameSystem {
   /** No killcam in co-op (the world cannot pause for one page) or in capture runs. */
   _killcamAllowed() {
     if (this.ctx.config?.deterministic) return false;
-    if (this.ctx.peek('net')?.sessionRole?.()) return false;
+    // Online: the replay pauses this page's world. A client in PvP may (it is
+    // dead and waiting to respawn; the host keeps simulating and the puppets
+    // catch up from the next snapshot). The host never pauses (it runs the
+    // match for everyone), and co-op downs have no killcam.
+    const role = this.ctx.peek('net')?.sessionRole?.();
+    if (role && (role === 'host' || this.modeId === 'survival')) return false;
     return !!this.ctx.peek('ai')?.spawnMannequin;
   }
 
