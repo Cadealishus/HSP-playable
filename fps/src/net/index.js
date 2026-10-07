@@ -898,6 +898,7 @@ export class NetSystem {
     const b = this._bucket(from);
     if (seq <= b.seq) return; // replay / reorder
     b.seq = seq;
+    const ammo = typeof d.am === 'string' ? d.am.replace(/[^a-z_]/g, '').slice(0, 16) || 'fmj' : 'fmj';
     const shooter = this.puppets.players.get(from)?.agent;
     if (!shooter || !shooter.alive) {
       this.stats.hitsRejected += list.length;
@@ -921,7 +922,7 @@ export class NetSystem {
         this.stats.hitsRejected++;
         continue;
       }
-      if (a.position.distanceTo(shooter.position) > MAX_HIT_RANGE) {
+      if (a.position.distanceTo(shooter.position) > (h[3] === 1 ? 4.5 : MAX_HIT_RANGE)) {
         this.stats.hitsRejected++;
         continue;
       }
@@ -940,7 +941,8 @@ export class NetSystem {
       e.actor = a;
       e.part = part;
       this.ctx.events.emit('bullet:impact', e);
-      a.applyDamage(dmg, part, point, dir, null, shooter);
+      // The agent's own damage path: armour + ammo through resolveDamage.
+      a.applyDamage(dmg, part, point, dir, null, shooter, ammo, h[3] === 1 ? 'melee' : null);
       this.stats.hitsApplied++;
     }
   }
@@ -978,12 +980,13 @@ export class NetSystem {
         this.stats.hitsRejected++; // friendly fire is off
         continue;
       }
-      if (vpos.distanceTo(shooter.position) > MAX_HIT_RANGE) {
+      if (vpos.distanceTo(shooter.position) > (h[3] === 1 ? 4.5 : MAX_HIT_RANGE)) {
         this.stats.hitsRejected++;
         continue;
       }
       b.tokens -= 1;
-      this.queueDamage(victim, dmg, shooter.position, from, zone, ammo, weapon);
+      const melee = h[3] === 1;
+      this.queueDamage(victim, dmg, shooter.position, from, zone, ammo, melee ? 'knife' : weapon, melee);
       this.stats.hitsApplied++;
     }
   }
@@ -1026,6 +1029,7 @@ export class NetSystem {
     e.source = source;
     e.zone = zone;
     e.ammo = ammo;
+    e.melee = d.m === 1;
     e.weapon = this._lastHitWeapon;
     this.ctx.events.emit('damage:dealt', e);
   }
@@ -1188,12 +1192,16 @@ export class NetSystem {
   /* --------------------------------------------------- outgoing batches */
 
   /** Client: a hit on a host bot, sent in the next batch. */
-  queueHit(id, dmg, head) {
+  queueHit(id, dmg, head, melee = false) {
     if (this.role !== 'client' || !this.inGame) return;
     const h = this._hits;
+    if (melee) {
+      if (h.length < 32) h.push([id, dmg, head ? 1 : 0, 1]);
+      return;
+    }
     // Merge with a queued hit on the same bot (pellets, bursts).
     for (let i = 0; i < h.length; i++) {
-      if (h[i][0] === id) {
+      if (h[i][0] === id && !h[i][3]) {
         h[i][1] = Math.min(MAX_HIT_DMG, h[i][1] + dmg);
         if (head) h[i][2] = 1;
         return;
@@ -1203,7 +1211,7 @@ export class NetSystem {
   }
 
   /** PvP: my round hit enemy player `peer` (zone 'head'|'torso'|'limb'). */
-  claimPlayerHit(peer, dmg, zone) {
+  claimPlayerHit(peer, dmg, zone, melee = false) {
     if (!this.pvp() || !peer) return;
     const w = this.ctx.peek('weapons');
     const ammo = this._ammoId(w);
@@ -1211,12 +1219,16 @@ export class NetSystem {
       // The host is shooter and referee: validate like any claim, then send.
       const victim = this.puppets.players.get(peer);
       if (!victim || !victim.agent.alive || victim.ragdoll) return;
-      this.queueDamage(peer, Math.min(MAX_HIT_DMG, dmg), this.ctx.peek('player')?.position ?? victim.agent.position, this.t.selfId, zone, ammo, w?.activeId ?? null);
+      this.queueDamage(peer, Math.min(MAX_HIT_DMG, dmg), this.ctx.peek('player')?.position ?? victim.agent.position, this.t.selfId, zone, ammo, melee ? 'knife' : w?.activeId ?? null, melee);
       return;
     }
     const P = this._phits;
+    if (melee) {
+      if (P.length < 16) P.push([peer, dmg, Math.max(0, ZONES.indexOf(zone)), 1]);
+      return;
+    }
     for (let i = 0; i < P.length; i++) {
-      if (P[i][0] === peer && P[i][2] === ZONES.indexOf(zone)) {
+      if (P[i][0] === peer && P[i][2] === ZONES.indexOf(zone) && !P[i][3]) {
         P[i][1] = Math.min(MAX_HIT_DMG, P[i][1] + dmg);
         return;
       }
@@ -1231,11 +1243,11 @@ export class NetSystem {
   }
 
   /** Host: damage for a remote player, sent in the next batch (one entry per attacker and zone). */
-  queueDamage(peer, amount, from, killer = '', zone = 'torso', ammo = 'fmj', weapon = null) {
+  queueDamage(peer, amount, from, killer = '', zone = 'torso', ammo = 'fmj', weapon = null, melee = false) {
     if (!peer) return;
-    const key = `${peer}|${killer}|${zone}`;
+    const key = `${peer}|${killer}|${zone}|${melee ? 1 : 0}`;
     let q = this._dmg.get(key);
-    if (!q) this._dmg.set(key, (q = { t: peer, a: 0, x: 0, y: 0, z: 0, k: killer, zn: zone, am: ammo, w: weapon }));
+    if (!q) this._dmg.set(key, (q = { t: peer, a: 0, x: 0, y: 0, z: 0, k: killer, zn: zone, am: ammo, w: weapon, m: melee }));
     q.a += amount;
     q.x = from.x;
     q.y = from.y + 1.5;
@@ -1252,7 +1264,7 @@ export class NetSystem {
       for (const e of h) e[1] = Math.round(e[1] * 10) / 10;
       for (const e of pl) e[1] = Math.round(e[1] * 10) / 10;
       const w = this.ctx.peek('weapons');
-      this._emit('hit', { s: ++this._hitSeq, h, p: pl.length ? pl : undefined, am: pl.length ? this._ammoId(w) : undefined, w: pl.length ? w?.activeId ?? undefined : undefined });
+      this._emit('hit', { s: ++this._hitSeq, h, p: pl.length ? pl : undefined, am: this._ammoId(w), w: pl.length ? w?.activeId ?? undefined : undefined });
       this.stats.hitsSent += h.length + pl.length;
       this._hits = [];
       this._phits = [];
@@ -1263,10 +1275,10 @@ export class NetSystem {
         if (q.a <= 0) continue;
         if (q.t === self) {
           // The host itself was hit (PvP): apply here, same path as a client.
-          this._onDmg({ t: self, a: q.a, f: [q.x, q.y, q.z], k: q.k, z: q.zn, am: q.am, w: q.w });
+          this._onDmg({ t: self, a: q.a, f: [q.x, q.y, q.z], k: q.k, z: q.zn, am: q.am, w: q.w, m: q.m ? 1 : 0 });
           continue;
         }
-        this._emit('dmg', { t: q.t, a: Math.round(q.a * 10) / 10, f: [cm(q.x), cm(q.y), cm(q.z)], k: q.k || undefined, z: q.zn, am: q.am, w: q.w ?? undefined });
+        this._emit('dmg', { t: q.t, a: Math.round(q.a * 10) / 10, f: [cm(q.x), cm(q.y), cm(q.z)], k: q.k || undefined, z: q.zn, am: q.am, w: q.w ?? undefined, m: q.m ? 1 : undefined });
         this.stats.dmgSent += q.a;
       }
       this._dmg.clear();

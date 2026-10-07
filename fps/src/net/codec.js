@@ -242,11 +242,18 @@ export function cleanToken(s, max = 24) {
   return String(s ?? '').replace(SAFE, '').slice(0, max);
 }
 
+/** Armour tiers (src/combat/armor.js ARMOR_TIERS) as one char each. */
+export const TIER_OF = Object.freeze({ n: 'none', l: 'light', h: 'heavy' });
+export function tierChar(t) {
+  const id = typeof t === 'string' ? t : t?.tier;
+  return id === 'heavy' ? 'h' : id === 'none' ? 'n' : 'l';
+}
+
 export function writeRoster(list) {
   let out = '';
   for (let i = 0; i < list.length; i++) {
     const e = list[i];
-    const rec = `${e.id | 0}~${cleanToken(e.variant, 10)}~${cleanToken(e.role, 10)}~${cleanToken(e.weapon, 14)}~${e.team === 'esf' ? 'e' : 'h'}~${cleanToken(e.name, 14)}`;
+    const rec = `${e.id | 0}~${cleanToken(e.variant, 10)}~${cleanToken(e.role, 10)}~${cleanToken(e.weapon, 14)}~${e.team === 'esf' ? 'e' : 'h'}~${cleanToken(e.name, 14)}~${tierChar(e.helmet)}${tierChar(e.vest)}`;
     if (out.length + rec.length + 1 > ROSTER_MAX) break;
     out += (out ? '|' : '') + rec;
   }
@@ -260,7 +267,7 @@ export function readRoster(str, max = MAX_BOTS) {
   const recs = str.split('|');
   for (let i = 0; i < recs.length && out.size < max; i++) {
     const f = recs[i].split('~');
-    if (f.length !== 6) continue;
+    if (f.length !== 6 && f.length !== 7) continue;
     const id = Number(f[0]);
     if (!Number.isInteger(id) || id < 0 || id > 4095) continue;
     out.set(id, {
@@ -270,6 +277,8 @@ export function readRoster(str, max = MAX_BOTS) {
       weapon: cleanToken(f[3], 14),
       team: f[4] === 'e' ? 'esf' : 'hostile',
       name: cleanToken(f[5], 14).toUpperCase(),
+      helmet: TIER_OF[f[6]?.[0]] ?? 'light',
+      vest: TIER_OF[f[6]?.[1]] ?? 'light',
     });
   }
   return out;
