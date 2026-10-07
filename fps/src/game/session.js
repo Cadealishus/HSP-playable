@@ -127,7 +127,13 @@ export function normaliseLoadout(l) {
     for (const k of ['primary', 'secondary', 'lethal', 'tactical']) {
       if (typeof l[k] === 'string' && l[k]) out[k] = l[k];
     }
+    // EXPANSION §10.1/§10.3: armour tiers (src/combat/armor.js), light by default
+    for (const k of ['helmet', 'vest']) {
+      if (l[k] === 'none' || l[k] === 'light' || l[k] === 'heavy') out[k] = l[k];
+    }
   }
+  if (!out.helmet) out.helmet = 'light';
+  if (!out.vest) out.vest = 'light';
   return out;
 }
 

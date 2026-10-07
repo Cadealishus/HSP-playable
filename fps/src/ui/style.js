@@ -254,6 +254,27 @@ const CSS = `
   background: linear-gradient(to bottom, #d9e2e8, #97a9b6);
   transform-origin: left center;
 }
+/* helmet pip: a short separate block ahead of the vest plates */
+.ow-plate.ow-helm { flex: 0 0 calc(18px * var(--k)); margin-right: calc(var(--u) * .8); border-radius: calc(3px * var(--k)) calc(3px * var(--k)) 0 0; }
+.ow-plate.ow-helm.heavy { flex-basis: calc(26px * var(--k)); }
+.ow-arm-msg {
+  position:absolute; left:0; top: calc(-22px * var(--k));
+  font-size: max(10px, calc(11.5px * var(--k))); letter-spacing:.22em; font-weight:700;
+  color: var(--red); text-shadow: var(--sh-o1); pointer-events:none;
+}
+.ow-armbrk {
+  position:absolute; left:50%; top: calc(50% + 34px * var(--k)); transform: translateX(-50%);
+  font-size: max(10px, calc(11px * var(--k))); letter-spacing:.24em; font-weight:700;
+  color: #d9e2e8; text-shadow: var(--sh-o1); pointer-events:none; display:none;
+}
+
+/* LOADOUT armour bars (protection vs mobility) */
+.ow-mm-bars { display:grid; gap: calc(var(--u) * 1.2); margin: calc(var(--u) * 1.6) 0; }
+.ow-mm-bar { display:grid; grid-template-columns: calc(96px * var(--k)) 1fr calc(70px * var(--k)); align-items:center; gap: calc(var(--u) * 1.2); }
+.ow-mm-bar .k { font-size: max(10px, calc(11px * var(--k))); letter-spacing:.2em; color: var(--ink-2); font-weight:600; }
+.ow-mm-bar .v { font-size: max(10px, calc(11px * var(--k))); letter-spacing:.08em; color: var(--ink); text-align:right; }
+.ow-mm-bar .t { position:relative; height: calc(6px * var(--k)); background: rgba(8,9,10,.62); box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.1); overflow:hidden; }
+.ow-mm-bar .t i { position:absolute; inset:0; transform-origin:left center; background: linear-gradient(to bottom, #fbf9f4, #cfcac0); }
 
 /* ================================================================== ammo */
 .ow-ammo {

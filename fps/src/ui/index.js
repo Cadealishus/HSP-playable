@@ -279,6 +279,16 @@ export class UiSystem {
       }
     });
 
+    // EXPANSION §10.3: Doug's plate breaking flashes the vitals; breaking an
+    // enemy's flashes ARMOUR BROKEN under the reticle (with the armour marker)
+    on('armor:break', (e) => {
+      if (!e) return;
+      if (this._isPlayerTarget(e.target)) this.health.onArmorBroken(e.slot);
+      else if (e.byPlayer) this._armorBreakT = 0;
+    });
+    this._armBrk = el('div', 'ow-armbrk', this.chromeLayer, 'ARMOUR BROKEN');
+    this._armorBreakT = 1;
+
     on('damage:dealt', (e) => {
       if (!e) return;
       // The payload means "damage dealt TO e.target". `ai` uses it for enemy
@@ -967,6 +977,13 @@ export class UiSystem {
       if (ps.maxHealth !== undefined) s.maxHealth = ps.maxHealth;
       if (ps.armour !== undefined) s.armour = ps.armour;
       else if (ps.armor !== undefined) s.armour = ps.armor;
+      if (ps.maxArmour !== undefined) s.maxArmour = ps.maxArmour;
+      if (ps.helmetTier !== undefined) {
+        s.helmetTier = ps.helmetTier;
+        s.vestTier = ps.vestTier;
+        s.helmetFrac = ps.helmetFrac;
+        s.vestFrac = ps.vestFrac;
+      }
       if (ps.regen !== undefined) s.regen = !!ps.regen;
       if (ps.move !== undefined) s.move = ps.move;
       if (ps.sprint !== undefined) s.sprint = !!ps.sprint;
@@ -1059,6 +1076,14 @@ export class UiSystem {
     this.hit.update(dt);
     this.arcs.update(dt, rx, rz, fx, fz);
     this.health.update(dt, s);
+    if (this._armorBreakT < 1) {
+      this._armorBreakT = Math.min(1, this._armorBreakT + rawDt / 1.1);
+      setStyle(this._armBrk, 'opacity', (1 - this._armorBreakT * this._armorBreakT).toFixed(3));
+      setStyle(this._armBrk, 'display', '');
+    } else if (this._armorBreakT === 1) {
+      this._armorBreakT = 2;
+      setStyle(this._armBrk, 'display', 'none');
+    }
     this.ammo.update(dt, s);
     this.killfeed.update(dt);
     this.runBar.update(dt, s);

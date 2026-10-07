@@ -496,6 +496,7 @@ export class AiSystem {
         e.ammo ?? null, e.melee ? 'melee' : null);
       // the HUD can draw an armour hitmarker (EXPANSION §10.3)
       e.armored = a.armor.helmet.hp + a.armor.vest.hp < armBefore;
+      e.armour = e.armored; // ui hitmarker kind 'armour'
       e.armorBroke = this._armorEvent.target === a && this._armorEvent.broke && this._armorEvent.frame === frame;
       if (!a.alive) e.killed = true;
     });
