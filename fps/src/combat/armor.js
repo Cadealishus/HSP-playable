@@ -13,10 +13,12 @@
  *   and a hit that wears more than is left BREAKS it (protection is pro-rated
  *   on that last hit, so a broken plate never over-protects). Broken = hp 0.
  *
- *   Ammo (§10.2 AMMO fields) changes the plate maths:
- *     armorPen     0..1 strips that share of protection (AP 0.7), negative
- *                  numbers make plates MORE effective (hollow point -0.4)
- *     armorDmgMult how hard it chews plates (AP 1.5, hollow point 0.6)
+ *   Ammo (§10.2 AMMO fields, src/weapons/ammo.js) changes the plate maths:
+ *     armorPen     0..1 on GUNSMITH's scale, where FMJ is the 0.25 baseline.
+ *                  It is read RELATIVE to FMJ: strip = (pen - 0.25) / 0.75,
+ *                  so FMJ meets the tier's full protection, AP (0.65) strips
+ *                  53 % of it, and hollow point (0) makes plates 33 % better.
+ *     armorDmgMult how hard it chews plates (AP 1.6, hollow point 0.55)
  *     fleshMult    extra damage to flesh: applied ONLY where no intact plate
  *                  covers the zone (hollow point 1.25)
  *     burn         { dps, dur }: incendiary. Returned to the caller, who ticks
@@ -37,7 +39,7 @@
  * BALANCE
  *   The LIGHT tiers are the loadout default and are tuned to barely move
  *   time-to-kill: a light vest takes 10% off a torso round and breaks after
- *   ~40 hp of wear (two rifle rounds from Doug), so the total it can ever save
+ *   36 hp of wear (two rifle rounds from Doug), so the total it can ever save
  *   is ~6 hp. Its job is to make NONE (faster) and HEAVY (slower, tanky) a real
  *   choice, not to make the default tankier.
  *
@@ -97,7 +99,7 @@ export const ARMOR = Object.freeze({
     light: tier({
       id: 'light', slot: 'vest', label: 'SOFT VEST', short: 'LIGHT',
       desc: 'Soft armour panels. Takes the edge off two rounds, then it is a jacket.',
-      protect: 0.1, hp: 40, moveMult: 1.0,
+      protect: 0.1, hp: 36, moveMult: 1.0,
     }),
     heavy: tier({
       id: 'heavy', slot: 'vest', label: 'PLATE CARRIER', short: 'HEAVY',
@@ -114,15 +116,21 @@ export const ARMOR = Object.freeze({
  * back to fmj's).
  */
 export const AMMO_FALLBACK = Object.freeze({
-  fmj: Object.freeze({ id: 'fmj', dmgMult: 1, fleshMult: 1, armorPen: 0, armorDmgMult: 1, burn: null }),
-  hp: Object.freeze({ id: 'hp', dmgMult: 1, fleshMult: 1.25, armorPen: -0.4, armorDmgMult: 0.6, burn: null }),
-  ap: Object.freeze({ id: 'ap', dmgMult: 0.95, fleshMult: 0.92, armorPen: 0.7, armorDmgMult: 1.5, burn: null }),
+  fmj: Object.freeze({ id: 'fmj', dmgMult: 1, fleshMult: 1, armorPen: 0.25, armorDmgMult: 1, burn: null }),
+  hp: Object.freeze({ id: 'hp', dmgMult: 1, fleshMult: 1.25, armorPen: 0, armorDmgMult: 0.55, burn: null }),
+  ap: Object.freeze({ id: 'ap', dmgMult: 1, fleshMult: 0.9, armorPen: 0.65, armorDmgMult: 1.6, burn: null }),
   incendiary: Object.freeze({
-    id: 'incendiary', dmgMult: 0.95, fleshMult: 1, armorPen: 0, armorDmgMult: 0.9,
-    burn: Object.freeze({ dps: 7, dur: 2.2 }),
+    id: 'incendiary', dmgMult: 0.9, fleshMult: 1, armorPen: 0.15, armorDmgMult: 0.9,
+    burn: Object.freeze({ dps: 9, dur: 2.5 }),
   }),
-  subsonic: Object.freeze({ id: 'subsonic', dmgMult: 0.95, fleshMult: 1, armorPen: -0.1, armorDmgMult: 0.9, burn: null }),
+  subsonic: Object.freeze({ id: 'subsonic', dmgMult: 0.92, fleshMult: 1, armorPen: 0.2, armorDmgMult: 0.9, burn: null }),
 });
+/** FMJ's armorPen on the ammo table's scale: the baseline that meets full protection. */
+export const PEN_BASE = 0.25;
+/** Share of protection a round strips (negative: plates do better), relative to FMJ. */
+export function penStrip(A) {
+  return (num(A?.armorPen, PEN_BASE) - PEN_BASE) / (1 - PEN_BASE);
+}
 const FMJ = AMMO_FALLBACK.fmj;
 
 /** Optional registry hook: `registerAmmo(AMMO)` lets src/weapons/ammo.js feed its table in. */
@@ -183,7 +191,7 @@ export function armorFraction(a, slot) {
 
 /** AI hitbox part ('head' | 'torso' | 'arm' | 'leg') to an armour zone. */
 export function zoneOf(part) {
-  if (part === 'head') return 'head';
+  if (part === 'head' || part === 'neck') return 'head';
   if (part === 'torso' || part == null) return 'torso';
   if (part === 'limb' || part === 'arm' || part === 'leg') return 'limb';
   return 'torso';
@@ -234,7 +242,7 @@ export function resolveDamage(hit, out = _out) {
   let protect = def.protect;
   if (kind === 'blast') protect *= BLAST_SHARE;
   else if (kind === 'fire') protect *= FIRE_SHARE;
-  else protect *= 1 - num(A.armorPen, 0);
+  else protect *= 1 - penStrip(A);
   protect = Math.max(0, Math.min(0.95, protect));
 
   const wear = amount * WEAR * (kind === 'bullet' ? num(A.armorDmgMult, 1) : kind === 'fire' ? 0.25 : 1);
@@ -244,7 +252,7 @@ export function resolveDamage(hit, out = _out) {
   let health = amount - absorbed;
 
   // heavy helmet: an intact shell turns a non-AP head hit of any size into a bad day
-  if (def.deflect && kind === 'bullet' && num(A.armorPen, 0) < 0.5 && health > def.deflectCap) {
+  if (def.deflect && kind === 'bullet' && penStrip(A) < 0.5 && health > def.deflectCap) {
     health = def.deflectCap;
     absorbed = amount - health;
     out.deflected = true;
