@@ -857,8 +857,12 @@ export function sling(gripPoint, stockPoint) {
     [0.120, 1.330, -0.070],
     [0.150, 1.250, 0.040],
     [0.110, 1.235, 0.135],
-    [gripPoint[0] + 0.02, gripPoint[1] + 0.03, gripPoint[2] + 0.02],
+    // ends clipped to the chest: the gun lives on the right hand and moves with
+    // the arms, so a body-bound run out to the foregrip stretched into a
+    // straight rod across the chest in every pose but the bind pose
+    [0.070, 1.226, 0.158],
   ];
+  void gripPoint;
   const m = ribbon(pts, 0.032, 0.009, { seg: 6, up: [0, 1, 0] });
   computeNormals(m);
   return m;
@@ -1261,7 +1265,7 @@ export function softVest(nz) {
   for (let r = 0; r + 1 < rows; r++) {
     for (let c = 0; c < seg; c++) {
       const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
-      I.push(a, d, b, b, d, e);
+      I.push(a, b, d, b, e, d); // angle runs clockwise seen from above: outward winding
     }
   }
   computeNormals(out);
