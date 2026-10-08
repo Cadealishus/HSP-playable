@@ -19,6 +19,7 @@ import { installShotApi } from './dev/shots.js';
 import { MAPS } from './world/maps/index.js';
 import { resolveSession, resolveSettings, consumePending, launchSession } from './game/session.js';
 import { prewarm } from './core/prewarm.js';
+import { launcherWanted, showLauncher } from './ui/launcher.js';
 
 /** Wall clock at the first line of the module graph — `boot:done.totalMs`. */
 const bootT0 = performance.now();
@@ -93,6 +94,12 @@ engine.events.on('boot:done', () => boot?.done?.());
 // entry never finishes evaluating while init() waits on that chunk, so the
 // production build deadlocked at the first progress tick (the "stuck at 4%").
 async function run() {
+  // Pick mode → map → options BEFORE anything heavy builds (src/ui/launcher.js).
+  // A match launch reloads into a pending boot of just that map; 'full' falls
+  // through to the classic boot + in-game menu (online party, loadout, settings).
+  if (launcherWanted(params, session)) {
+    await showLauncher({ session, maps: window.__FLOP_MAPS__.list });
+  }
   try {
     await engine.init();
   } catch (err) {

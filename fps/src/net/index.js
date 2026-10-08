@@ -41,6 +41,7 @@
  */
 
 import * as THREE from 'three';
+import { RelayTransport } from './relay.js';
 import { LocalTransport } from './local.js';
 import { ClaudeRoomTransport, claudeRoom, claudeUser } from './claude.js';
 import { TOPICS } from './transport.js';
@@ -53,7 +54,7 @@ export { TOPICS, NET_MODES, NET_MODE_INFO };
 
 const PARTY_KEY = 'flopops.party';
 const PROTO = 1;
-const SEND_MS = 50;
+const SEND_MS = 33;
 const FLUSH_MS = 100;
 const HUD_MS = 200;
 const BLEED_S = 30;
@@ -136,7 +137,9 @@ export class NetSystem {
     } catch {
       /* headless */
     }
-    this.kind = params?.get('net') === 'local' ? 'local' : 'claude';
+    // the game server's relay (+ WebRTC) transport; `?net=bc` keeps the BroadcastChannel test path
+    this.kind = 'local';
+    this._bc = params?.get('net') === 'bc';
     /** 'unknown' | 'ok' | 'unavailable' */
     this.availability = 'unknown';
     /** 'off' | 'joining' | 'lobby' | 'error' */
@@ -209,7 +212,7 @@ export class NetSystem {
 
   async _probe() {
     if (this.kind === 'local') {
-      this.availability = LocalTransport.available() ? 'ok' : 'unavailable';
+      this.availability = (this._bc ? LocalTransport : RelayTransport).available() ? 'ok' : 'unavailable';
       this.version++;
       return;
     }
@@ -247,7 +250,7 @@ export class NetSystem {
     this.status = 'joining';
     this.errorText = '';
     this.version++;
-    const t = this.kind === 'local' ? new LocalTransport() : new ClaudeRoomTransport();
+    const t = this.kind === 'local' ? (this._bc ? new LocalTransport() : new RelayTransport()) : new ClaudeRoomTransport();
     for (const topic of TOPICS) t.on(topic, (d, from) => this._onTopic(topic, d, from));
     t.onPeers((ch) => this._onPeersChange(ch));
     this.t = t;
@@ -578,7 +581,7 @@ export class NetSystem {
     this._ingestAll();
     if (this.inGame) {
       const game = ctx.peek('game');
-      if (!game?.mode || game.modeId !== 'survival') this.onGameEnd();
+      if (!game?.mode || !['survival', 'tdm', 'ffa'].includes(game.modeId)) this.onGameEnd();
       else {
         this._updateLocal(dt);
         // A run restart (ai.despawnAll) disposed a teammate's soldier: rebuild it

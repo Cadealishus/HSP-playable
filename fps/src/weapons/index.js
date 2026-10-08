@@ -93,6 +93,21 @@ const BUILDERS = {
 };
 /** Registry order (every weapon the game knows). */
 const WEAPON_ORDER = WEAPON_IDS;
+
+/** Map of weapon states that builds a weapon the first time it is looked up. */
+class LazyStates extends Map {
+  constructor(build) {
+    super();
+    this._build = build;
+  }
+  get(id) {
+    if (!super.has(id) && WEAPON_DEFS[id]) this._build(id);
+    return super.get(id);
+  }
+  has(id) {
+    return super.has(id) || (!!WEAPON_DEFS[id] && !!this.get(id));
+  }
+}
 const PRIMARY_ID = 'carbine';
 const SECONDARY_ID = 'pistol';
 const DIGITS = ['Digit1', 'Digit2', 'Digit3'];
@@ -212,13 +227,18 @@ export class WeaponSystem {
 
     const t0 = performance.now();
     let tris = 0;
-    for (const id of WEAPON_ORDER) {
+    // Weapons build ON DEMAND (load time): a viewmodel, its materials and shader
+    // programs only exist once that gun is first looked up. Boot builds the
+    // session loadout (+ the default carbine / pistol fallbacks); Gun Game,
+    // give() and the loadout menu build the rest the first time they ask.
+    const buildWeapon = (id) => {
       const def = normalizeDef(WEAPON_DEFS[id]);
       const build = BUILDERS[def.model];
-      if (!build) continue;
+      if (!build) return null;
       const model = build();
       const entry = this.viewmodel.addWeapon(model, def);
       tris += entry.tris;
+      if (this.stats) this.stats.tris = tris;
       const st = {
         def,
         base: def,
@@ -232,7 +252,13 @@ export class WeaponSystem {
         modeIndex: 0,
       };
       this._fill(st);
-      this.states.set(id, st);
+      Map.prototype.set.call(this.states, id, st);
+      return st;
+    };
+    this.states = new LazyStates(buildWeapon);
+    const lo = ctx.config?.session?.loadout ?? {};
+    for (const id of new Set([lo.primary, lo.secondary, this.activeId, PRIMARY_ID, 'pistol'])) {
+      if (id && WEAPON_DEFS[id]) this.states.get(id);
     }
     this.gunsmith = new Gunsmith(ctx, this.viewmodel, this.mats);
     this.rockets = new RocketSim(ctx, this.mats);

@@ -29,8 +29,8 @@ import { Reader, Writer, readBot, writeBot, writeRoster, readRoster, BF, PF, MAX
  * allocates nothing.
  */
 
-const RING = 6;
-const INTERP_DELAY = 0.1; // seconds behind the newest sample
+const RING = 12;
+const INTERP_DELAY = 0.04; // seconds behind the newest sample
 const TAU = Math.PI * 2;
 
 function wrap(a) {
@@ -70,6 +70,20 @@ export class Interp {
   }
   sample(now, out) {
     if (!this.n) return false;
+    // short extrapolation past the newest sample, speed-capped (from the user's build)
+    if (this.n >= 2 && now > this.t[this.head]) {
+      const h = this.head, pv = (h - 1 + RING) % RING, dt = this.t[h] - this.t[pv];
+      const lead = Math.min(0.08, now - this.t[h]), a = this.v, u = h * 6, v = pv * 6;
+      const scale = dt > 0.001 ? Math.min(1, (12 * dt) / Math.max(0.0001, Math.hypot(a[u] - a[v], a[u + 1] - a[v + 1], a[u + 2] - a[v + 2]))) : 0;
+      const k = dt > 0.001 ? (lead / dt) * scale : 0;
+      out.x = a[u] + (a[u] - a[v]) * k;
+      out.y = a[u + 1] + (a[u + 1] - a[v + 1]) * k;
+      out.z = a[u + 2] + (a[u + 2] - a[v + 2]) * k;
+      out.yaw = a[u + 3];
+      out.ayaw = a[u + 4];
+      out.pitch = a[u + 5];
+      return true;
+    }
     const rt = now - INTERP_DELAY;
     let newer = this.head;
     let older = -1;
