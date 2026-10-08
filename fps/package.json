@@ -5,7 +5,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4173",
-    "shot": "node tools/capture.mjs"
+    "shot": "node tools/capture.mjs",
+    "build:single": "vite build --base ./ --config tools/vite.single.config.mjs && node tools/singlefile.mjs"
   },
   "author": "",
   "license": "MIT",
