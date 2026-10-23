@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{name}</title>
+<!--
+  The desktop pet: Rocky's V2 body (docs/rocky.jpg) on the computer's desktop. desktop.py shows this page in a
+  frameless, see-through window; any browser can open it too (http://localhost:8766/pet).
+
+  Nothing here decides how he looks or behaves. The face is the dashboard's FaceKit (its copy of
+  firmware/src/face.cpp, served as /facekit.js straight from dashboard.html), drawn white on black like his OLED.
+  What it shows comes from the brain's messages to the robot (/events, brain/virtual_body.py): the emotion his reply
+  picked, sleep, the mouth's loudness while his voice plays, the face pack, and his head's pan and tilt, which turn
+  and nod the head a little on screen, at the neck's own speed limits (firmware config.h).
+
+  ?preview=<emotion> shows one face without the brain (for checking packs and for screenshots); &asleep=1, &pan=,
+  &tilt= and &talk=<0..1> with it.
+-->
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  body { display: grid; place-items: end center; font: 11px/1.2 system-ui, "Segoe UI", sans-serif; }
+  #robot { width: 100%; height: 100%; display: block; }
+  canvas#oled { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  canvas#oled.smooth { image-rendering: auto; }
+  /* the ears: a small mic mark under the base, only noticeable when he hears you or the mic is off */
+  #ears { position: absolute; left: 50%; bottom: 1.5%; translate: -50% 0; display: flex; align-items: center; gap: 4px;
+          padding: 2px 7px; border-radius: 9px; background: #141517e6; color: #c9ccd1; opacity: .0; transition: opacity .3s;
+          pointer-events: none; white-space: nowrap; }
+  #ears.idle { opacity: .45; }
+  #ears.hot, #ears.off, #ears.note { opacity: 1; }
+  #ears svg { width: 9px; height: 11px; }
+  #ears .slash { display: none; }
+  #ears.off .slash { display: inline; }
+  body.tiny #ears span { display: none; }
+</style>
+</head>
+<body>
+<svg id="robot" viewBox="0 0 270 404" role="img" aria-label="{name}, the desk robot">
+  <defs>
+    <!-- the 3D print's fine texture: a little speckle on the black, never a gradient -->
+    <filter id="print" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="1" seed="7" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .045 0" result="speck"/>
+      <feComposite in="speck" in2="SourceGraphic" operator="in" result="s"/>
+      <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="s"/></feMerge>
+    </filter>
+  </defs>
+
+  <g id="all">
+    <!-- base: the angular eight-sided base, its turntable ring on top (faces drawn by script below) -->
+    <g id="base"></g>
+
+    <!-- neck: the pan / tilt support, standing in the turntable -->
+    <g id="neck">
+      <rect x="92" y="196" width="86" height="10" rx="2" fill="#151618"/>
+      <rect x="104" y="150" width="62" height="46" rx="3" fill="#232528" stroke="#0c0d0e" stroke-width="1.5"/>
+      <rect x="111" y="157" width="48" height="30" rx="2" fill="#2d3034"/>
+      <path d="M128 157 C 126 170, 141 172, 139 186" stroke="#7a4a2a" stroke-width="1.6" fill="none"/>
+      <path d="M131 157 C 130 168, 145 171, 143 186" stroke="#8a6a2e" stroke-width="1.6" fill="none"/>
+      <path d="M134 157 C 133 166, 149 170, 147 186" stroke="#6a2b26" stroke-width="1.6" fill="none"/>
+      <rect x="76" y="136" width="118" height="6" rx="1.5" fill="#0d0e0f"/>
+      <path d="M80 140 h18 l-4 66 h-10 z" fill="#101113"/>
+      <path d="M190 140 h-18 l4 66 h10 z" fill="#101113"/>
+      <path d="M96 140 h12 v52 h-12 z" fill="#18191b"/>
+      <path d="M174 140 h-12 v52 h12 z" fill="#18191b"/>
+      <circle cx="90" cy="153" r="9.5" fill="#18191b" stroke="#0a0a0b" stroke-width="1.5"/>
+      <circle cx="90" cy="153" r="2.6" fill="#3a3c40"/>
+      <circle cx="180" cy="153" r="9.5" fill="#18191b" stroke="#0a0a0b" stroke-width="1.5"/>
+      <circle cx="180" cy="153" r="2.6" fill="#3a3c40"/>
+    </g>
+
+    <!-- head: the black printed box, the recessed screen to one side, the camera and three sensor holes -->
+    <g id="head">
+      <path id="headtop" fill="#202124"/>
+      <path id="headbot" fill="#0b0b0c"/>
+      <path id="headside" fill="#0e0f10"/>
+      <path id="headfront" d="M35 12 H225 L235 22 V136 H35 Z" fill="#141517" filter="url(#print)"/>
+      <path d="M225 12 L235 22" stroke="#26272a" stroke-width="1.2"/>
+      <rect x="75" y="44" width="134" height="70" rx="2.5" fill="#0c0c0d"/>
+      <rect x="78" y="47" width="128" height="64" rx="1.5" fill="#050506"/>
+      <foreignObject x="81" y="49" width="122" height="61"><canvas id="oled" width="128" height="64"></canvas></foreignObject>
+      <circle cx="52" cy="80" r="7.6" fill="#0a0a0b" stroke="#2a2b2e" stroke-width="1.2"/>
+      <circle cx="52" cy="80" r="3.6" fill="#16191d"/>
+      <circle cx="50.8" cy="78.8" r="1" fill="#5d636b"/>
+      <circle cx="50" cy="98" r="1.15" fill="#050506"/>
+      <circle cx="50" cy="103" r="1.15" fill="#050506"/>
+      <circle cx="50" cy="108" r="1.15" fill="#050506"/>
+    </g>
+  </g>
+</svg>
+<div id="ears" aria-live="polite"><svg viewBox="0 0 9 11" aria-hidden="true"><rect x="2.5" y="0.5" width="4" height="6.5" rx="2" fill="currentColor"/><path d="M1 5.5a3.5 3.5 0 0 0 7 0M4.5 9v1.5" stroke="currentColor" fill="none"/><path class="slash" d="M0.5 0.5 L8.5 10.5" stroke="#e8e8e8" stroke-width="1.3"/></svg><span id="earstext"></span></div>
+
+<script src="/facekit.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const NS = "http://www.w3.org/2000/svg";
+  const q = new URLSearchParams(location.search);
+  const PREVIEW = q.get("preview");
+  const EMOTIONS = ["neutral", "happy", "sad", "angry", "surprised", "sleepy", "thinking",
+                    "curious", "skeptical", "excited", "love", "confused"];
+  const MOUTH_TIMEOUT_MS = 300;                   // firmware main.cpp: a mouth level older than this is silence
+
+  // ── the base: an eight-sided frustum seen a little from above and to the left, as in docs/rocky.jpg ──
+  function drawBase() {
+    const g = $("base"), cx = 135, ROT = 12 * Math.PI / 180;
+    const ring = (R, yc, r) => [...Array(8)].map((_, k) => {
+      const a = (22.5 + 45 * k) * Math.PI / 180 + ROT;
+      return { x: cx + R * Math.sin(a), y: yc + r * Math.cos(a), front: Math.cos(a) };
+    });
+    const top = ring(108, 212, 13), band = ring(128, 228, 14), foot = ring(100, 368, 12);
+    const poly = (pts, fill, extra) => {
+      const p = document.createElementNS(NS, "polygon");
+      p.setAttribute("points", pts.map(v => v.x.toFixed(1) + "," + v.y.toFixed(1)).join(" "));
+      p.setAttribute("fill", fill); p.setAttribute("stroke", "#0a0a0b"); p.setAttribute("stroke-width", "0.8");
+      p.setAttribute("stroke-linejoin", "round");
+      if (extra) p.setAttribute("filter", extra);
+      g.appendChild(p);
+    };
+    // the faces that point at us, lit from the left like the photo: the far left one charcoal grey, the rest black
+    const shade = (i, lower) => {
+      const a = (22.5 + 45 * i + 22.5) * Math.PI / 180 + ROT, side = Math.sin(a);
+      if (side < -0.75) return lower ? "#4d4f53" : "#5a5c60";
+      if (side < -0.2) return lower ? "#1e1f21" : "#2a2b2e";
+      if (side < 0.45) return lower ? "#18191b" : "#242528";
+      return lower ? "#121314" : "#1c1d1f";
+    };
+    poly(top, "#161719", "url(#print)");                                     // the flat top around the ring
+    const ellipse = (rx, ry, fill, stroke) => {
+      const e = document.createElementNS(NS, "ellipse");
+      e.setAttribute("cx", cx); e.setAttribute("cy", 212); e.setAttribute("rx", rx); e.setAttribute("ry", ry);
+      e.setAttribute("fill", fill); if (stroke) { e.setAttribute("stroke", stroke); e.setAttribute("stroke-width", "1.4"); }
+      g.appendChild(e);
+    };
+    ellipse(66, 10, "#0f1011", "#2b2c2f");                                   // the turntable ring
+    ellipse(52, 7.5, "#08090a");
+    for (let i = 0; i < 8; ++i) {
+      const j = (i + 1) % 8;
+      if (band[i].front + band[j].front <= 0.05) continue;                 // facing away
+      poly([top[i], top[j], band[j], band[i]], shade(i, false));             // the short upper chamfer
+      poly([band[i], band[j], foot[j], foot[i]], shade(i, true));           // the long faces down to the desk
+    }
+  }
+  drawBase();
+
+  // ── the head's turn and nod, drawn from pan / tilt (head degrees; pan + = his right, tilt + = up) ──
+  // The front stays the robot's own; turning shows a little of one side, nodding a little of the top or bottom.
+  function poseHead(pan, tilt) {
+    const p = Math.max(-1, Math.min(1, pan / 95)), t = Math.max(-1, Math.min(1, tilt / 85));
+    const side = 6 + p * 14;                       // width of the side we see: his left side, on our right, as he turns his right
+    const dx = -p * 7, dy = -t * 5;
+    const sx = 1 - Math.abs(p) * 0.1, sy = 1 - Math.abs(t) * 0.08;
+    const L = 35, R = 235, T = 12, B = 136, C = 10;
+    $("head").setAttribute("transform", `translate(${dx.toFixed(2)} ${dy.toFixed(2)}) translate(135 74) scale(${sx.toFixed(3)} ${sy.toFixed(3)}) translate(-135 -74)`);
+    // the side face, outside the scaled front so it keeps its depth
+    const s = Math.abs(side) / sx;
+    $("headside").setAttribute("d", side >= 0
+      ? `M${R} ${T + C} V${B} L${R + s} ${B - 3} V${T + C + 2} Z`
+      : `M${L} ${T} V${B} L${L - s} ${B - 3} V${T + 2} Z`);
+    const top = Math.max(0, -t) * 9 / sy, bot = Math.max(0, t) * 7 / sy;   // nodding down shows the top, up the bottom
+    $("headtop").setAttribute("d", `M${L} ${T} L${L + 4} ${T - top} H${R - C + 4} L${R - C} ${T} Z`);
+    $("headbot").setAttribute("d", `M${L} ${B} L${L + 4} ${B + bot} H${R + 4} L${R} ${B} Z`);
+  }
+
+  // the neck's motion (tracker.Motion / firmware ServoNeck): speed and acceleration limited, so it eases like the real one
+  class Axis {
+    constructor(speed, accel) { this.speed = speed; this.accel = accel; this.pos = 0; this.vel = 0; this.target = 0; }
+    step(dt) {
+      const diff = this.target - this.pos;
+      if (Math.abs(diff) < 0.05 && Math.abs(this.vel) < 3) { this.pos = this.target; this.vel = 0; return; }
+      const h = this.accel * dt * 0.5;
+      const want = Math.min(this.speed, Math.sqrt(h * h + 2 * this.accel * Math.abs(diff)) - h) * Math.sign(diff);
+      this.vel += Math.max(-this.accel * dt, Math.min(this.accel * dt, want - this.vel));
+      const step = this.vel * dt;
+      if ((diff > 0 && step >= diff) || (diff < 0 && step <= diff)) { this.pos = this.target; this.vel = 0; }
+      else this.pos += step;
+    }
+  }
+  const neck = { pan: new Axis(150, 450), tilt: new Axis(160, 600) };   // PAN_MAX_SPEED / ACCEL, TILT_… (config.h)
+
+  // ── the face ──
+  const oled = $("oled"), octx = oled.getContext("2d"), img = octx.createImageData(FaceKit.W, FaceKit.H);
+  function paintWhite(buf) {       // his OLED is white on black (the dashboard paints it amber)
+    const d = img.data;
+    for (let i = 0; i < FaceKit.W * FaceKit.H; ++i) {
+      const on = buf[i], o = i * 4;
+      d[o] = on ? 238 : 4; d[o + 1] = on ? 241 : 5; d[o + 2] = on ? 243 : 6; d[o + 3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+  }
+  const st = { sim: null, pack: null, emotions: EMOTIONS, mouth: -1, mouthAt: 0, asleep: true, emotion: "neutral",
+               linked: false, status: {} };
+  function usePack(raw) {
+    if (!raw) return;
+    st.pack = FaceKit.resolve(raw, st.emotions);
+    if (st.sim) st.sim.setPack(st.pack);
+    else {
+      st.sim = new FaceKit.Sim(st.pack, st.emotion);
+      st.sim.setAsleep(st.asleep);
+    }
+  }
+  async function loadPacks() {     // Rocky's own pack is the fallback for anything a pack leaves out (like the robot)
+    const r = await fetch("/launcher/faces");
+    if (!r.ok) throw new Error("no face packs");
+    const j = await r.json();
+    st.emotions = j.emotions || EMOTIONS;
+    const rocky = j.packs.find(p => p.id === "rocky"), active = j.packs.find(p => p.id === j.active) || rocky;
+    FaceKit.setFallback(rocky?.pack ? FaceKit.resolve(rocky.pack, st.emotions) : null);
+    if (!st.pack) usePack(active?.pack || rocky?.pack);
+  }
+
+  function apply(m) {
+    switch (m.type) {
+      case "hello":
+        if (m.face) usePack(m.face);
+        st.emotion = m.emotion || "neutral"; st.asleep = !!m.asleep;
+        neck.pan.target = +m.pan || 0; neck.tilt.target = +m.tilt || 0;
+        if (st.sim) { st.sim.setEmotion(st.emotion); st.sim.setAsleep(st.asleep); }
+        break;
+      case "emotion":
+        if (st.pack?.looks[m.name]) { st.emotion = m.name; st.sim?.setEmotion(m.name); }
+        break;
+      case "asleep":
+        st.asleep = !!m.on; st.sim?.setAsleep(st.asleep);
+        break;
+      case "pan": case "tilt":
+        if (typeof m.deg === "number") neck[m.type].target = m.deg;
+        break;
+      case "motion":
+        if (neck[m.axis] && m.speed > 0 && m.accel > 0) { neck[m.axis].speed = m.speed; neck[m.axis].accel = m.accel; }
+        break;
+      case "mouth":
+        st.mouth = +m.level; st.mouthAt = performance.now();
+        break;
+      case "face":
+        usePack(m.pack);
+        break;
+    }
+  }
+
+  // ── the brain's messages, as they happen ──
+  let source = null;
+  function listen() {
+    if (source) source.close();
+    source = new EventSource("/events");
+    source.onopen = () => { st.linked = true; };
+    source.onmessage = ev => { try { apply(JSON.parse(ev.data)); } catch {} };
+    source.onerror = () => {
+      st.linked = false;
+      if (source.readyState === EventSource.CLOSED) { source = null; setTimeout(listen, 2000); }   // server stopped
+    };
+  }
+
+  // ── the ears and the rest of the brain's state, a couple of times a second ──
+  async function poll() {
+    try {
+      const r = await fetch("/status");
+      st.status = r.ok ? await r.json() : { stopped: true };
+    } catch { st.status = { stopped: true }; }
+    const s = st.status, ears = $("ears"), txt = $("earstext");
+    let cls = "idle", words = "listening";
+    if (s.stopped || s.error) { cls = "note"; words = "server stopped"; }
+    else if (s.listen_starting) { cls = "note"; words = "mic starting…"; }
+    else if (!s.listening) { cls = "off"; words = "mic off"; }
+    else if (s.speaking) { cls = ""; words = ""; }
+    else if (s.hearing) { cls = "hot"; words = "hearing you"; }
+    else if (s.thinking) { cls = ""; words = ""; }
+    ears.className = cls; txt.textContent = words;
+    ears.title = s.mic_device ? "listening through " + s.mic_device : "";
+    setTimeout(poll, document.hidden ? 2000 : 500);
+  }
+
+  // ── size: pixel-sharp at 1:1 and up, smooth when the window is small ──
+  function fit() {
+    const scale = $("robot").getBoundingClientRect().width / 270;
+    oled.classList.toggle("smooth", scale < 0.95);
+    document.body.classList.toggle("tiny", scale < 0.6);
+    const noTexture = scale < 0.6;
+    for (const id of ["headfront"]) $(id).setAttribute("filter", noTexture ? "" : "url(#print)");
+  }
+  addEventListener("resize", fit);
+
+  // ── 30 frames a second, like the robot ──
+  let last = 0, lastStep = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (now - last < 33) return;
+    last = now;
+    const dt = Math.min(0.1, (now - lastStep) / 1000); lastStep = now;
+    neck.pan.step(dt); neck.tilt.step(dt);
+    // breathing: the smallest rise and fall while he's awake and still (asleep, the face breathes on its own)
+    const still = !st.asleep && Math.abs(neck.pan.vel) < 1 && Math.abs(neck.tilt.vel) < 1;
+    const breath = still ? Math.sin(now / 1900) * 0.6 : 0;
+    $("all").setAttribute("transform", `translate(0 ${breath.toFixed(2)})`);
+    poseHead(neck.pan.pos, neck.tilt.pos);
+    const sim = st.sim;
+    if (!sim) return;
+    const talking = st.mouth >= 0 && now - st.mouthAt < MOUTH_TIMEOUT_MS;   // firmware screenTask
+    sim.talking = talking; sim.mouthLevel = talking ? st.mouth : 0;
+    if (PREVIEW && q.get("talk")) { sim.talking = true; sim.mouthLevel = +q.get("talk"); }
+    sim.step(now);
+    paintWhite(sim.render(now));
+  }
+
+  async function start() {
+    fit();
+    try { await loadPacks(); } catch { /* the launcher isn't serving: nothing to draw with yet */ }
+    if (PREVIEW) {
+      st.emotion = st.pack?.looks[PREVIEW] ? PREVIEW : "neutral"; st.asleep = q.get("asleep") === "1";
+      st.sim = st.pack ? new FaceKit.Sim(st.pack, st.emotion) : null;
+      st.sim?.setAsleep(st.asleep);
+      neck.pan.pos = neck.pan.target = +(q.get("pan") || 0);
+      neck.tilt.pos = neck.tilt.target = +(q.get("tilt") || 0);
+      $("ears").className = "";
+    } else {
+      listen(); poll();
+    }
+    requestAnimationFrame(frame);
+  }
+  start();
+})();
+</script>
+</body>
+</html>

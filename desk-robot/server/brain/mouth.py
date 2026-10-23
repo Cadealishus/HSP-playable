@@ -44,6 +44,22 @@ def fish_available() -> bool:
     return bool(config.TTS_VOICE_ID and os.environ.get("FISH_AUDIO_API_KEY"))
 
 
+# Which voice actually spoke last, for the dashboard and the desktop pet, so the computer's fallback voice is never
+# taken for his own: engine "fish" (TTS_VOICE_ID on Fish Audio), "builtin" (this computer's voice) or "none" (couldn't
+# speak at all), and why it wasn't Fish. None until he has said something.
+last_voice: dict = {"engine": None, "reason": "", "at": 0.0}
+
+
+def _note_voice(engine: str, reason: str = "") -> None:
+    last_voice.update(engine=engine, reason=reason, at=time.time())
+
+
+def voice_status() -> dict:
+    """What the voice is set up to be, and what last spoke. The key itself is never included."""
+    return {"fish_ready": fish_available(), "voice_id": config.TTS_VOICE_ID, "model": config.TTS_MODEL,
+            "last": dict(last_voice)}
+
+
 _MARKUP = re.compile(r"[*_`#~<>\[\]{}|\\]")
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]")
 
@@ -423,13 +439,16 @@ class NoBuiltinVoice(RuntimeError):
     """This computer has no speech engine we know how to drive."""
 
 
-# PowerShell script for Windows' built-in speech engine: text on stdin,
-# 16 kHz mono WAV out. Built and tested on macOS; this path is untested.
+# PowerShell script for Windows' built-in speech engine: text on stdin (UTF-8),
+# 16 kHz mono WAV out to the file named in ROCKY_TTS_WAV. The path can't follow
+# the script as an argument: with -Command, PowerShell joins everything after it
+# into the command text, so $args stayed empty and the voice never spoke.
 _WINDOWS_TTS = """
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Speech
 $fmt = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
 $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$s.SetOutputToWaveFile($args[0], $fmt)
+$s.SetOutputToWaveFile($env:ROCKY_TTS_WAV, $fmt)
 $s.Speak([Console]::In.ReadToEnd())
 $s.Dispose()
 """
@@ -441,16 +460,18 @@ def _synthesize_builtin(text: str) -> bytes:
     into options ("-f /etc/hosts" would make `say` read a file)."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         path = f.name
+    env = None
     try:
         if sys.platform == "darwin":
             cmd = ["say", "-v", config.TTS_FALLBACK_VOICE, "-o", path, "--data-format=LEI16@16000"]
         elif sys.platform == "win32":
-            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_TTS, path]
+            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_TTS]
+            env = dict(os.environ, ROCKY_TTS_WAV=path)
         elif shutil.which("espeak-ng") or shutil.which("espeak"):
             cmd = [shutil.which("espeak-ng") or "espeak", "--stdin", "-w", path]
         else:
             raise NoBuiltinVoice("no built-in voice on this system (install espeak-ng, or set FISH_AUDIO_API_KEY)")
-        subprocess.run(cmd, input=text.encode(), check=True, timeout=60)
+        subprocess.run(cmd, input=text.encode(), check=True, timeout=60, env=env)
         with open(path, "rb") as f:
             wav = f.read()
     finally:
@@ -474,18 +495,23 @@ def stream(text: str, leveler: Leveler | None = None) -> Iterator[bytes]:
     try:
         chunks: Iterator[bytes] | None = None
         first = b""
+        why = "no FISH_AUDIO_API_KEY in server/.env" if config.TTS_VOICE_ID else "no Fish Audio voice ID"
         if fish_available():
             try:
                 chunks = _fish_stream(text)
                 first = next(chunks, b"")
+                _note_voice("fish")
             except Exception as e:  # network, auth, bad voice id... still speak
                 print(f"(fish audio failed, using the built-in voice: {e})")
                 chunks = None
+                why = f"Fish Audio failed: {e}"
         if chunks is None:
             try:
                 first = _synthesize_builtin(plain)
+                _note_voice("builtin", why)
             except NoBuiltinVoice as e:
                 print(f"(cannot speak: {e})")
+                _note_voice("none", str(e))
                 return
         if first:
             first = leveler.process(first)
@@ -530,6 +556,13 @@ def _save_clip(pcm: bytes, text: str) -> None:
         pass
 
 
+def resample_pcm(samples: np.ndarray, rate: int) -> np.ndarray:
+    """16 kHz int16 samples at another rate (linear: fine for a voice)."""
+    n = int(len(samples) * rate / SAMPLE_RATE)
+    x = np.linspace(0, len(samples), n, endpoint=False)
+    return np.interp(x, np.arange(len(samples)), samples.astype(np.float32)).astype(np.int16)
+
+
 def play(pcm: bytes) -> None:
     """Play PCM on this computer's default output. Blocks until done.
 
@@ -541,7 +574,15 @@ def play(pcm: bytes) -> None:
         return
     if sys.platform != "darwin":
         import sounddevice as sd
-        sd.play(np.frombuffer(pcm, dtype=np.int16), SAMPLE_RATE, blocking=True)
+        samples = np.frombuffer(pcm, dtype=np.int16)
+        try:
+            sd.play(samples, SAMPLE_RATE, blocking=True)
+        except sd.PortAudioError:
+            # An output that only takes its own rate (a WASAPI or WDM-KS default on Windows): resample once to it.
+            rate = int(sd.query_devices(kind="output")["default_samplerate"])
+            if rate == SAMPLE_RATE:
+                raise
+            sd.play(resample_pcm(samples, rate), rate, blocking=True)
         return
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         path = f.name

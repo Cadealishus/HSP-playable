@@ -12,6 +12,8 @@ newest. A tiny HTTP server (standard library, its own thread) serves:
   /frame     the newest frame as a plain JPEG
   /status    JSON: fps, frame age, chip temperature, last transcript, and
              whatever main.py adds through `state_provider`
+  /events    server-sent events: what the robot is told to show (face, sleep,
+             head, mouth), for the desktop pet (`body`, virtual_body.py)
   /api/<x>   POST, JSON body: a control action, handed to `command_handler`
              (main.py). Only answers requests that carry the X-Rocky-Console
              header, which a cross-site page can't add without a CORS
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -70,6 +73,7 @@ class Eyes:
         # main.py plugs in: extra /status fields, and the handler for /api/<action>.
         self.state_provider: Callable[[], dict] | None = None
         self.command_handler: Callable[[str, dict], dict] | None = None
+        self.body = None                 # main.py's VirtualBody: /events streams it
         self._cond = threading.Condition()
 
     # ── robot → server ──────────────────────────────────────────────────────
@@ -222,6 +226,8 @@ class Eyes:
                     self._reply(200, "application/json", json.dumps(st).encode())
                 elif self.path == "/stream":
                     self._stream()
+                elif self.path == "/events" and eyes.body is not None:
+                    self._events()
                 else:
                     self._reply(404, "text/plain", b"not found")
 
@@ -256,6 +262,28 @@ class Eyes:
                         self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     pass
+
+            def _events(self) -> None:
+                """The virtual body's messages as server-sent events, one JSON object each; a comment every 10 s
+                keeps the connection (and the launcher's pass-through) open while nothing happens."""
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                q = eyes.body.attach()
+                try:
+                    while True:
+                        try:
+                            msg = q.get(timeout=10)
+                            self.wfile.write(b"data: " + json.dumps(msg).encode() + b"\n\n")
+                        except queue.Empty:
+                            self.wfile.write(b": still here\n\n")
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                    pass
+                finally:
+                    eyes.body.detach(q)
 
         server = ThreadingHTTPServer((bind, port), Handler)
         server.daemon_threads = True

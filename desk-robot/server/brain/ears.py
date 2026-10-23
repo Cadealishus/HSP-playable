@@ -27,6 +27,7 @@ from collections.abc import Callable
 import numpy as np
 
 from . import config
+from .audio_devices import input_device
 from .turn import VAD_CHUNK, SileroVAD, SmartTurn
 
 SAMPLE_RATE = 16_000
@@ -377,6 +378,7 @@ class Ears:
         try:
             import sounddevice as sd
 
+            device = input_device(device)   # Windows lists each mic once per audio system: pick one (audio_devices.py)
             # Open every input the device has (a USB interface often has two) and mix them,
             # so it doesn't matter which jack the mic is plugged into.
             channels = max(1, int(sd.query_devices(device, "input")["max_input_channels"]))

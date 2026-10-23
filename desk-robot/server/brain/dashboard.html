@@ -216,6 +216,9 @@
   .chat .line { margin: 10px 0 0; padding: 9px 12px; border-left: 2px solid var(--line-strong); background: rgba(255,255,255,.02); }
   .chat .line.said { border-left-color: var(--amber); background: rgba(242,180,92,.07); transition: border-color .3s, background .3s; }
   .chat .line.said.talking { border-left-color: var(--astro); background: rgba(255,74,61,.07); }   /* red while he speaks */
+  .chatlog { max-height: 300px; overflow-y: auto; margin-top: 4px; }
+  .chatlog .line { margin: 8px 0 0; }
+  .chatlog .line .emo { font: 10px var(--display); letter-spacing: .12em; color: var(--muted); margin-left: 6px; }
   .line .text .now { color: var(--amber); text-shadow: 0 0 10px var(--amber-glow); }
   .line .text.typing::after { content: ""; display: inline-block; width: .5em; height: 1.05em; margin-left: 4px; vertical-align: -.18em;
                             background: currentColor; opacity: .7; animation: blink 1s steps(1) infinite; }
@@ -561,6 +564,7 @@
       <li><span class="k">Camera</span><span class="v" id="fps">—</span></li>
       <li><span class="k">Hull</span><span class="v" id="temp">—</span></li>
       <li><span class="k">Ears</span><span class="v" id="mic">—</span></li>
+      <li><span class="k">Voice</span><span class="v" id="voiceout" title="">—</span></li>
     </ul>
     <div class="server" id="serverbox" hidden>
       <span class="pill" id="serverpill" role="status">server —</span>
@@ -603,7 +607,8 @@
           <div class="nocam">No picture yet.<br>The robot's camera streams once it connects.</div>
         </div>
         <div class="card" style="margin-top:16px">
-          <h2 class="label"><span><span data-robot-name>{name}</span> hears</span><span class="sonar-state" id="hearstate">—</span></h2>
+          <h2 class="label"><span><span data-robot-name>{name}</span> hears</span><span class="sub"><span class="sonar-state" id="hearstate">—</span>
+            <button type="button" id="micbtn" style="margin-left:10px;padding:5px 11px" title="start or stop listening on the microphone">Mic off</button></span></h2>
           <div class="sonar"><canvas id="wave" aria-hidden="true"></canvas></div>
           <p class="hint">Last 8 seconds of sound. Gold bars are where he heard a voice, grey is other sound (taller = louder), red is his own voice.</p>
           <div class="chat">
@@ -623,6 +628,11 @@
         <div class="card">
           <h2 class="label"><span>Face</span><span class="sub">tap one to show it</span></h2>
           <div class="faces plain" id="faces"></div>
+        </div>
+        <div class="card">
+          <h2 class="label"><span>Conversation</span><span class="sub">this session</span></h2>
+          <div class="chatlog" id="chatlog" aria-live="polite"><p class="hint">Nothing said yet. Say “hey <span data-robot-name>{name}</span>”, or ask him below.</p></div>
+          <p class="hint" id="voicenote" hidden></p>
         </div>
         <div class="card">
           <h2 class="label"><span>Talk</span></h2>
@@ -1517,7 +1527,7 @@ const FaceKit = (() => {
   // the face as status says it is right now
   function mirrorFace(s) {
     const sim = live.avatar; if (!sim) return;
-    const on = server.running && !!s.robot;
+    const on = server.running && (!!s.robot || !!s.desktop_pet);   // the desktop pet is a body too (desktop.py)
     if (s.emotion && live.pack?.looks[s.emotion]) { live.emotion = s.emotion; sim.setEmotion(s.emotion); }
     sim.setAsleep(!on || !s.awake);
     sim.talking = on && !!s.speaking;
@@ -1606,6 +1616,38 @@ const FaceKit = (() => {
   $("askbtn").onclick = () => { const x = $("saytext").value.trim(); if (x) { act("ask", { text: x }, "Asked " + NAME); $("saytext").value = ""; } };
   $("wakebtn").onclick = () => act("sleep", { on: false }, NAME + " is awake");
   $("sleepbtn").onclick = () => act("sleep", { on: true }, NAME + " is going to sleep");
+  $("micbtn").onclick = () => act("listen", { on: !status.listening }, status.listening ? "Microphone off" : "Microphone starting");
+
+  // ── his voice: Fish Audio (his own) or this computer's fallback, never passed off as his ──
+  function renderVoice(v) {
+    const el = $("voiceout"), note = $("voicenote");
+    if (!v) { el.textContent = "—"; el.className = "v"; note.hidden = true; return; }
+    const last = v.last || {}, fallback = last.engine === "builtin" || last.engine === "none";
+    el.textContent = last.engine === "fish" ? "his own (Fish Audio)" : last.engine === "builtin" ? "computer's (fallback)"
+      : last.engine === "none" ? "none" : v.fish_ready ? "his own, ready" : "computer's (no Fish key)";
+    el.className = "v" + (fallback || !v.fish_ready ? " warn" : " good");
+    el.title = "Fish Audio voice " + v.voice_id + (v.model ? " · model " + v.model : "");
+    note.hidden = !fallback && v.fish_ready;
+    note.textContent = fallback ? `Not ${NAME}'s own voice: ${last.engine === "none" ? "he couldn't speak" : "this computer's voice is standing in"} (${last.reason || "Fish Audio unavailable"}).`
+      : `${NAME}'s own voice needs FISH_AUDIO_API_KEY in server/.env; until then this computer's voice stands in.`;
+  }
+  // ── the conversation this session (status.chat: [n, who, text, emotion, time]) ──
+  let chatSeen = -1;
+  function renderChat(list) {
+    if (!Array.isArray(list) || !list.length) return;
+    const top = list[list.length - 1][0];
+    if (top === chatSeen) return;
+    chatSeen = top;
+    const box = $("chatlog"), stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    box.replaceChildren(...list.map(([, who, text, emo]) => {
+      const p = document.createElement("p"); p.className = "line" + (who === "robot" ? " said" : "");
+      const w = document.createElement("span"); w.className = "who"; w.textContent = who === "robot" ? NAME : "You";
+      const t = document.createElement("span"); t.className = "text"; t.textContent = text;
+      if (who === "robot" && emo) { const e = document.createElement("span"); e.className = "emo"; e.textContent = emo; t.append(e); }
+      p.append(w, t); return p;
+    }));
+    if (stick) box.scrollTop = box.scrollHeight;
+  }
 
   // ── what he notices (perception) ───────────────────────────────────────
   function renderNotices(n) {
@@ -1677,8 +1719,11 @@ const FaceKit = (() => {
     const pc = s.computer?.last;
     if (pc && pcSeen !== undefined && pc[1] !== pcSeen) toast(`${NAME} on your computer: ${pc[0]}`);
     pcSeen = pc ? pc[1] : null;
-    const linked = !!s.robot, fresh = s.frame_age_s != null && s.frame_age_s < 3;
-    $("link").textContent = linked ? "on WiFi" : "not connected"; $("link").className = "v" + (linked ? " good" : " warn");
+    const linked = !!s.robot || !!s.desktop_pet, fresh = s.frame_age_s != null && s.frame_age_s < 3;
+    $("link").textContent = s.robot ? "on WiFi" : s.desktop_pet ? "desktop pet" : "not connected"; $("link").className = "v" + (linked ? " good" : " warn");
+    renderVoice(s.voice_out); renderChat(s.chat);
+    $("micbtn").textContent = s.listen_starting ? "Mic starting…" : s.listening ? "Mic off" : "Mic on";
+    $("micbtn").disabled = !!s.listen_starting;
     $("fps").textContent = fresh ? s.fps + " fps" : "no signal"; $("fps").className = "v" + (fresh ? "" : " warn");
     $("temp").textContent = s.temperature_c != null ? s.temperature_c.toFixed(1) + " °C" : "—";
     $("temp").className = "v" + (s.temperature_c > 75 ? " warn" : "");

@@ -33,6 +33,7 @@ Console commands:
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import json
 import math
@@ -53,6 +54,7 @@ from .ears import Ears, normalize, strip_wake_word
 from .eyes import Eyes, rotate_jpeg
 from .perception import Perception
 from .tracker import Tracker
+from .virtual_body import VirtualBody
 
 robot_socket: websockets.ServerConnection | None = None
 robot_peer: str | None = None      # the connected robot's address, and when it last sent anything (it sends a
@@ -69,6 +71,7 @@ speech_started = asyncio.Event()  # the human began a new turn (set by the ears)
 awake_until = 0.0  # while time.time() < this, he's awake: no wake word needed
 robot_speak_done = asyncio.Event()  # robot finished playing the last reply
 eyes = Eyes()
+virtual = VirtualBody()   # the desktop pet: shows what the robot is told to (virtual_body.py)
 head_moves: asyncio.Queue[tuple[float | None, float | None, bool]] = asyncio.Queue()
 tracker: Tracker | None = None
 perception: Perception | None = None
@@ -117,11 +120,18 @@ async def send_to_robot(payload: dict) -> bool:
         eyes.tracking_info[kind] = payload["deg"]
     elif kind == "asleep" and payload.get("on"):
         eyes.tracking_info.update(pan=0.0, tilt=0.0)
+    shown = virtual.send(payload)
     if robot_socket is None:
-        print("(no robot connected — command not sent)")
+        if not shown:
+            print("(no robot connected — command not sent)")
         return False
     await robot_socket.send(json.dumps(payload))
     return True
+
+
+def body_connected() -> bool:
+    """Something shows his face and head: the robot, or the desktop pet (virtual_body.py)."""
+    return robot_socket is not None or virtual.attached
 
 
 def pick_mic_source() -> None:
@@ -302,6 +312,7 @@ async def handle_console_line(line: str) -> bool:
         if not arg:
             print("usage: ask <question>")
             return True
+        note_chat("human", arg)
         await converse(arg)
     elif cmd == "listen":
         if ears is None:
@@ -457,7 +468,7 @@ def start_dance(name: str | None = None) -> str | None:
     """One of his four routines, at random (or by name); it starts once his line is said. The routine's name, or
     None with no robot to dance."""
     global awake_until
-    if dancer is None or robot_socket is None:
+    if dancer is None or not body_connected():
         return None
     picked = dancer.start(name)
     awake_until = max(awake_until, time.time() + dance_length(picked) + config.AWAKE_SECONDS)   # no dozing mid-dance
@@ -889,6 +900,7 @@ class SpokenReply:
 
     @staticmethod
     async def _send_mouth(level: float) -> None:
+        virtual.send({"type": "mouth", "level": round(level, 3)})
         if robot_socket is None:
             return
         try:
@@ -1020,6 +1032,7 @@ async def converse(question: str, ended_at: float | None = None, heard_at: float
         return False
     if reply.text:
         eyes.last_said = reply.text
+        note_chat("robot", reply.text, brain.emotion)
         if config.DEBUG_TTS_CHECK and reply.pcm:
             loop.run_in_executor(None, check_tts, reply.text, b"".join(reply.pcm))
     awake_until = time.time() + config.AWAKE_SECONDS
@@ -1036,6 +1049,8 @@ async def say(text: str) -> bytes:
         await reply.play(interruptible=False)
     except Exception as e:
         print(f"(could not speak: {e})")
+    if reply.text:
+        note_chat("robot", reply.text, current_emotion)
     return b"".join(reply.pcm)
 
 
@@ -1072,6 +1087,19 @@ async def set_volume(level: float) -> None:
     persist("rocky", "volume", speaker_volume)
 
 
+# The conversation so far, for the dashboard and the desktop app: the last 40 lines, words only (no pictures), in
+# memory only, like the log. Each line: [number, "human" or "robot", text, emotion, time].
+chat: collections.deque = collections.deque(maxlen=40)
+_chat_seq = 0
+_listen_starting = False    # the speech models are loading after a `listen` from the page
+
+
+def note_chat(who: str, text: str, emotion: str = "") -> None:
+    global _chat_seq
+    _chat_seq += 1
+    chat.append([_chat_seq, who, text, emotion, round(time.time(), 1)])
+
+
 # ── The live-view console (the brain's own page on :8767; the launcher's on :8766) 
 
 def console_state() -> dict:
@@ -1105,6 +1133,10 @@ def console_state() -> dict:
         "tuning": {k: getattr(config, k) for k in TUNABLE},
         "speech": speech_now.snapshot() if speech_now is not None else None,   # his words as he says them
         "computer": computer.controller.status(),
+        "voice_out": mouth.voice_status(),      # Fish Audio (his voice) or this computer's fallback, and why
+        "desktop_pet": virtual.attached,
+        "listen_starting": _listen_starting,
+        "chat": list(chat),
     }
 
 
@@ -1139,7 +1171,7 @@ async def _console_command(action: str, payload: dict) -> dict:
         name = payload.get("emotion") or "neutral"
         if name not in config.EMOTIONS:
             raise ValueError(f"emotions: {', '.join(config.EMOTIONS)}")
-        if robot_socket is None:
+        if not body_connected():
             raise ValueError("the robot isn't connected")
         if time.time() >= awake_until:
             awake_until = time.time() + config.AWAKE_SECONDS
@@ -1230,6 +1262,8 @@ async def _console_command(action: str, payload: dict) -> dict:
         if not text or len(text) > 300:
             raise ValueError("text must be 1 to 300 characters")
         print(f"console: {action} {text}")
+        if action == "ask":
+            note_chat("human", text)
         asyncio.create_task(say(text) if action == "say" else converse(text))
     elif action == "tune":
         key = payload.get("key")
@@ -1253,6 +1287,15 @@ async def _console_command(action: str, payload: dict) -> dict:
         setattr(config, key, value)
         persist("voice", key, value)
         print(f"console: {key} = {value:g} (saved)")
+    elif action == "listen":
+        # the dashboard's and the desktop pet's mic switch (the console's `listen`): loading the speech models takes
+        # a few seconds, so it starts in the background
+        on = bool(payload.get("on", ears is None))
+        if on and ears is None:
+            asyncio.create_task(start_listening())
+        elif not on and ears is not None:
+            stop_listening()
+        return {"listening": on}
     elif action == "settings_reload":
         await reload_settings()
     else:
@@ -1288,6 +1331,17 @@ async def mic_meter() -> None:
 
 
 async def start_listening() -> None:
+    global _listen_starting
+    if _listen_starting or ears is not None:
+        return
+    _listen_starting = True
+    try:
+        await _start_listening()
+    finally:
+        _listen_starting = False
+
+
+async def _start_listening() -> None:
     global ears
     loop = asyncio.get_running_loop()
     print(f"loading speech model {config.STT_MODEL} and the turn-taking models (first run downloads them)...")
@@ -1399,6 +1453,7 @@ async def _handle_heard(item: tuple[str, float, float, float]) -> None:
         return
     print(f"{config.HUMAN_NAME}: {text}")
     eyes.last_heard = text
+    note_chat("human", text)
     awake_until = time.time() + config.AWAKE_SECONDS  # anything you say keeps him up
     norm = normalize(text)
     lines = personality.LINES
@@ -1453,6 +1508,7 @@ async def _handle_heard(item: tuple[str, float, float, float]) -> None:
         text, started_at, ended_at, heard_at = item
         _, more = strip_wake_word(text)
         print(f"{config.HUMAN_NAME}: {text}")
+        note_chat("human", text)
         question = f"{question} {more}".strip()
         eyes.last_heard = question
         awake_until = time.time() + config.AWAKE_SECONDS
@@ -1481,6 +1537,8 @@ async def main() -> None:
         print("WARNING: ROBOT_TOKEN is not set in server/.env — the robot will be refused")
     global tracker, brain, main_loop, perception, body, dancer
     apply_settings(settings.load())
+    eyes.body = virtual
+    virtual.send(faces.robot_message(faces.load_or_default(current_settings["face"]["pack"])[1]))
     loop = asyncio.get_running_loop()
     main_loop = loop
     brain = RobotBrain(ABILITIES, extra_tools=lambda: computer.tools(computer.controller), quick=computer.QUICK)
@@ -1489,7 +1547,7 @@ async def main() -> None:
     dancer = Dancer(send_to_robot, tracker)
     dancer.ready = lambda: not thinking and not speaking_now()
     dancer.before = _before_dancing
-    body.allowed = lambda: (robot_socket is not None and time.time() < awake_until and not tracker.enabled
+    body.allowed = lambda: (body_connected() and time.time() < awake_until and not tracker.enabled
                             and current_emotion != "sleepy" and not dancer.dancing)
     eyes.has_annotator = True
     perception = Perception(eyes, lambda name: asyncio.run_coroutine_threadsafe(gesture_seen(name), loop))

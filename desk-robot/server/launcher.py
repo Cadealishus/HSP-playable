@@ -40,6 +40,8 @@ PORT = int(os.environ.get("ROCKY_DASHBOARD_PORT", "8766"))
 BIND = "127.0.0.1"
 BRAIN_PORT = config.LIVE_VIEW_PORT
 PAGE = HERE / "brain" / "dashboard.html"
+PET_PAGE = HERE / "brain" / "pet.html"      # the desktop pet (desktop.py shows it in a see-through window)
+STREAMS = ("/stream", "/events")            # passed through as they come, not read whole
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 
@@ -51,17 +53,21 @@ def brain_python() -> str:
     return sys.executable
 
 
-# Prints this computer's audio inputs as JSON: {"mics": [{"name", "default"}], "error"?}
+# Prints this computer's audio inputs as JSON: {"mics": [{"name", "default"}], "error"?}. Run from server/, so it can
+# use brain/audio_devices.py (standard library only): Windows lists each mic once per audio system, shown once here.
 MIC_LIST = """
 import json
 try:
     import sounddevice as sd
-    d = sd.default.device[0]
-    mics = [{"name": x["name"], "default": i == d} for i, x in enumerate(sd.query_devices()) if x["max_input_channels"] > 0]
+    from brain.audio_devices import input_names
+    mics = input_names(sd.query_devices(), sd.default.device[0], sd.default.hostapi)
     print(json.dumps({"mics": mics}))
 except Exception as e:
     print(json.dumps({"mics": [], "error": str(e)}))
 """
+# Windows: the brain is a console program; started from the desktop app (no console of its own) it would open a
+# console window. Its output comes through the pipe anyway.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 IGNORED = "(heard, ignoring:"   # main.py's line for speech that wasn't meant for Rocky
 
@@ -106,10 +112,13 @@ class Brain:
             return "already running"
         if self.external():
             return "a brain started elsewhere is already running"
-        env = dict(LAUNCH_ENV, PYTHONUNBUFFERED="1")
+        # UTF-8 both ways: on Windows a pipe otherwise uses the ANSI code page, and a reply with a character it lacks
+        # made the brain's own print() fail mid-reply
+        env = dict(LAUNCH_ENV, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         self.log("── launcher: starting the server ──")
         self.proc = subprocess.Popen(
             [brain_python(), "-u", "-m", "brain.main"], cwd=HERE, env=env, text=True, bufsize=1,
+            encoding="utf-8", errors="replace", creationflags=NO_WINDOW,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.started_at = time.time()
         self.exit_code = None
@@ -238,6 +247,15 @@ def reload_brain() -> bool:
         return False
 
 
+def facekit_js() -> bytes:
+    """The face drawing code (FaceKit, the dashboard's copy of firmware/src/face.cpp), cut from the dashboard page as
+    it is now: the desktop pet draws with the very same code, so the two can't drift apart."""
+    html = PAGE.read_text(encoding="utf-8")
+    start = html.index("const FaceKit = (() => {")
+    end = html.index("\n})();", start) + len("\n})();")
+    return (html[start:end] + "\nwindow.FaceKit = FaceKit;\n").encode()
+
+
 def brain_request(method: str, path: str, body: bytes | None = None, headers: dict | None = None, timeout: float = 10):
     c = http.client.HTTPConnection("127.0.0.1", BRAIN_PORT, timeout=timeout)
     h = {"Host": f"localhost:{BRAIN_PORT}", **(headers or {})}
@@ -306,10 +324,21 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(url.query)
         if url.path == "/":
             try:
-                page = PAGE.read_text().replace("{name}", active_name()).encode()
+                page = PAGE.read_text(encoding="utf-8").replace("{name}", active_name()).encode()
             except OSError as e:
                 return self._reply(500, "text/plain", f"dashboard page missing: {e}".encode())
             return self._reply(200, "text/html; charset=utf-8", page)
+        if url.path == "/pet":
+            try:
+                page = PET_PAGE.read_text(encoding="utf-8").replace("{name}", active_name()).encode()
+            except OSError as e:
+                return self._reply(500, "text/plain", f"pet page missing: {e}".encode())
+            return self._reply(200, "text/html; charset=utf-8", page)
+        if url.path == "/facekit.js":
+            try:
+                return self._reply(200, "text/javascript; charset=utf-8", facekit_js())
+            except (OSError, ValueError) as e:
+                return self._reply(500, "text/plain", f"face code not found in the dashboard: {e}".encode())
         if url.path == "/launcher/state":
             # with the active personality's name, so an open page follows a switch or a rename without a reload
             return self._json(200, {**brain.state(), "name": active_name()})
@@ -351,11 +380,12 @@ class Handler(BaseHTTPRequestHandler):
             # this computer's inputs, for the mic picker. Asked in a fresh process (the brain's Python, which has
             # sounddevice): PortAudio only looks for devices when it starts, so this also finds one just plugged in
             try:
-                out = subprocess.run([brain_python(), "-c", MIC_LIST], capture_output=True, text=True, timeout=15)
+                out = subprocess.run([brain_python(), "-c", MIC_LIST], capture_output=True, text=True, timeout=15,
+                                     cwd=HERE, creationflags=NO_WINDOW)
                 return self._json(200, json.loads(out.stdout))
             except (OSError, subprocess.SubprocessError, ValueError) as e:
                 return self._json(200, {"mics": [], "error": f"couldn't list this computer's mics: {e}"})
-        if url.path in ("/status", "/frame", "/stream"):
+        if url.path in ("/status", "/frame") + STREAMS:
             return self._proxy_get(url.path)
         self._json(404, {"error": "not found"})
 
@@ -436,10 +466,10 @@ class Handler(BaseHTTPRequestHandler):
     # ── passing the live parts through to the brain ──
     def _proxy_get(self, path: str) -> None:
         try:
-            c, r = brain_request("GET", path, timeout=10 if path != "/stream" else 30)
+            c, r = brain_request("GET", path, timeout=10 if path not in STREAMS else 30)
         except OSError:
             return self._json(503, {"error": "the server is stopped", "stopped": True})
-        if path != "/stream":
+        if path not in STREAMS:
             body = r.read()
             c.close()
             return self._reply(r.status, r.getheader("Content-Type") or "application/octet-stream", body)
@@ -475,9 +505,15 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(r.status, r.getheader("Content-Type") or "application/json", data)
 
 
-def main() -> None:
-    srv = ThreadingHTTPServer((BIND, PORT), Handler)
+def make_server(port: int = PORT) -> ThreadingHTTPServer:
+    """The dashboard's web server, not yet serving (desktop.py runs it in a thread)."""
+    srv = ThreadingHTTPServer((BIND, port), Handler)
     srv.daemon_threads = True
+    return srv
+
+
+def main() -> None:
+    srv = make_server()
     print(f"{config.ROBOT_NAME} dashboard: http://localhost:{PORT}/  (this computer only)")
     if os.environ.get("ROCKY_START_BRAIN") == "1":
         brain.start()
