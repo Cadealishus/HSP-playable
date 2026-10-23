@@ -1,0 +1,3 @@
+# The desktop pet and control window (desktop.py), on top of requirements.txt.
+# PySide6 brings Qt and its web view (Qt WebEngine), which shows the dashboard and the pet's page.
+PySide6==6.10.2

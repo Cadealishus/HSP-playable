@@ -3,6 +3,15 @@
 Each version of the robot is a git tag and a GitHub Release. `main` is the
 latest work. A video matches the tagged version it was made with.
 
+## Unreleased: desktop (beta)
+
+- Rocky on the Windows desktop without the robot: a see-through, draggable pet and the dashboard as a control
+  window (`server/desktop.py`, `server/Start-Rocky.bat`, docs/desktop-windows.md). The pet is a body like the
+  robot (`brain/virtual_body.py`): it shows the same messages, drawn with the dashboard's FaceKit.
+- Dashboard: the conversation this session, a microphone switch, and which voice is speaking.
+- Windows fixes: the dashboard page and the brain's output as UTF-8, the built-in fallback voice, a mic picked by
+  name.
+
 ## v2.0 - 2026-10-22
 
 Hardware:

@@ -10,6 +10,8 @@ and speaks the reply through the robot's speaker.
 
 ## Versions
 
+**No robot? Run Rocky on your Windows desktop:** see [docs/desktop-windows.md](docs/desktop-windows.md) (beta).
+
 **This README is for V2**, the current robot: a 3D-printed neck and head, a
 bigger screen, and the speaker in the head. **V1**, the first build with an
 off-the-shelf pan-tilt bracket and a breadboard (no 3D printing), is frozen
