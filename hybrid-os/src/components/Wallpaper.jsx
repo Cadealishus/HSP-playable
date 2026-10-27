@@ -12,6 +12,8 @@ import glacierThumb from '../assets/glacier-thumb.jpg';
 // The four HYBRID wallpapers are photographs embedded in the page; the canvas renderer below
 // draws the Windows-mode bloom and stands in for any wallpaper without a photo.
 const PHOTOS = { 'midnight-lake': midnightLake, 'nebula-rift': nebulaRift, obsidian, glacier };
+// Where to anchor the crop when the screen isn't 16:9, so each photo keeps its focal point in frame.
+const PHOTO_FOCUS = { 'nebula-rift': '72% 50%', glacier: '68% 50%' };
 const PHOTO_THUMBS = { 'midnight-lake': midnightLakeThumb, 'nebula-rift': nebulaRiftThumb, obsidian: obsidianThumb, glacier: glacierThumb };
 
 // ---------- Procedural wallpaper renderer (canvas, seeded, no external images) ----------
@@ -508,7 +510,7 @@ function WallCanvas({ id, W, H, entering }) {
     const t = setTimeout(() => renderWallpaper(ref.current, id, Math.round(W * metrics.scale * dpr), Math.round(H * metrics.scale * dpr)), entering ? 0 : 120);
     return () => clearTimeout(t);
   }, [id, W, H]);
-  if (PHOTOS[id]) return <img src={PHOTOS[id]} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" style={enter} />;
+  if (PHOTOS[id]) return <img src={PHOTOS[id]} alt="" draggable={false} decoding="async" className="absolute inset-0 w-full h-full object-cover" style={{ objectPosition: PHOTO_FOCUS[id] || '50% 50%', ...enter }} />;
   return (
     <canvas
       ref={ref}
