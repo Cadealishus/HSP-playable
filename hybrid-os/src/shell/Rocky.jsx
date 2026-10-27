@@ -1,0 +1,168 @@
+import { useState, useRef, useEffect } from 'react';
+import { Send, X, Minus, Sparkles } from 'lucide-react';
+import { useOS } from '../os/store';
+import { APPS } from '../os/apps';
+import { THEMES } from '../os/themes';
+import { usePerf } from '../os/sim';
+import { RockyOrb } from '../components/ui';
+
+// Scripted replies only. This concept is not connected to any AI backend.
+function reply(text, ctx) {
+  const t = text.toLowerCase();
+  const { actions, state, perf } = ctx;
+  const appHit = Object.entries(APPS).find(([id, a]) => !a.hidden && id !== 'rocky' && (t.includes(a.short.toLowerCase()) || t.includes(a.name.toLowerCase())));
+  if (/\b(open|launch|start|run)\b/.test(t) && appHit) {
+    return { text: `Opening ${appHit[1].name}.`, run: () => actions.open(appHit[0]) };
+  }
+  const theme = Object.keys(THEMES).find((k) => t.includes(k));
+  if (theme) return { text: `Switching to the ${THEMES[theme].name} theme. ${theme === 'stealth' ? 'Very covert. 🕶️' : theme === 'daylight' ? 'Bright and clean.' : 'Neon is back on.'}`, run: () => actions.setTheme(theme) };
+  if (/windows (mode|desktop)|switch (mode|desktop)|ctrl.?alt.?m/.test(t)) return { text: `Switching to ${state.mode === 'hybrid' ? 'the Windows desktop' : 'HYBRID mode'}. Ctrl+Alt+M does this too.`, run: () => actions.switchMode() };
+  if (/focus|do not disturb|dnd|quiet/.test(t)) return { text: state.focus ? 'Focus mode is off. Notifications are back.' : 'Focus mode is on. I muted notifications and dimmed the widgets.', run: () => actions.set({ focus: !state.focus }) };
+  if (/cpu|gpu|ram|perf|performance|status|how.*(pc|computer|system)/.test(t))
+    return { text: `Simulated readout: CPU ${Math.round(perf.cpu)}%, GPU ${Math.round(perf.gpu)}%, RAM ${perf.ram.toFixed(1)} of 32 GB, CPU at ${Math.round(perf.cpuTemp)}°C. Open Blender and watch the GPU climb.` };
+  if (/time|date|day/.test(t)) return { text: `It's ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} on ${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}.` };
+  if (/wallpaper|background/.test(t)) {
+    const list = ['midnight-lake', 'nebula-rift', 'obsidian', 'glacier'];
+    const next = list[(list.indexOf(state.wallpaper) + 1) % list.length];
+    return { text: 'New wallpaper coming up.', run: () => actions.set({ wallpaper: next }) };
+  }
+  if (/search|find/.test(t)) return { text: 'Opening Spotlight. Ctrl+Space also works.', run: () => actions.set({ overlay: 'spotlight' }) };
+  if (/joke|funny/.test(t)) return { text: 'I tried to dock with the ISS, but my magnification was set to 300%. Now I can only see one solar panel.' };
+  if (/who are you|what are you|about you/.test(t)) return { text: "I'm Rocky, your desktop AI companion. In the real build I live on your Windows desktop. Here I'm a scripted demo, so my answers are canned, but the actions I take are real inside this prototype." };
+  if (/help|what can you do/.test(t)) return { text: 'Try: “open terminal”, “stealth theme”, “switch to windows mode”, “focus mode”, “how is my pc”, or “new wallpaper”.' };
+  if (/^(hi|hey|hello|yo|sup)\b/.test(t)) return { text: 'Hey Cade 👋 Want me to open a project, switch the theme, or check the system?' };
+  if (/hsp|rocket|orbit|space/.test(t)) return { text: 'Opening HSP Lab. Last commit touched orbit.js, so the Kepler solver should be right there.', run: () => actions.open('vscode', { title: 'HSP Lab — Visual Studio Code', props: { project: 'hsp' } }) };
+  return { text: "That's beyond this demo's script. In the production build this would go to Rocky's real brain. Try “help” for things I can do here." };
+}
+
+const SUGGEST = ['Open terminal', 'Stealth theme', 'How is my PC?', 'Switch to Windows mode', 'Focus mode'];
+
+export default function Rocky() {
+  const { state, actions } = useOS();
+  const perf = usePerf();
+  const [msgs, setMsgs] = useState([{ from: 'rocky', text: "Hi Cade, I'm Rocky. Ask me to open apps, change the theme, switch desktops, or check your system." }]);
+  const [text, setText] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const list = useRef(null);
+  const ctx = useRef();
+  ctx.current = { actions, state, perf };
+
+  useEffect(() => {
+    if (list.current) list.current.scrollTop = list.current.scrollHeight;
+  }, [msgs, thinking]);
+
+  if (!state.rocky) return null;
+  const isWin = state.mode === 'windows';
+  const d = state.dock;
+  const bottom = isWin ? 60 : d.position === 'bottom' && !d.autoHide ? d.size + 34 : 16;
+  const right = !isWin && d.position === 'right' && !d.autoHide ? d.size + 34 : 14;
+
+  const send = (raw) => {
+    const v = (raw ?? text).trim();
+    if (!v || thinking) return;
+    setText('');
+    setMsgs((m) => [...m, { from: 'me', text: v }]);
+    setThinking(true);
+    setTimeout(() => {
+      const r = reply(v, ctx.current);
+      setMsgs((m) => [...m, { from: 'rocky', text: r.text, action: !!r.run }]);
+      setThinking(false);
+      if (r.run) setTimeout(r.run, 250);
+    }, 650 + Math.random() * 500);
+  };
+
+  return (
+    <div className="absolute z-[8400] w-[360px] h-[480px] flex flex-col glass-strong rounded-[22px] overflow-hidden a-popup" style={{ bottom, right, boxShadow: 'var(--shadow), 0 0 0 1px rgb(var(--acc) / .2), 0 20px 70px -20px rgb(var(--acc) / .45)' }} role="dialog" aria-label="Rocky AI">
+      <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
+        <RockyOrb size={42} thinking={thinking} />
+        <div className="flex-1">
+          <div className="font-display font-semibold text-[15px]">Rocky</div>
+          <div className="flex items-center gap-1.5 text-[11px] text-t2">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#3ef0a0', boxShadow: '0 0 6px #3ef0a0' }} />
+            {thinking ? 'Thinking…' : 'Online · demo mode'}
+          </div>
+        </div>
+        <button aria-label="Minimize Rocky" onClick={() => actions.set({ rocky: false })} className="w-7 h-7 grid place-items-center rounded-full text-t2 hov">
+          <Minus size={14} />
+        </button>
+        <button aria-label="Close Rocky" onClick={() => actions.set({ rocky: false })} className="w-7 h-7 grid place-items-center rounded-full text-t2 hov">
+          <X size={14} />
+        </button>
+        <div className="absolute left-4 right-4 bottom-0 h-px" style={{ background: 'linear-gradient(90deg, rgb(var(--acc) / .5), rgb(var(--acc2) / .4), transparent)' }} />
+      </div>
+      <div ref={list} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2.5">
+        {msgs.map((m, i) => (
+          <div key={i} className={`max-w-[85%] a-popup ${m.from === 'me' ? 'self-end' : 'self-start'}`}>
+            <div
+              className="rounded-[16px] px-3 py-2 text-[13px] leading-[1.45] selectable"
+              style={
+                m.from === 'me'
+                  ? { background: 'linear-gradient(135deg, rgb(var(--acc)), rgb(var(--acc2)))', color: 'var(--on-acc)', borderBottomRightRadius: 6 }
+                  : { background: 'var(--field)', boxShadow: 'inset 0 0 0 1px var(--line)', borderBottomLeftRadius: 6 }
+              }
+            >
+              {m.text}
+            </div>
+            {m.action && (
+              <div className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-acc">
+                <Sparkles size={10} /> Action ran in the prototype
+              </div>
+            )}
+          </div>
+        ))}
+        {thinking && (
+          <div className="self-start rounded-[16px] px-3 py-2.5 flex gap-1" style={{ background: 'var(--field)' }}>
+            {[0, 1, 2].map((k) => (
+              <span key={k} className="typing-dot w-1.5 h-1.5 rounded-full bg-acc" style={{ animationDelay: `${k * 0.15}s` }} />
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="px-3 pb-2 flex gap-1.5 overflow-x-auto">
+        {SUGGEST.map((s) => (
+          <button key={s} onClick={() => send(s)} className="shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-semibold text-t2 field hov press">
+            {s}
+          </button>
+        ))}
+      </div>
+      <form
+        className="m-3 mt-1 flex items-center gap-2 rounded-[14px] pl-3.5 pr-1.5 py-1.5 field"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
+        <input id="rocky-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Rocky…" className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-t3" autoComplete="off" />
+        <button type="submit" aria-label="Send" className="w-8 h-8 grid place-items-center rounded-[10px] press" style={{ background: text.trim() ? 'linear-gradient(135deg, rgb(var(--acc)), rgb(var(--acc2)))' : 'var(--field)', color: text.trim() ? 'var(--on-acc)' : 'var(--t3)' }}>
+          <Send size={14} />
+        </button>
+      </form>
+      <div className="pb-2 text-center text-[10px] text-t3">Scripted demo responses · no AI backend connected</div>
+    </div>
+  );
+}
+
+// The resting orb on the desktop. Click it to open the chat.
+export function RockyCompanion() {
+  const { state, actions } = useOS();
+  if (state.rocky) return null;
+  const isWin = state.mode === 'windows';
+  const d = state.dock;
+  const bottom = isWin ? 62 : d.position === 'bottom' && !d.autoHide ? 24 : 20;
+  const right = !isWin && d.position === 'right' && !d.autoHide ? d.size + 40 : 22;
+  return (
+    <button
+      aria-label="Open Rocky AI"
+      onClick={() => actions.set({ rocky: true })}
+      className="absolute z-[3700] group chrome chrome-fade"
+      style={{ bottom, right }}
+    >
+      <div style={{ animation: 'bob 4s ease-in-out infinite' }}>
+        <RockyOrb size={46} />
+      </div>
+      <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 whitespace-nowrap glass-strong rounded-[10px] px-2.5 py-1 text-[12px] font-semibold opacity-0 group-hover:opacity-100 pointer-events-none" style={{ transition: 'opacity 160ms' }}>
+        Ask Rocky
+      </span>
+    </button>
+  );
+}
