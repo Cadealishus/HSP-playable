@@ -32,7 +32,7 @@ function Screen() {
   metrics.H = dim.H;
   metrics.scale = dim.scale;
   return (
-    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#000' }}>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'clip', background: '#000' }}>
       <div
         ref={(el) => {
           root.current = el;

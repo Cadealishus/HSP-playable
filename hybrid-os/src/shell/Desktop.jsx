@@ -94,7 +94,7 @@ export default function Desktop({ W, H }) {
 
   return (
     <div
-      className={`os absolute inset-0 overflow-hidden ${state.motion === 0 ? 'no-motion' : ''}`}
+      className={`os absolute inset-0 overflow-clip ${state.motion === 0 ? 'no-motion' : ''}`}
       data-mode={state.mode}
       data-switch={state.switching || undefined}
       style={themeVars(state)}

@@ -38,6 +38,8 @@ body {
 }
 
 .os {
+  /* clip, not hidden: a hidden box can still be scrolled by focus changes, which shifts the whole desktop */
+  overflow: clip;
   color: var(--t1);
   user-select: none;
   -webkit-user-select: none;

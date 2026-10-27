@@ -18,6 +18,7 @@ export default function Dock() {
   const [bouncing, setBouncing] = useState({});
   const [reveal, setReveal] = useState(false);
   const hideTimer = useRef(0);
+  const dwellTimer = useRef(0);
 
   // Base (unmagnified) centres along the dock axis, measured from the dock's centre.
   const offsets = [];
@@ -113,20 +114,35 @@ export default function Dock() {
   return (
     <>
       {autoHide && (
+        // Edge strip: the dock only appears after the pointer rests here briefly, so passing by doesn't trigger it
         <div
           className="absolute z-[3500]"
-          style={position === 'bottom' ? { left: 0, right: 0, bottom: 0, height: 6 } : position === 'left' ? { left: 0, top: 0, bottom: 0, width: 6 } : { right: 0, top: 0, bottom: 0, width: 6 }}
+          style={position === 'bottom' ? { left: 0, right: 0, bottom: 0, height: 5 } : position === 'left' ? { left: 0, top: 0, bottom: 0, width: 5 } : { right: 0, top: 0, bottom: 0, width: 5 }}
           onMouseEnter={() => {
             clearTimeout(hideTimer.current);
-            setReveal(true);
+            clearTimeout(dwellTimer.current);
+            dwellTimer.current = setTimeout(() => setReveal(true), 260);
           }}
-        />
+          onMouseLeave={() => clearTimeout(dwellTimer.current)}
+        >
+          {hidden && (
+            <span
+              className="absolute pointer-events-none rounded-full a-fade"
+              style={{
+                ...(position === 'bottom' ? { left: '50%', bottom: 2, width: 120, height: 3, transform: 'translateX(-50%)' } : { top: '50%', [position]: 2, width: 3, height: 120, transform: 'translateY(-50%)' }),
+                background: `linear-gradient(${vertical ? '180deg' : '90deg'}, rgb(var(--acc) / .1), rgb(var(--acc) / .55), rgb(var(--acc2) / .1))`,
+                boxShadow: '0 0 10px rgb(var(--acc) / .5)',
+                opacity: 0.55,
+              }}
+            />
+          )}
+        </div>
       )}
       <div className={`absolute z-[3600] chrome ${posClass}`}>
         <div className={enter}>
         <div
           className="dock-shell relative"
-          style={{ transform: hidden ? hideTransform : 'none', opacity: hidden ? 0 : 1 }}
+          style={{ transform: hidden ? hideTransform : 'none', opacity: hidden ? 0 : 1, pointerEvents: hidden ? 'none' : undefined }}
           onMouseEnter={() => clearTimeout(hideTimer.current)}
         >
           {/* neon floor reflection */}

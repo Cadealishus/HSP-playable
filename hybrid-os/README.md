@@ -15,9 +15,10 @@ npm run build      # → dist/hybrid-os.html (React from cdnjs) + build/test.htm
 - **Two desktop modes**: HYBRID (menu bar, floating dock, widgets) and a Windows 11 simulation
   (taskbar, Start menu, Quick Settings, desktop shortcuts). Switch with **Ctrl+Alt+M**, the
   Control Center, the HYBRID menu, the Windows Start power menu, or the HYBRID taskbar button.
-- **Window manager**: open, focus, drag, 8-way resize, double-click to maximize, snap by dragging
-  to the left/right/top edge, minimize to the dock/taskbar, close. Windows persist across modes.
-- **Dock**: cosine-falloff magnification, tooltips, running indicators, bounce on launch,
+- **Window manager**: open, focus, drag, 8-way resize, snap by dragging to the left/right/top edge.
+  Maximize in HYBRID mode is true full screen: the menu bar and dock tuck away and return when the
+  pointer rests on the top or bottom edge. Also minimize to the dock/taskbar, close. Windows persist across modes.
+- **Dock**: hidden until the pointer rests on the bottom edge (turn off auto-hide to pin it), cosine-falloff magnification, tooltips, running indicators, bounce on launch,
   right-click menus, auto-hide, left/bottom/right placement.
 - **Spotlight** (Ctrl+Space or Ctrl+K): apps, files, projects and system commands, keyboard nav.
 - **Control Center**: Wi-Fi, Bluetooth, Focus, dark/light, night light, airplane, brightness,

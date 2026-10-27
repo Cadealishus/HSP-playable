@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, X, Minus, Sparkles } from 'lucide-react';
-import { useOS } from '../os/store';
+import { useOS, fullscreenWindow } from '../os/store';
 import { APPS } from '../os/apps';
 import { THEMES } from '../os/themes';
 import { usePerf } from '../os/sim';
@@ -145,7 +145,7 @@ export default function Rocky() {
 // The resting orb on the desktop. Click it to open the chat.
 export function RockyCompanion() {
   const { state, actions } = useOS();
-  if (state.rocky) return null;
+  if (state.rocky || fullscreenWindow(state)) return null;
   const isWin = state.mode === 'windows';
   const d = state.dock;
   const bottom = isWin ? 62 : d.position === 'bottom' && !d.autoHide ? 24 : 20;

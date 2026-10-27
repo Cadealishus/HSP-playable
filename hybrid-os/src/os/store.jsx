@@ -32,6 +32,13 @@ export function workArea(state, W = metrics.W, H = metrics.H) {
   return { x: 8, y: top, w: W - 16, h: H - top - d };
 }
 
+// A focused, maximized window in HYBRID mode takes the whole screen; the menu bar and dock step aside.
+export function fullscreenWindow(state) {
+  if (state.mode !== 'hybrid') return null;
+  const w = state.windows.find((x) => x.id === state.focused);
+  return w && w.max && !w.min && w.phase !== 'closing' && w.phase !== 'minimizing' ? w : null;
+}
+
 // ---------- Persisted settings ----------
 const SAVE_KEY = 'hybrid-os:v1';
 const SETTINGS = {
@@ -50,7 +57,7 @@ const SETTINGS = {
   nightLight: false,
   airplane: false,
   perfProfile: 'balanced',
-  dock: { size: 52, mag: 60, autoHide: false, position: 'bottom' },
+  dock: { size: 52, mag: 60, autoHide: true, position: 'bottom' },
   widgets: { clock: true, weather: true, system: true, music: true, notes: true, projects: true },
   widgetPos: {},
   showWidgets: true,
@@ -58,6 +65,7 @@ const SETTINGS = {
   startupMode: 'hybrid',
   transition: 'cinematic',
   modeLabel: true,
+  layoutVersion: 2,
 };
 const PERSIST = Object.keys(SETTINGS);
 
@@ -72,6 +80,11 @@ function loadSettings() {
     if (out.widgets) out.widgets = { ...SETTINGS.widgets, ...out.widgets };
     if (out.startupMode) out.mode = out.startupMode;
     if (!THEMES[out.theme]) delete out.theme;
+    // v2: the dock hides until the pointer rests on the screen edge
+    if (saved.layoutVersion !== 2) {
+      out.dock = { ...(out.dock || SETTINGS.dock), autoHide: true };
+      out.layoutVersion = 2;
+    }
     return out;
   } catch {
     return {};

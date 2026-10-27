@@ -25,6 +25,7 @@ const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
 
 function resolveGeom(w, area, mode) {
   const gap = mode === 'windows' ? 0 : 6;
+  if (w.max && mode !== 'windows') return { x: 0, y: 0, w: metrics.W, h: metrics.H };
   if (w.max) return { x: area.x + gap, y: area.y + gap, w: area.w - gap * 2, h: area.h - gap * 2 };
   if (w.snap === 'left') return { x: area.x + gap, y: area.y + gap, w: area.w / 2 - gap * 1.5, h: area.h - gap * 2 };
   if (w.snap === 'right') return { x: area.x + area.w / 2 + gap / 2, y: area.y + gap, w: area.w / 2 - gap * 1.5, h: area.h - gap * 2 };
@@ -151,7 +152,7 @@ function Window({ win, area, focused, mode }) {
   const origin = win.origin && win.phase === 'opening' ? `${win.origin.x - g.x}px ${win.origin.y - g.y}px` : 'center';
 
   const isWin = mode === 'windows';
-  const radius = isMax ? (isWin ? 0 : 14) : isWin ? 8 : 16;
+  const radius = isMax ? 0 : isWin ? 8 : 16;
 
   const titleMenu = (e) =>
     actions.contextMenu(e, [

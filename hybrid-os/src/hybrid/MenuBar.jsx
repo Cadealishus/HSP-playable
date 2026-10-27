@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import {
   Wifi,
   WifiOff,
@@ -23,7 +23,7 @@ import {
   Speaker,
   Check,
 } from 'lucide-react';
-import { useOS } from '../os/store';
+import { useOS, fullscreenWindow } from '../os/store';
 import { APPS, LAUNCHABLE } from '../os/apps';
 import { PROJECTS } from '../os/data';
 import { THEMES, WALLPAPERS } from '../os/themes';
@@ -316,11 +316,34 @@ export default function MenuBar() {
   const focusedWin = state.windows.find((w) => w.id === state.focused && !w.min);
   const appName = focusedWin ? APPS[focusedWin.app].short : 'Desktop';
 
+  // While a window is full screen the bar tucks away and peeks back when the pointer rests at the top edge
+  const fs = !!fullscreenWindow(state);
+  const [peek, setPeek] = useState(false);
+  const peekTimer = useRef(0);
+  const hiddenBar = fs && !peek && !open;
+  useEffect(() => setPeek(false), [fs]);
+  const leaveBar = () => {
+    clearTimeout(peekTimer.current);
+    if (fs) peekTimer.current = setTimeout(() => setPeek(false), 450);
+  };
+
   const toggle = (k) => setOpen((o) => (o === k ? null : k));
   const hoverSwitch = (k) => open && MENU_ORDER.concat('hybrid').includes(open) && setOpen(k);
 
   return (
-    <div ref={root} className="absolute top-[8px] left-[10px] right-[10px] h-[34px] z-[4000] chrome chrome-top">
+    <>
+    {fs && (
+      <div
+        className="absolute top-0 left-0 right-0 h-[5px] z-[3990]"
+        onMouseEnter={() => {
+          clearTimeout(peekTimer.current);
+          peekTimer.current = setTimeout(() => setPeek(true), 220);
+        }}
+        onMouseLeave={leaveBar}
+      />
+    )}
+    <div ref={root} className="absolute top-[8px] left-[10px] right-[10px] h-[34px] z-[4000] chrome chrome-top" onMouseEnter={() => clearTimeout(peekTimer.current)} onMouseLeave={leaveBar}>
+      <div className="h-full dock-shell" style={{ transform: hiddenBar ? 'translateY(-60px)' : 'none', opacity: hiddenBar ? 0 : 1, pointerEvents: hiddenBar ? 'none' : undefined }}>
       <div className="h-full a-slidedown">
       <div className="glass h-full rounded-[13px] flex items-center pl-2 pr-1.5 text-[13px] relative">
         <div className="absolute inset-x-6 -bottom-px h-px pointer-events-none" style={{ background: 'linear-gradient(90deg, transparent, rgb(var(--acc) / .5), rgb(var(--acc2) / .5), transparent)' }} />
@@ -399,6 +422,8 @@ export default function MenuBar() {
         </div>
       </div>
       </div>
+      </div>
     </div>
+    </>
   );
 }
