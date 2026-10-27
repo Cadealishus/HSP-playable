@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { metrics } from '../os/store';
+import midnightLake from '../assets/midnight-lake.jpg';
+import nebulaRift from '../assets/nebula-rift.jpg';
+import obsidian from '../assets/obsidian.jpg';
+import glacier from '../assets/glacier.jpg';
+import midnightLakeThumb from '../assets/midnight-lake-thumb.jpg';
+import nebulaRiftThumb from '../assets/nebula-rift-thumb.jpg';
+import obsidianThumb from '../assets/obsidian-thumb.jpg';
+import glacierThumb from '../assets/glacier-thumb.jpg';
+
+// The four HYBRID wallpapers are photographs embedded in the page; the canvas renderer below
+// draws the Windows-mode bloom and stands in for any wallpaper without a photo.
+const PHOTOS = { 'midnight-lake': midnightLake, 'nebula-rift': nebulaRift, obsidian, glacier };
+const PHOTO_THUMBS = { 'midnight-lake': midnightLakeThumb, 'nebula-rift': nebulaRiftThumb, obsidian: obsidianThumb, glacier: glacierThumb };
 
 // ---------- Procedural wallpaper renderer (canvas, seeded, no external images) ----------
 function rng(seed) {
@@ -473,6 +486,7 @@ export function renderWallpaper(canvas, id, w, h) {
 
 const thumbCache = new Map();
 export function wallpaperThumb(id, w = 192, h = 108) {
+  if (PHOTO_THUMBS[id]) return PHOTO_THUMBS[id];
   const key = `${id}:${w}x${h}`;
   if (!thumbCache.has(key)) {
     const c = document.createElement('canvas');
@@ -487,11 +501,14 @@ export const hasStars = (id) => (SPECS[id]?.stars || 0) > 0;
 // ---------- Live wallpaper layer ----------
 function WallCanvas({ id, W, H, entering }) {
   const ref = useRef(null);
+  const enter = entering ? { animation: 'wpIn calc(var(--anim) * 900ms) cubic-bezier(.2,.8,.3,1) both' } : undefined;
   useEffect(() => {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (PHOTOS[id]) return;
     const t = setTimeout(() => renderWallpaper(ref.current, id, Math.round(W * metrics.scale * dpr), Math.round(H * metrics.scale * dpr)), entering ? 0 : 120);
     return () => clearTimeout(t);
   }, [id, W, H]);
+  if (PHOTOS[id]) return <img src={PHOTOS[id]} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" style={enter} />;
   return (
     <canvas
       ref={ref}
@@ -504,7 +521,7 @@ function WallCanvas({ id, W, H, entering }) {
 function Twinkles({ seed }) {
   const stars = useMemo(() => {
     const r = rng(seed);
-    return Array.from({ length: 34 }, () => ({ x: r() * 100, y: r() * 52, s: 1 + r() * 2, d: r() * 6, t: 2.5 + r() * 4 }));
+    return Array.from({ length: 16 }, () => ({ x: r() * 100, y: r() * 52, s: 1 + r() * 2, d: r() * 6, t: 2.5 + r() * 4 }));
   }, [seed]);
   const [shot, setShot] = useState(null);
   useEffect(() => {

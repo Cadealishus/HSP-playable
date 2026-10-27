@@ -262,7 +262,7 @@ function ProjectsWidget({ i }) {
             onClick={() => actions.open('vscode', { title: `${p.name} — Visual Studio Code`, props: { project: p.id } })}
             className="group flex items-center gap-3 rounded-[12px] px-2 py-2 text-left hov"
           >
-            <span className="grid place-items-center w-8 h-8 rounded-[9px] text-[12px] font-extrabold" style={{ background: `${p.color}26`, color: p.color, boxShadow: `inset 0 0 0 1px ${p.color}55` }}>
+            <span className="grid place-items-center w-8 h-8 rounded-[9px] text-[12px] font-extrabold" style={{ background: `${p.color}26`, color: `color-mix(in srgb, ${p.color} 65%, var(--t1))`, boxShadow: `inset 0 0 0 1px ${p.color}55` }}>
               {p.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}
             </span>
             <span className="flex-1 min-w-0">

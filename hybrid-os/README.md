@@ -22,7 +22,7 @@ npm run build      # → dist/hybrid-os.html (React from cdnjs) + build/test.htm
 - **Spotlight** (Ctrl+Space or Ctrl+K): apps, files, projects and system commands, keyboard nav.
 - **Control Center**: Wi-Fi, Bluetooth, Focus, dark/light, night light, airplane, brightness,
   volume, live performance, theme, accent, wallpaper, glass transparency, animation intensity, dock.
-- **Themes**: Aurora, Stealth, Daylight, plus 6 accents. **Wallpapers** are procedurally drawn on canvas.
+- **Themes**: Aurora, Stealth, Daylight, plus 6 accents. **Wallpapers**: four photos embedded from `src/assets/`; the Windows bloom is drawn on canvas.
 - **Apps**: File Explorer, Terminal (help, neofetch, ls/cd, theme, mode, open…), HYBRID Settings,
   Edge (new-tab mock), VS Code (highlighted samples), Discord, Spotify (shared with the widget),
   Blender (orbitable 3D rocket), About.

@@ -96,7 +96,7 @@ export default function Settings({ page: initial }) {
 
         {page === 'wallpaper' && (
           <Panel>
-            <SectionLabel>HYBRID wallpapers · generated live, no image files</SectionLabel>
+            <SectionLabel>HYBRID wallpapers</SectionLabel>
             <WallpaperPicker cols={2} />
           </Panel>
         )}

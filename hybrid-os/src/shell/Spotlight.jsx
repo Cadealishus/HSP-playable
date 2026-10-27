@@ -8,7 +8,7 @@ function ResultIcon({ item, size = 30 }) {
   if (item.app) return <AppIcon app={item.app} size={size} />;
   if (item.kind === 'Project')
     return (
-      <span className="grid place-items-center rounded-[9px] text-[11px] font-extrabold" style={{ width: size, height: size, background: `${item.color}26`, color: item.color, boxShadow: `inset 0 0 0 1px ${item.color}55` }}>
+      <span className="grid place-items-center rounded-[9px] text-[11px] font-extrabold" style={{ width: size, height: size, background: `${item.color}26`, color: `color-mix(in srgb, ${item.color} 65%, var(--t1))`, boxShadow: `inset 0 0 0 1px ${item.color}55` }}>
         {item.title.split(' ').map((w) => w[0]).join('').slice(0, 2)}
       </span>
     );

@@ -27,7 +27,7 @@ await esbuild.build({
   inject: ['src/react-shim.js'],
   jsxFactory: 'React.createElement',
   jsxFragment: 'React.Fragment',
-  loader: { '.js': 'jsx' },
+  loader: { '.js': 'jsx', '.jpg': 'dataurl' },
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'warning',
 });
