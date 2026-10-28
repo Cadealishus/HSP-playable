@@ -151,14 +151,9 @@ export default function Terminal({ win }) {
   };
 
   return (
-    <div className="h-full flex flex-col font-mono text-[12.5px] leading-[1.6]" style={{ background: 'linear-gradient(180deg, rgba(4,6,18,.92), rgba(6,8,24,.95))', color: '#d7e2ff' }} onClick={() => input.current && input.current.focus()}>
-      <div className="absolute inset-0 pointer-events-none opacity-[.05]" style={{ backgroundImage: 'repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 3px)' }} />
-      <div className="flex items-center gap-2 px-3 h-[30px] shrink-0 text-[11px]" style={{ borderBottom: '1px solid rgba(120,160,255,.15)' }}>
-        <span className="px-2 py-0.5 rounded-[6px] text-[#5ef0ff]" style={{ background: 'rgba(94,240,255,.1)', boxShadow: 'inset 0 0 0 1px rgba(94,240,255,.25)' }}>
-          hsh — {prompt}
-        </span>
-        <span className="text-[#7d8bb3]">pwsh</span>
-        <span className="text-[#7d8bb3]">wsl:ubuntu</span>
+    <div className="h-full flex flex-col font-mono text-[13px] leading-[1.6]" style={{ background: 'linear-gradient(180deg, rgba(4,6,18,.92), rgba(6,8,24,.95))', color: '#d7e2ff' }} onClick={() => input.current && input.current.focus()}>
+      <div className="flex items-center px-4 h-8 shrink-0 text-[12px] text-[#7d8bb3]" style={{ borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+        hsh · {prompt} · simulated shell
       </div>
       <div ref={scroller} className="flex-1 overflow-y-auto px-4 py-3 selectable">
         {lines.map((l, i) =>
@@ -176,7 +171,7 @@ export default function Terminal({ win }) {
           ) : l.ls ? (
             <div key={i} className="flex flex-wrap gap-x-6">
               {l.ls.map((c) => (
-                <span key={c.name} className={c.type === 'folder' ? 'text-[#6fb6ff] font-bold' : ''}>
+                <span key={c.name} className={c.type === 'folder' ? 'text-[#6fb6ff] font-semibold' : ''}>
                   {c.name}
                   {c.type === 'folder' ? '/' : ''}
                 </span>
@@ -188,7 +183,7 @@ export default function Terminal({ win }) {
               {l.right && (
                 <span>
                   {'  '}
-                  <span className="text-[#b296ff] font-bold">{l.right[0]}</span>
+                  <span className="text-[#b296ff] font-semibold">{l.right[0]}</span>
                   <span className="text-[#d7e2ff]">{l.right[0] === 'cade' ? l.right[1] : `: ${l.right[1]}`}</span>
                 </span>
               )}

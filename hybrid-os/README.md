@@ -30,6 +30,20 @@ npm run build      # → dist/hybrid-os.html (React from cdnjs) + build/test.htm
 - **Rocky AI**: desktop companion orb and chat panel. Replies are scripted, but commands like
   “stealth theme” or “open terminal” really drive the prototype.
 
+## Design system
+All tokens live in `src/styles.css` (documented at the top) and are set per theme by `src/os/themes.js`.
+- **Type:** Geist for all UI text and numerals, Geist Mono for code. Scale 11 / 12 / 13 / 15 / 20 / 28 / 56,
+  weights 300–600, sentence-case labels, tabular numerals for clocks and telemetry.
+- **Colour:** semantic tokens (`--t1/--t2/--t3` text, `--surface`, `--field`, `--line`, `--acc`, `--acc2`,
+  `--ok/--warn/--bad`). Accent is a solid fill for the one primary state; violet appears only as a secondary accent.
+- **Radius ladder:** 6 chips, 8 rows/buttons, 10 inputs/tiles, 14 widgets/popovers/windows, 18 dock/large panels.
+- **Spacing:** 4-pt rhythm; desktop grid with 24 px margins, 12 px gutters, 288 px widget columns.
+- **Materials:** `.glass` (desktop surfaces), `.glass-strong` (overlays), `.glass-flat` (windows).
+- **Motion:** 120 / 180 / 260 ms with one ease-out and one ease-in curve, scaled by the animation slider and
+  zeroed for distance under `prefers-reduced-motion`.
+- **Components:** `src/components/ui.jsx` holds the shared AppIcon, Toggle, Slider, Segmented, Meter,
+  Sparkline, MenuList (keyboard navigable), IconButton, Tip and Button.
+
 ## Simulated
 Files, performance numbers, weather, battery, music, chat, web pages and Rocky's replies are demo data.
 

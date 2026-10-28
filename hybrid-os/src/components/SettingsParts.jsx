@@ -13,22 +13,17 @@ export function ThemePicker({ compact = false }) {
         return (
           <button key={id} onClick={() => actions.setTheme(id)} aria-pressed={on} className="group text-left press">
             <div
-              className="relative overflow-hidden rounded-[12px]"
-              style={{ height: compact ? 54 : 78, background: `linear-gradient(160deg, ${t.preview[0]}, ${t.preview[1]})`, boxShadow: on ? '0 0 0 2px rgb(var(--acc)), 0 6px 20px -6px rgb(var(--acc) / .6)' : 'inset 0 0 0 1px var(--line)', transition: 'box-shadow calc(var(--anim)*200ms)' }}
+              className="relative overflow-hidden rounded-[var(--r-md)]"
+              style={{ height: compact ? 54 : 78, background: `linear-gradient(160deg, ${t.preview[0]}, ${t.preview[1]})`, boxShadow: on ? '0 0 0 2px rgb(var(--acc))' : 'inset 0 0 0 1px var(--line)', transition: 'box-shadow var(--d-base) var(--ease-out)' }}
             >
               {/* mini desktop: bar, window, dock */}
               <div className="absolute left-[8%] right-[8%] top-[9%] h-[11%] rounded-[3px]" style={{ background: t.dark ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.75)' }} />
-              <div className="absolute left-[18%] top-[30%] w-[48%] h-[40%] rounded-[4px] group-hover:translate-y-[-2px]" style={{ background: t.dark ? 'rgba(20,24,50,.7)' : 'rgba(255,255,255,.85)', boxShadow: `0 0 0 1px ${t.preview[2]}55`, transition: 'transform 200ms' }}>
+              <div className="absolute left-[18%] top-[30%] w-[48%] h-[40%] rounded-[4px]" style={{ background: t.dark ? 'rgba(14,16,30,.8)' : 'rgba(255,255,255,.9)' }}>
                 <div className="m-[6%] h-[14%] w-[40%] rounded-full" style={{ background: t.preview[2] }} />
               </div>
-              <div className="absolute left-[30%] right-[30%] bottom-[8%] h-[12%] rounded-[3px]" style={{ background: t.dark ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.8)', boxShadow: `0 2px 8px ${t.preview[2]}66` }} />
-              {on && (
-                <span className="absolute right-1.5 top-1.5 grid place-items-center w-4 h-4 rounded-full" style={{ background: 'rgb(var(--acc))', color: 'var(--on-acc)' }}>
-                  <Check size={10} strokeWidth={3} />
-                </span>
-              )}
+              <div className="absolute left-[30%] right-[30%] bottom-[8%] h-[12%] rounded-[3px]" style={{ background: t.dark ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.8)' }} />
             </div>
-            <div className={`mt-1.5 text-[12px] font-bold ${on ? 'text-t1' : 'text-t2'}`}>{t.name}</div>
+            <div className={`mt-1.5 text-[12px] ${on ? 'text-t1 font-medium' : 'text-t2'}`}>{t.name}</div>
             {!compact && <div className="text-[11px] text-t3 leading-snug">{t.blurb}</div>}
           </button>
         );
@@ -49,10 +44,10 @@ export function WallpaperPicker({ cols = 4 }) {
             <img
               src={wallpaperThumb(w.id)}
               alt={w.name}
-              className="w-full aspect-video object-cover rounded-[10px]"
-              style={{ boxShadow: on ? '0 0 0 2px rgb(var(--acc)), 0 6px 18px -6px rgb(var(--acc) / .6)' : 'inset 0 0 0 1px var(--line)', transition: 'box-shadow calc(var(--anim)*200ms)' }}
+              className="w-full aspect-video object-cover rounded-[var(--r-sm)]"
+              style={{ boxShadow: on ? '0 0 0 2px rgb(var(--acc))' : 'inset 0 0 0 1px var(--line)', transition: 'box-shadow var(--d-base) var(--ease-out)' }}
             />
-            <div className={`mt-1 text-[11px] font-semibold truncate ${on ? 'text-t1' : 'text-t3'}`}>{w.name}</div>
+            <div className={`mt-1.5 text-[11px] truncate ${on ? 'text-t1 font-medium' : 'text-t3'}`}>{w.name}</div>
           </button>
         );
       })}
@@ -76,7 +71,7 @@ export function AccentPicker() {
             aria-pressed={on}
             onClick={() => actions.set({ accent: a.id })}
             className="w-[26px] h-[26px] rounded-full grid place-items-center press"
-            style={{ background: bg, boxShadow: on ? `0 0 0 2px rgb(var(--glass)), 0 0 0 4px ${a.rgb ? `rgb(${a.rgb})` : 'var(--t2)'}` : 'inset 0 0 0 1px rgba(255,255,255,.25)', transition: 'box-shadow 160ms' }}
+            style={{ background: bg, boxShadow: on ? `0 0 0 2px rgb(var(--surface)), 0 0 0 4px ${a.rgb ? `rgb(${a.rgb})` : 'var(--t2)'}` : 'inset 0 0 0 1px rgba(255,255,255,.25)', transition: 'box-shadow 160ms' }}
           >
             {on && <Check size={13} strokeWidth={3} color="#fff" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
           </button>
@@ -90,10 +85,10 @@ export function LabeledSlider({ id, label, value, onChange, min = 0, max = 100, 
   return (
     <div>
       <div className="flex items-center justify-between text-[12px] mb-0.5">
-        <label htmlFor={id} className="font-semibold text-t2">
+        <label htmlFor={id} className="text-t2">
           {label}
         </label>
-        <span className="tabular-nums text-t3 text-[11.5px]">{display ? display(value) : value}</span>
+        <span className="tnum text-t3 text-[12px]">{display ? display(value) : value}</span>
       </div>
       <Slider id={id} label={label} value={value} min={min} max={max} onChange={onChange} />
     </div>
@@ -121,7 +116,7 @@ export function DockControls({ idPrefix = 'cc' }) {
       <LabeledSlider id={`${idPrefix}-dsize`} label="Icon size" min={36} max={72} value={d.size} onChange={(v) => actions.setDock({ size: v })} display={(v) => `${v}px`} />
       <LabeledSlider id={`${idPrefix}-dmag`} label="Magnification" value={d.mag} onChange={(v) => actions.setDock({ mag: v })} display={(v) => (v === 0 ? 'Off' : `${Math.round(100 + v * 0.95)}%`)} />
       <div className="flex items-center justify-between">
-        <span className="text-[12px] font-semibold text-t2">Auto-hide dock</span>
+        <span className="text-[12px] text-t2">Auto-hide dock</span>
         <Toggle id={`${idPrefix}-autohide`} label="Auto-hide dock" on={d.autoHide} onChange={(v) => actions.setDock({ autoHide: v })} />
       </div>
       <Segmented

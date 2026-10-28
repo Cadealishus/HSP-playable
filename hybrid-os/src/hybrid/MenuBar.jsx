@@ -12,7 +12,7 @@ import {
   Search,
   SlidersHorizontal,
   Moon,
-  Gauge,
+  Activity,
   Lock,
   Info,
   Settings,
@@ -28,7 +28,7 @@ import { APPS, LAUNCHABLE } from '../os/apps';
 import { PROJECTS } from '../os/data';
 import { THEMES, WALLPAPERS } from '../os/themes';
 import { useNow, usePerf, useOutside, fmtTime, fmtDate } from '../os/sim';
-import { HybridLogo, MenuList, Toggle, Slider, Segmented, Sparkline, Meter, SectionLabel, DemoBadge, AppIcon } from '../components/ui';
+import { HybridLogo, MenuList, Toggle, Slider, Segmented, Sparkline, Meter, SectionLabel, DemoBadge, Tip } from '../components/ui';
 
 export function buildMenus(state, actions) {
   const win = state.windows.find((w) => w.id === state.focused);
@@ -67,8 +67,6 @@ export function buildMenus(state, actions) {
       { label: 'Cut', shortcut: 'Ctrl+X', onClick: () => document.execCommand && document.execCommand('cut') },
       { label: 'Copy', shortcut: 'Ctrl+C', onClick: () => document.execCommand && document.execCommand('copy') },
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: true },
-      '-',
-      { label: 'Clipboard History', onClick: () => actions.notify({ title: 'Clipboard history', body: 'Native clipboard access belongs to the production shell. This concept only simulates it.', app: 'settings' }) },
     ],
     View: [
       { label: 'Show Widgets', checked: state.showWidgets, onClick: () => actions.set({ showWidgets: !state.showWidgets }) },
@@ -114,18 +112,21 @@ function StatusButton({ active, onClick, label, children, wide }) {
   return (
     <button
       aria-label={label}
+      aria-expanded={active}
       onClick={onClick}
-      className={`h-[26px] ${wide ? 'px-2.5' : 'w-[30px]'} grid place-items-center rounded-[8px] text-t1 hov press`}
-      style={active ? { background: 'var(--hover)' } : undefined}
+      data-open={active}
+      className={`tip-host h-6 ${wide ? 'px-2' : 'w-7'} flex items-center justify-center rounded-[var(--r-sm)] text-t1 hov`}
+      style={active ? { background: 'var(--press)' } : undefined}
     >
       {children}
+      <Tip>{label}</Tip>
     </button>
   );
 }
 
 function Popover({ children, width = 280, right = 0 }) {
   return (
-    <div className="absolute top-[40px] z-50 glass-strong rounded-[14px] p-3 a-pop" style={{ width, right }}>
+    <div className="absolute top-[30px] z-50 glass-strong rounded-[var(--r-lg)] p-4 a-pop" style={{ width, right }} role="dialog">
       {children}
     </div>
   );
@@ -142,52 +143,65 @@ const DEVICES = [
   { name: 'Studio Speaker', kind: 'Speaker', icon: Speaker, connected: false },
 ];
 
+function PanelHeader({ title, children }) {
+  return (
+    <div className="flex items-center justify-between h-6 mb-3">
+      <span className="text-[13px] font-medium">{title}</span>
+      {children}
+    </div>
+  );
+}
+
+const PROFILE_OPTIONS = [
+  { id: 'saver', label: 'Saver' },
+  { id: 'balanced', label: 'Balanced' },
+  { id: 'performance', label: 'Turbo' },
+];
+
 function StatusPanels({ which, state, actions, perf }) {
+  const network = state.network || 'Nebula-5G';
   if (which === 'wifi')
     return (
-      <Popover width={272} right={0}>
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-bold text-[13px]">Wi-Fi</span>
+      <Popover width={280}>
+        <PanelHeader title="Wi-Fi">
           <Toggle on={state.wifi} onChange={(v) => actions.set({ wifi: v })} label="Wi-Fi" />
-        </div>
+        </PanelHeader>
         {state.wifi ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col -mx-2">
             {NETWORKS.map((n) => (
-              <button key={n.name} onClick={() => actions.set({ network: n.name })} className="flex items-center gap-2.5 rounded-[9px] px-2 py-1.5 hov text-[12.5px]">
-                <span className="grid place-items-center w-7 h-7 rounded-full" style={{ background: (state.network || 'Nebula-5G') === n.name ? 'rgb(var(--acc))' : 'var(--field)', color: (state.network || 'Nebula-5G') === n.name ? 'var(--on-acc)' : 'var(--t2)' }}>
-                  <Wifi size={14} />
-                </span>
+              <button key={n.name} onClick={() => actions.set({ network: n.name })} className="flex items-center gap-3 h-9 px-2 rounded-[var(--r-sm)] hov text-[13px]" aria-pressed={network === n.name}>
+                <Wifi size={16} strokeWidth={1.75} className={network === n.name ? 'text-acc' : 'text-t2'} />
                 <span className="flex-1 text-left">{n.name}</span>
-                {(state.network || 'Nebula-5G') === n.name && <Check size={14} className="text-acc" />}
-                {n.secure && <Lock size={11} className="text-t3" />}
+                {n.secure && <Lock size={12} className="text-t3" />}
+                <span className="w-4">{network === n.name && <Check size={15} className="text-acc" />}</span>
               </button>
             ))}
           </div>
         ) : (
-          <p className="text-[12px] text-t2">Wi-Fi is off. Simulated networks appear when you turn it on.</p>
+          <p className="text-[12px] text-t2">Wi-Fi is off.</p>
         )}
+        <p className="mt-2 text-[11px] text-t3">Networks are simulated.</p>
       </Popover>
     );
   if (which === 'bt')
     return (
-      <Popover width={272}>
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-bold text-[13px]">Bluetooth</span>
+      <Popover width={280}>
+        <PanelHeader title="Bluetooth">
           <Toggle on={state.bluetooth} onChange={(v) => actions.set({ bluetooth: v })} label="Bluetooth" />
-        </div>
+        </PanelHeader>
         {state.bluetooth ? (
-          DEVICES.map((d) => (
-            <div key={d.name} className="flex items-center gap-2.5 px-2 py-1.5 text-[12.5px]">
-              <span className="grid place-items-center w-7 h-7 rounded-full" style={{ background: d.connected ? 'rgb(var(--acc) / .2)' : 'var(--field)' }}>
-                <Bluetooth size={13} />
-              </span>
-              <span className="flex-1">
-                {d.name}
-                <span className="block text-[11px] text-t3">{d.kind}</span>
-              </span>
-              <span className="text-[11px] text-t3">{d.connected ? 'Connected' : 'Not connected'}</span>
-            </div>
-          ))
+          <div className="flex flex-col">
+            {DEVICES.map((d) => (
+              <div key={d.name} className="flex items-center gap-3 h-11 text-[13px]">
+                <Bluetooth size={16} strokeWidth={1.75} className={d.connected ? 'text-acc' : 'text-t3'} />
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate">{d.name}</span>
+                  <span className="block text-[11px] text-t3">{d.kind}</span>
+                </span>
+                <span className="text-[11px] text-t3">{d.connected ? 'Connected' : 'Not connected'}</span>
+              </div>
+            ))}
+          </div>
         ) : (
           <p className="text-[12px] text-t2">Bluetooth is off.</p>
         )}
@@ -195,74 +209,60 @@ function StatusPanels({ which, state, actions, perf }) {
     );
   if (which === 'vol')
     return (
-      <Popover width={260}>
-        <SectionLabel>Sound</SectionLabel>
-        <div className="flex items-center gap-2.5">
-          <VolumeIcon v={state.volume} />
+      <Popover width={280}>
+        <PanelHeader title="Sound" />
+        <div className="flex items-center gap-3">
+          <span className="text-t2">
+            <VolumeIcon v={state.volume} size={16} />
+          </span>
           <Slider id="mb-volume" label="Volume" value={state.volume} onChange={(v) => actions.set({ volume: v })} />
-          <span className="w-8 text-right text-[12px] tabular-nums text-t2">{state.volume}</span>
+          <span className="w-8 text-right text-[12px] tnum text-t2">{state.volume}</span>
         </div>
-        <div className="mt-3 text-[11.5px] text-t3">Output: {state.bluetooth ? 'Aurora Buds Pro' : 'Studio Display Speakers'}</div>
+        <div className="mt-3 pt-3 flex justify-between text-[12px]" style={{ borderTop: '1px solid var(--line)' }}>
+          <span className="text-t2">Output</span>
+          <span>{state.bluetooth ? 'Aurora Buds Pro' : 'Display speakers'}</span>
+        </div>
       </Popover>
     );
   if (which === 'battery')
     return (
-      <Popover width={264}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-bold text-[13px]">Battery</span>
+      <Popover width={280}>
+        <PanelHeader title="Battery">
           <DemoBadge />
+        </PanelHeader>
+        <div className="flex items-baseline justify-between">
+          <span className="text-[28px] font-light leading-none tnum">87%</span>
+          <span className="text-[12px] text-t2">About 6 h 40 min left</span>
         </div>
-        <div className="font-display text-[28px] font-light">87%</div>
-        <div className="text-[12px] text-t2 mb-3">About 6 h 40 m remaining</div>
-        <SectionLabel>Power mode</SectionLabel>
-        <Segmented
-          size="sm"
-          value={state.perfProfile}
-          onChange={(v) => actions.set({ perfProfile: v })}
-          options={[
-            { id: 'saver', label: 'Saver' },
-            { id: 'balanced', label: 'Balanced' },
-            { id: 'performance', label: 'Turbo' },
-          ]}
-        />
+        <div className="mt-4">
+          <SectionLabel>Power mode</SectionLabel>
+          <Segmented size="sm" label="Power mode" value={state.perfProfile} onChange={(v) => actions.set({ perfProfile: v })} options={PROFILE_OPTIONS} />
+        </div>
       </Popover>
     );
   if (which === 'perf')
     return (
       <Popover width={300}>
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-bold text-[13px]">Performance</span>
-          <DemoBadge />
+        <PanelHeader title="Performance">
+          <DemoBadge>Simulated</DemoBadge>
+        </PanelHeader>
+        <div className="grid grid-cols-[56px_116px_1fr] items-center gap-x-3 gap-y-3">
+          {[
+            ['CPU', perf.hist.cpu, `${Math.round(perf.cpu)}%`],
+            ['GPU', perf.hist.gpu, `${Math.round(perf.gpu)}%`],
+          ].map(([k, h, txt]) => [
+            <span key={k} className="text-[12px] text-t2">{k}</span>,
+            <Sparkline key={k + 's'} data={h} w={116} h={24} />,
+            <span key={k + 'v'} className="text-[13px] text-right tnum">{txt}</span>,
+          ])}
+          <span className="text-[12px] text-t2">Memory</span>
+          <Meter value={perf.ram} max={32} />
+          <span className="text-[13px] text-right tnum">{perf.ram.toFixed(1)} GB</span>
         </div>
-        {[
-          ['CPU', perf.cpu, `${Math.round(perf.cpu)}%`, perf.hist.cpu],
-          ['GPU', perf.gpu, `${Math.round(perf.gpu)}%`, perf.hist.gpu],
-        ].map(([k, v, txt, h]) => (
-          <div key={k} className="flex items-center gap-3 mb-2.5">
-            <span className="w-9 text-[11px] font-bold text-t3">{k}</span>
-            <Sparkline data={h} w={150} h={26} />
-            <span className="flex-1 text-right text-[12.5px] font-semibold tabular-nums">{txt}</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-3 mb-1">
-          <span className="w-9 text-[11px] font-bold text-t3">RAM</span>
-          <div className="flex-1">
-            <Meter value={perf.ram} max={32} />
-          </div>
-          <span className="text-[12.5px] font-semibold tabular-nums">{perf.ram.toFixed(1)} / 32 GB</span>
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
+          <SectionLabel>Power mode</SectionLabel>
+          <Segmented size="sm" label="Power mode" value={state.perfProfile} onChange={(v) => actions.set({ perfProfile: v })} options={PROFILE_OPTIONS} />
         </div>
-        <div className="h-px my-3" style={{ background: 'var(--line)' }} />
-        <SectionLabel>Profile</SectionLabel>
-        <Segmented
-          size="sm"
-          value={state.perfProfile}
-          onChange={(v) => actions.set({ perfProfile: v })}
-          options={[
-            { id: 'saver', label: 'Saver' },
-            { id: 'balanced', label: 'Balanced' },
-            { id: 'performance', label: 'Turbo' },
-          ]}
-        />
       </Popover>
     );
   if (which === 'clock') return <CalendarPopover />;
@@ -277,31 +277,36 @@ function CalendarPopover() {
   const days = new Date(y, m + 1, 0).getDate();
   const cells = [...Array((first + 6) % 7).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
   return (
-    <Popover width={272}>
-      <div className="font-display text-[15px] font-semibold mb-0.5">{now.toLocaleDateString([], { month: 'long', year: 'numeric' })}</div>
+    <Popover width={280}>
+      <div className="text-[15px] font-medium">{now.toLocaleDateString([], { month: 'long', year: 'numeric' })}</div>
       <div className="text-[12px] text-t2 mb-3">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-      <div className="grid grid-cols-7 gap-0.5 text-center text-[11.5px]">
+      <div className="grid grid-cols-7 gap-y-1 text-center text-[12px]" role="grid" aria-label="Calendar">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
-          <span key={i} className="text-t3 font-bold py-1">{d}</span>
+          <span key={i} className="text-[11px] text-t3 h-6 leading-6">{d}</span>
         ))}
         {cells.map((d, i) => (
-          <span key={i} className="py-1 rounded-full tabular-nums" style={d === now.getDate() ? { background: 'rgb(var(--acc))', color: 'var(--on-acc)', fontWeight: 700 } : { color: d ? 'var(--t1)' : 'transparent' }}>
-            {d || '.'}
+          <span key={i} className="mx-auto w-7 h-7 grid place-items-center rounded-full tnum" aria-current={d === now.getDate() ? 'date' : undefined} style={d === now.getDate() ? { background: 'rgb(var(--acc))', color: 'var(--on-acc)', fontWeight: 600 } : { color: 'var(--t1)' }}>
+            {d || ''}
           </span>
         ))}
       </div>
-      <div className="mt-3 rounded-[10px] p-2.5 field text-[12px]">
-        <div className="font-semibold">HYBRID Shell standup</div>
-        <div className="text-t3">Tomorrow · 10:30 · demo event</div>
+      <div className="mt-3 pt-3 text-[12px]" style={{ borderTop: '1px solid var(--line)' }}>
+        <div className="flex items-center gap-2">
+          <span className="w-1 h-8 rounded-full" style={{ background: 'rgb(var(--acc2))' }} />
+          <div>
+            <div>HYBRID Shell standup</div>
+            <div className="text-t3">Tomorrow, 10:30 · sample event</div>
+          </div>
+        </div>
       </div>
     </Popover>
   );
 }
 
 export function VolumeIcon({ v, size = 15 }) {
-  if (v === 0) return <VolumeX size={size} />;
-  if (v < 50) return <Volume1 size={size} />;
-  return <Volume2 size={size} />;
+  if (v === 0) return <VolumeX size={size} strokeWidth={1.75} />;
+  if (v < 50) return <Volume1 size={size} strokeWidth={1.75} />;
+  return <Volume2 size={size} strokeWidth={1.75} />;
 }
 
 export default function MenuBar() {
@@ -329,101 +334,111 @@ export default function MenuBar() {
 
   const toggle = (k) => setOpen((o) => (o === k ? null : k));
   const hoverSwitch = (k) => open && MENU_ORDER.concat('hybrid').includes(open) && setOpen(k);
+  const menuButton = (k, label, children, className = '') => (
+    <div key={k} className="relative">
+      <button
+        onClick={() => toggle(k)}
+        onMouseEnter={() => hoverSwitch(k)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setOpen(k);
+          }
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open === k}
+        aria-label={label}
+        className={`h-6 px-2.5 rounded-[var(--r-sm)] text-t1 hov ${className}`}
+        style={open === k ? { background: 'var(--press)' } : undefined}
+      >
+        {children}
+      </button>
+      {open === k && (
+        <div className="absolute top-[30px] left-0 z-50">
+          <MenuList items={menus[k]} onClose={close} autoFocus={document.activeElement === root.current?.querySelector(`[aria-label="${label}"]`)} />
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <>
-    {fs && (
-      <div
-        className="absolute top-0 left-0 right-0 h-[5px] z-[3990]"
-        onMouseEnter={() => {
-          clearTimeout(peekTimer.current);
-          peekTimer.current = setTimeout(() => setPeek(true), 220);
-        }}
-        onMouseLeave={leaveBar}
-      />
-    )}
-    <div ref={root} className="absolute top-[8px] left-[10px] right-[10px] h-[34px] z-[4000] chrome chrome-top" onMouseEnter={() => clearTimeout(peekTimer.current)} onMouseLeave={leaveBar}>
-      <div className="h-full dock-shell" style={{ transform: hiddenBar ? 'translateY(-60px)' : 'none', opacity: hiddenBar ? 0 : 1, pointerEvents: hiddenBar ? 'none' : undefined }}>
-      <div className="h-full a-slidedown">
-      <div className="glass h-full rounded-[13px] flex items-center pl-2 pr-1.5 text-[13px] relative">
-        <div className="absolute inset-x-6 -bottom-px h-px pointer-events-none" style={{ background: 'linear-gradient(90deg, transparent, rgb(var(--acc) / .5), rgb(var(--acc2) / .5), transparent)' }} />
-        {/* Left: brand + menus */}
-        <div className="relative">
-          <button onClick={() => toggle('hybrid')} onMouseEnter={() => hoverSwitch('hybrid')} className="flex items-center gap-2 h-[26px] px-2 rounded-[8px] hov" style={open === 'hybrid' ? { background: 'var(--hover)' } : undefined} aria-label="HYBRID menu">
-            <HybridLogo size={17} glow />
-            <span className="font-display font-bold tracking-[0.14em] text-[12px]">HYBRID</span>
-          </button>
-          {open === 'hybrid' && (
-            <div className="absolute top-[34px] left-0 z-50">
-              <MenuList items={menus.hybrid} onClose={close} className="min-w-[260px]" />
-            </div>
-          )}
-        </div>
-        <span className="font-bold px-2.5 text-[13px]">{appName}</span>
-        {MENU_ORDER.map((k) => (
-          <div key={k} className="relative">
-            <button onClick={() => toggle(k)} onMouseEnter={() => hoverSwitch(k)} className="h-[26px] px-2.5 rounded-[8px] text-t1 font-medium hov" style={open === k ? { background: 'var(--hover)' } : undefined}>
-              {k}
-            </button>
-            {open === k && (
-              <div className="absolute top-[34px] left-0 z-50">
-                <MenuList items={menus[k]} onClose={close} />
+      {fs && (
+        <div
+          className="absolute top-0 left-0 right-0 h-[5px] z-[3990]"
+          onMouseEnter={() => {
+            clearTimeout(peekTimer.current);
+            peekTimer.current = setTimeout(() => setPeek(true), 220);
+          }}
+          onMouseLeave={leaveBar}
+        />
+      )}
+      <div ref={root} className="absolute top-0 left-0 right-0 h-8 z-[4000] chrome chrome-top" style={hiddenBar ? { pointerEvents: 'none' } : undefined} onMouseEnter={() => clearTimeout(peekTimer.current)} onMouseLeave={leaveBar}>
+        <div className="h-full dock-shell" style={{ transform: hiddenBar ? 'translateY(-40px)' : 'none', opacity: hiddenBar ? 0 : 1, pointerEvents: hiddenBar ? 'none' : undefined }}>
+          <div className="h-full a-slidedown">
+            <nav
+              aria-label="Menu bar"
+              className="h-full flex items-center gap-0.5 px-2 text-[13px]"
+              style={{ background: 'rgb(var(--surface) / calc(var(--ga) * .8))', backdropFilter: 'blur(24px) saturate(120%)', WebkitBackdropFilter: 'blur(24px) saturate(120%)', borderBottom: '1px solid var(--line)' }}
+            >
+              {menuButton(
+                'hybrid',
+                'HYBRID menu',
+                <span className="flex items-center gap-2">
+                  <HybridLogo size={16} />
+                  <span className="font-semibold tracking-[0.08em] text-[12px]">HYBRID</span>
+                </span>,
+                'pl-1.5'
+              )}
+              <span className="px-2.5 font-semibold">{appName}</span>
+              {MENU_ORDER.map((k) => menuButton(k, k, k))}
+
+              <div className="flex-1" />
+
+              <div className="relative flex items-center gap-0.5">
+                {state.focus && (
+                  <span className="flex items-center gap-1.5 h-6 px-2 text-[12px] font-medium text-acc">
+                    <Moon size={14} strokeWidth={1.75} /> Focus
+                  </span>
+                )}
+                <StatusButton wide active={open === 'perf'} onClick={() => toggle('perf')} label="Performance (simulated)">
+                  <span className="flex items-center gap-1.5 text-[12px] text-t2">
+                    <Activity size={15} strokeWidth={1.75} className="text-t1" />
+                    <span className="tnum">CPU {String(Math.round(perf.cpu)).padStart(2, ' ')}%</span>
+                  </span>
+                </StatusButton>
+                <StatusButton active={open === 'wifi'} onClick={() => toggle('wifi')} label="Wi-Fi">
+                  {state.wifi && !state.airplane ? <Wifi size={16} strokeWidth={1.75} /> : <WifiOff size={16} strokeWidth={1.75} className="text-t3" />}
+                </StatusButton>
+                <StatusButton active={open === 'bt'} onClick={() => toggle('bt')} label="Bluetooth">
+                  {state.bluetooth ? <Bluetooth size={16} strokeWidth={1.75} /> : <BluetoothOff size={16} strokeWidth={1.75} className="text-t3" />}
+                </StatusButton>
+                <StatusButton active={open === 'vol'} onClick={() => toggle('vol')} label="Sound">
+                  <VolumeIcon v={state.volume} size={16} />
+                </StatusButton>
+                <StatusButton wide active={open === 'battery'} onClick={() => toggle('battery')} label="Battery">
+                  <span className="flex items-center gap-1.5 text-[12px] tnum">
+                    {state.perfProfile === 'performance' ? <BatteryCharging size={18} strokeWidth={1.5} /> : <BatteryMedium size={18} strokeWidth={1.5} />}87%
+                  </span>
+                </StatusButton>
+                <StatusButton onClick={() => actions.toggleOverlay('spotlight')} label="Search  Ctrl+Space">
+                  <Search size={15} strokeWidth={1.75} />
+                </StatusButton>
+                <StatusButton active={state.overlay === 'control'} onClick={() => actions.toggleOverlay('control')} label="Control Center">
+                  <SlidersHorizontal size={15} strokeWidth={1.75} />
+                </StatusButton>
+                <StatusButton wide active={open === 'clock'} onClick={() => toggle('clock')} label="Calendar">
+                  <span className="flex items-center gap-2 text-[13px] tnum whitespace-nowrap">
+                    <span className="text-t2">{fmtDate(now)}</span>
+                    <span className="font-medium">{fmtTime(now)}</span>
+                  </span>
+                </StatusButton>
+                {open && !MENU_ORDER.includes(open) && open !== 'hybrid' && <StatusPanels which={open} state={state} actions={actions} perf={perf} />}
               </div>
-            )}
+            </nav>
           </div>
-        ))}
-
-        <div className="flex-1" />
-
-        {/* Right: status */}
-        <div className="relative flex items-center gap-0.5">
-          {state.focus && (
-            <span className="flex items-center gap-1 px-2 text-[11.5px] font-semibold text-acc">
-              <Moon size={13} /> Focus
-            </span>
-          )}
-          <StatusButton wide active={open === 'perf'} onClick={() => toggle('perf')} label="Performance">
-            <span className="flex items-center gap-1.5">
-              <Gauge size={14} />
-              <span className="flex items-end gap-[2px] h-[12px]">
-                {perf.hist.cpu.slice(-6).map((v, i) => (
-                  <span key={i} className="w-[3px] rounded-sm" style={{ height: `${Math.max(15, v)}%`, background: 'rgb(var(--acc))', opacity: 0.45 + i * 0.1, transition: 'height 600ms' }} />
-                ))}
-              </span>
-              <span className="text-[11.5px] font-semibold tabular-nums w-[26px] text-left">{Math.round(perf.cpu)}%</span>
-            </span>
-          </StatusButton>
-          <StatusButton active={open === 'wifi'} onClick={() => toggle('wifi')} label="Wi-Fi">
-            {state.wifi && !state.airplane ? <Wifi size={15} /> : <WifiOff size={15} className="text-t3" />}
-          </StatusButton>
-          <StatusButton active={open === 'bt'} onClick={() => toggle('bt')} label="Bluetooth">
-            {state.bluetooth ? <Bluetooth size={15} /> : <BluetoothOff size={15} className="text-t3" />}
-          </StatusButton>
-          <StatusButton active={open === 'vol'} onClick={() => toggle('vol')} label="Volume">
-            <VolumeIcon v={state.volume} />
-          </StatusButton>
-          <StatusButton wide active={open === 'battery'} onClick={() => toggle('battery')} label="Battery">
-            <span className="flex items-center gap-1 text-[11.5px] font-semibold">
-              {state.perfProfile === 'performance' ? <BatteryCharging size={16} /> : <BatteryMedium size={16} />}87%
-            </span>
-          </StatusButton>
-          <StatusButton onClick={() => actions.toggleOverlay('spotlight')} label="Search">
-            <Search size={15} />
-          </StatusButton>
-          <StatusButton wide active={open === 'clock'} onClick={() => toggle('clock')} label="Date and time">
-            <span className="text-[12.5px] font-semibold tabular-nums whitespace-nowrap">
-              {fmtDate(now)}&nbsp;&nbsp;{fmtTime(now)}
-            </span>
-          </StatusButton>
-          <StatusButton active={state.overlay === 'control'} onClick={() => actions.toggleOverlay('control')} label="Control Center">
-            <SlidersHorizontal size={15} />
-          </StatusButton>
-          {open && !MENU_ORDER.includes(open) && open !== 'hybrid' && <StatusPanels which={open} state={state} actions={actions} perf={perf} />}
         </div>
       </div>
-      </div>
-      </div>
-    </div>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Image as ImageIcon, Palette, LayoutDashboard, TerminalSquare, Monitor, StickyNote, RefreshCw, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
+import { Image as ImageIcon, Palette, LayoutDashboard, TerminalSquare, Monitor, StickyNote, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
 import { useOS } from '../os/store';
 import { THEMES, WALLPAPERS, themeVars } from '../os/themes';
 import Wallpaper from '../components/Wallpaper';
@@ -53,14 +53,10 @@ export default function Desktop({ W, H }) {
     };
   }, []);
 
-  // First-run hint
+  // First-run hint, once per session
   useEffect(() => {
-    const t = setTimeout(() => actions.notify({ title: 'Welcome to HYBRID OS', body: 'Ctrl+Space to search · Ctrl+Alt+M to switch desktops · right-click the desktop for more.', ttl: 7000 }), 1900);
-    const d = setTimeout(() => actions.notify({ title: 'Nova in #hybrid-os', body: 'that dock magnification is unreal 👀 ship it', app: 'discord', ttl: 6000 }), 26000);
-    return () => {
-      clearTimeout(t);
-      clearTimeout(d);
-    };
+    const t = setTimeout(() => actions.notify({ title: 'Welcome to HYBRID OS', body: 'Search with Ctrl+Space. Switch desktops with Ctrl+Alt+M.', ttl: 6000 }), 1600);
+    return () => clearTimeout(t);
   }, []);
 
   const desktopMenu = (e) => {
@@ -81,10 +77,6 @@ export default function Desktop({ W, H }) {
       ]);
     else
       actions.contextMenu(e, [
-        { label: 'View', items: [{ label: 'Large icons' }, { label: 'Medium icons', checked: true }, { label: 'Small icons' }] },
-        { label: 'Sort by', items: [{ label: 'Name', checked: true }, { label: 'Date modified' }, { label: 'Type' }] },
-        { label: 'Refresh', icon: RefreshCw, onClick: () => actions.notify({ title: 'Desktop refreshed', app: 'explorer', ttl: 2000 }) },
-        '-',
         { label: 'Open in Terminal', icon: TerminalSquare, onClick: () => actions.open('terminal') },
         { label: 'Personalize', icon: Palette, onClick: () => actions.open('settings') },
         '-',
@@ -99,7 +91,7 @@ export default function Desktop({ W, H }) {
       data-switch={state.switching || undefined}
       style={themeVars(state)}
     >
-      <Wallpaper id={wallpaper} W={W} H={H} motion={Math.min(1, state.motion / 50)} />
+      <Wallpaper id={wallpaper} W={W} H={H} />
       <div className="absolute inset-0 z-0" onContextMenu={desktopMenu} onPointerDown={(e) => e.target === e.currentTarget && state.focused && actions.set({ focused: null })} />
 
       {hybrid ? <Widgets key="w-h" /> : <DesktopIcons key="w-w" onMenu={desktopMenu} />}
@@ -118,7 +110,7 @@ export default function Desktop({ W, H }) {
           <WinCalendar />
         </>
       )}
-      <RockyCompanion />
+      {!hybrid && <RockyCompanion />}
       <Rocky />
       <Spotlight />
       <ControlCenter />

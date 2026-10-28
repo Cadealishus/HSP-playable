@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Bluetooth, BluetoothOff, Moon, Sun, MoonStar, Monitor, Sparkles, SunMedium, ArrowDown, ArrowUp, Plane } from 'lucide-react';
+import { Wifi, WifiOff, Bluetooth, BluetoothOff, Moon, Sun, MoonStar, SunMedium, Plane, ArrowDown, ArrowLeftRight } from 'lucide-react';
 import { useOS } from '../os/store';
 import { THEMES } from '../os/themes';
 import { usePerf } from '../os/sim';
@@ -7,27 +7,34 @@ import { ThemePicker, WallpaperPicker, AccentPicker, AppearanceSliders, DockCont
 import { VolumeIcon } from '../hybrid/MenuBar';
 import { WinLogo } from './Overlays';
 
-function Tile({ on, onClick, icon: Icon, label, sub, wide }) {
+// Quick setting tile: icon + label + state. "On" is a quiet accent tint, never a glow.
+function Tile({ on, onClick, icon: Icon, label, sub }) {
   return (
     <button
       onClick={onClick}
-      aria-pressed={on}
-      className={`flex items-center gap-2.5 rounded-[14px] p-2.5 text-left press ${wide ? 'col-span-2' : ''}`}
-      style={{ background: on ? 'rgb(var(--acc) / .16)' : 'var(--field)', boxShadow: on ? 'inset 0 0 0 1px rgb(var(--acc) / .45)' : 'inset 0 0 0 1px var(--line)', transition: 'all calc(var(--anim)*180ms)' }}
+      role="switch"
+      aria-checked={on}
+      className="flex items-center gap-2.5 h-12 px-2.5 rounded-[var(--r-md)] text-left hov"
+      style={{ background: on ? 'rgb(var(--acc) / .14)' : 'var(--field)', transition: 'background var(--d-fast) var(--ease-out)' }}
     >
-      <span className="grid place-items-center w-8 h-8 rounded-full shrink-0" style={{ background: on ? 'linear-gradient(140deg, rgb(var(--acc)), rgb(var(--acc2)))' : 'var(--field)', color: on ? 'var(--on-acc)' : 'var(--t2)', boxShadow: on ? '0 4px 14px -4px rgb(var(--acc) / .8)' : 'none' }}>
-        <Icon size={15} />
+      <span className="grid place-items-center w-7 h-7 rounded-full shrink-0" style={{ background: on ? 'rgb(var(--acc))' : 'var(--field)', color: on ? 'var(--on-acc)' : 'var(--t2)', transition: 'background var(--d-fast), color var(--d-fast)' }}>
+        <Icon size={14} strokeWidth={1.9} />
       </span>
       <span className="min-w-0">
-        <span className="block text-[12.5px] font-bold truncate">{label}</span>
+        <span className="block text-[13px] font-medium truncate">{label}</span>
         <span className="block text-[11px] text-t3 truncate">{sub}</span>
       </span>
     </button>
   );
 }
 
-function Card({ children, className = '' }) {
-  return <div className={`rounded-[16px] p-3 ${className}`} style={{ background: 'var(--field)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>{children}</div>;
+function Section({ title, meta, children, last }) {
+  return (
+    <section className="py-3" style={last ? undefined : { borderBottom: '1px solid var(--line)' }}>
+      {title && <SectionLabel right={meta}>{title}</SectionLabel>}
+      {children}
+    </section>
+  );
 }
 
 export default function ControlCenter() {
@@ -38,110 +45,94 @@ export default function ControlCenter() {
   const isWin = state.mode === 'windows';
   return (
     <div className="absolute inset-0 z-[8600]" onPointerDown={(e) => e.target === e.currentTarget && actions.set({ overlay: null })}>
-      <div className={`absolute right-[10px] ${isWin ? 'bottom-[58px]' : 'top-[50px]'} w-[668px] max-h-[calc(100%-112px)] overflow-y-auto glass-strong rounded-[22px] p-3.5 a-cc`} style={{ transformOrigin: isWin ? 'bottom right' : 'top right' }}>
-        <div className="flex items-center gap-2 px-1 pb-3">
-          <HybridLogo size={18} />
-          <span className="font-display font-semibold tracking-[0.08em] text-[13px]">Control Center</span>
-          <span className="ml-auto text-[11px] text-t3">Settings apply instantly</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {/* Left column */}
-          <div className="flex flex-col gap-3 min-w-0">
-            <div className="grid grid-cols-2 gap-2">
-              <Tile on={state.wifi} onClick={() => actions.set({ wifi: !state.wifi })} icon={state.wifi ? Wifi : WifiOff} label="Wi-Fi" sub={state.wifi ? state.network || 'Nebula-5G' : 'Off'} />
-              <Tile on={state.bluetooth} onClick={() => actions.set({ bluetooth: !state.bluetooth })} icon={state.bluetooth ? Bluetooth : BluetoothOff} label="Bluetooth" sub={state.bluetooth ? '2 devices' : 'Off'} />
-              <Tile on={state.focus} onClick={() => actions.set({ focus: !state.focus })} icon={MoonStar} label="Focus" sub={state.focus ? 'Notifications muted' : 'Off'} />
-              <Tile on={!dark} onClick={() => actions.toggleDark()} icon={dark ? Moon : Sun} label={dark ? 'Dark mode' : 'Light mode'} sub={THEMES[state.theme].name} />
-              <Tile on={state.nightLight} onClick={() => actions.set({ nightLight: !state.nightLight })} icon={SunMedium} label="Night light" sub={state.nightLight ? 'Warm display' : 'Off'} />
-              <Tile on={state.airplane} onClick={() => actions.set({ airplane: !state.airplane, wifi: state.airplane, bluetooth: state.airplane })} icon={Plane} label="Airplane" sub={state.airplane ? 'Radios off' : 'Off'} />
-            </div>
+      <div
+        role="dialog"
+        aria-label="Control Center"
+        className={`absolute right-2 ${isWin ? 'bottom-[56px]' : 'top-[38px]'} w-[640px] max-h-[calc(100%-96px)] overflow-y-auto glass-strong rounded-[var(--r-xl)] px-4 pt-1 pb-1 a-cc`}
+        style={{ transformOrigin: isWin ? 'bottom right' : 'top right' }}
+      >
+        <div className="grid grid-cols-2 gap-x-6">
+          {/* Left column: connectivity, display and sound, performance */}
+          <div className="min-w-0">
+            <Section>
+              <div className="grid grid-cols-2 gap-2">
+                <Tile on={state.wifi} onClick={() => actions.set({ wifi: !state.wifi })} icon={state.wifi ? Wifi : WifiOff} label="Wi-Fi" sub={state.wifi ? state.network || 'Nebula-5G' : 'Off'} />
+                <Tile on={state.bluetooth} onClick={() => actions.set({ bluetooth: !state.bluetooth })} icon={state.bluetooth ? Bluetooth : BluetoothOff} label="Bluetooth" sub={state.bluetooth ? '2 devices' : 'Off'} />
+                <Tile on={state.focus} onClick={() => actions.set({ focus: !state.focus })} icon={MoonStar} label="Focus" sub={state.focus ? 'Notifications off' : 'Off'} />
+                <Tile on={!dark} onClick={() => actions.toggleDark()} icon={dark ? Moon : Sun} label="Appearance" sub={dark ? 'Dark' : 'Light'} />
+                <Tile on={state.nightLight} onClick={() => actions.set({ nightLight: !state.nightLight })} icon={SunMedium} label="Night light" sub={state.nightLight ? 'Warm' : 'Off'} />
+                <Tile on={state.airplane} onClick={() => actions.set({ airplane: !state.airplane, wifi: state.airplane, bluetooth: state.airplane })} icon={Plane} label="Airplane" sub={state.airplane ? 'On' : 'Off'} />
+              </div>
+            </Section>
 
-            <button
-              onClick={() => actions.switchMode()}
-              className="relative overflow-hidden flex items-center gap-3 rounded-[16px] p-3 text-left press group"
-              style={{ background: 'linear-gradient(120deg, rgb(var(--acc) / .22), rgb(var(--acc2) / .22))', boxShadow: 'inset 0 0 0 1px rgb(var(--acc) / .4)' }}
-            >
-              <span className="absolute inset-y-0 -left-1/3 w-1/3 opacity-0 group-hover:opacity-100" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent)', animation: 'sweep 1.4s ease-in-out infinite' }} />
-              <span className="grid place-items-center w-10 h-10 rounded-[12px] glass">{isWin ? <HybridLogo size={22} /> : <WinLogo size={18} />}</span>
-              <span className="flex-1">
-                <span className="block text-[13.5px] font-bold">{isWin ? 'Switch to HYBRID Mode' : 'Switch to Windows Desktop'}</span>
-                <span className="block text-[11px] text-t2">Ctrl + Alt + M · cinematic transition</span>
-              </span>
-              <Monitor size={16} className="text-t2" />
-            </button>
+            <Section>
+              <button onClick={() => actions.switchMode()} className="w-full flex items-center gap-3 h-12 px-2.5 rounded-[var(--r-md)] text-left hov" style={{ background: 'var(--field)' }}>
+                <span className="grid place-items-center w-7 h-7">{isWin ? <HybridLogo size={20} /> : <WinLogo size={16} />}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-medium">{isWin ? 'Switch to HYBRID desktop' : 'Switch to Windows desktop'}</span>
+                  <span className="block text-[11px] text-t3">Ctrl + Alt + M</span>
+                </span>
+                <ArrowLeftRight size={15} className="text-t3" />
+              </button>
+            </Section>
 
-            <Card>
-              <div className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2.5">
-                  <SunMedium size={15} className="text-t2 shrink-0" />
+            <Section>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-3">
+                  <SunMedium size={16} strokeWidth={1.75} className="text-t2 shrink-0" />
                   <Slider id="cc-bright" label="Brightness" value={state.brightness} min={20} max={100} onChange={(v) => actions.set({ brightness: v })} />
-                  <span className="w-8 text-right text-[11.5px] tabular-nums text-t3">{state.brightness}%</span>
+                  <span className="w-9 text-right text-[12px] tnum text-t2">{state.brightness}%</span>
                 </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <span className="text-t2 shrink-0">
-                    <VolumeIcon v={state.volume} />
+                    <VolumeIcon v={state.volume} size={16} />
                   </span>
                   <Slider id="cc-volume" label="Volume" value={state.volume} onChange={(v) => actions.set({ volume: v })} />
-                  <span className="w-8 text-right text-[11.5px] tabular-nums text-t3">{state.volume}%</span>
+                  <span className="w-9 text-right text-[12px] tnum text-t2">{state.volume}%</span>
                 </div>
               </div>
-            </Card>
+            </Section>
 
-            <Card>
-              <SectionLabel right={<DemoBadge>Simulated</DemoBadge>}>Performance</SectionLabel>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            <Section title="Performance" meta={<DemoBadge>Simulated</DemoBadge>} last>
+              <div className="grid grid-cols-[60px_minmax(0,1fr)_64px] items-center gap-x-3 gap-y-2.5">
                 {[
                   ['CPU', p.cpu, `${Math.round(p.cpu)}%`, 100],
                   ['GPU', p.gpu, `${Math.round(p.gpu)}%`, 100],
-                  ['RAM', p.ram, `${p.ram.toFixed(1)} GB`, 32],
-                ].map(([k, v, t, max]) => (
-                  <div key={k}>
-                    <div className="flex justify-between text-[11.5px] mb-1">
-                      <span className="font-bold text-t2">{k}</span>
-                      <span className="tabular-nums font-semibold">{t}</span>
-                    </div>
-                    <Meter value={v} max={max} />
-                  </div>
-                ))}
-                <div>
-                  <div className="flex justify-between text-[11.5px] mb-1">
-                    <span className="font-bold text-t2">Network</span>
-                    <span className="tabular-nums font-semibold flex items-center gap-1">
-                      <ArrowDown size={10} />
-                      {p.netDown.toFixed(0)} <ArrowUp size={10} />
-                      {p.netUp.toFixed(1)} Mb/s
-                    </span>
-                  </div>
-                  <Sparkline data={p.hist.net} w={130} h={16} max={200} fill={false} />
+                  ['Memory', p.ram, `${p.ram.toFixed(1)} GB`, 32],
+                ].map(([k, v, t, max]) => [
+                  <span key={k} className="text-[12px] text-t2">{k}</span>,
+                  <Meter key={k + 'm'} value={v} max={max} />,
+                  <span key={k + 'v'} className="text-[12px] text-right tnum">{t}</span>,
+                ])}
+                <span className="text-[12px] text-t2">Network</span>
+                <div className="min-w-0 overflow-hidden">
+                  <Sparkline data={p.hist.net} w={120} h={16} max={40} fill={false} />
                 </div>
+                <span className="text-[12px] text-right tnum inline-flex items-center justify-end gap-0.5">
+                  <ArrowDown size={10} className="text-t3" />
+                  {p.netDown.toFixed(0)} Mb/s
+                </span>
               </div>
-              <div className="mt-2.5 flex items-center gap-2 text-[11px] text-t3">
-                <Sparkles size={12} className="text-acc" /> Profile: {state.perfProfile === 'performance' ? 'Turbo' : state.perfProfile === 'saver' ? 'Saver' : 'Balanced'} · CPU {Math.round(p.cpuTemp)}°C
-              </div>
-            </Card>
+            </Section>
           </div>
 
-          {/* Right column */}
-          <div className="flex flex-col gap-3 min-w-0">
-            <Card>
-              <SectionLabel>Theme</SectionLabel>
+          {/* Right column: appearance and dock */}
+          <div className="min-w-0">
+            <Section title="Theme">
               <ThemePicker compact />
-              <div className="mt-3">
-                <SectionLabel>Accent</SectionLabel>
-                <AccentPicker />
-              </div>
-            </Card>
-            <Card>
-              <SectionLabel>Wallpaper</SectionLabel>
+            </Section>
+            <Section title="Accent">
+              <AccentPicker />
+            </Section>
+            <Section title="Wallpaper">
               <WallpaperPicker cols={4} />
               <div className="mt-3">
                 <AppearanceSliders idPrefix="cc" />
               </div>
-            </Card>
-            <Card>
-              <SectionLabel>Dock</SectionLabel>
+            </Section>
+            <Section title="Dock" last>
               <DockControls idPrefix="cc" />
-            </Card>
+            </Section>
           </div>
         </div>
       </div>

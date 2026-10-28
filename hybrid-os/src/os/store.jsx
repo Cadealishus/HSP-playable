@@ -19,14 +19,14 @@ export function iconCenter(app) {
   return toLocal(r.left + r.width / 2, r.top + r.height / 2);
 }
 
-export const MENUBAR_H = 50;
+export const MENUBAR_H = 32;
 export const TASKBAR_H = 48;
 
 export function workArea(state, W = metrics.W, H = metrics.H) {
   if (state.mode === 'windows') return { x: 0, y: 0, w: W, h: H - TASKBAR_H };
   const { size, autoHide, position } = state.dock;
-  const d = autoHide ? 8 : size + 30;
-  const top = MENUBAR_H;
+  const d = autoHide ? 8 : size + 28;
+  const top = MENUBAR_H + 8;
   if (position === 'left') return { x: d, y: top, w: W - d - 8, h: H - top - 8 };
   if (position === 'right') return { x: 8, y: top, w: W - d - 8, h: H - top - 8 };
   return { x: 8, y: top, w: W - 16, h: H - top - d };
@@ -46,7 +46,7 @@ const SETTINGS = {
   theme: 'aurora',
   lastDark: 'aurora',
   accent: 'auto',
-  wallpaper: 'midnight-lake',
+  wallpaper: 'nebula-rift',
   glass: 55,
   motion: 55,
   brightness: 100,
@@ -57,7 +57,7 @@ const SETTINGS = {
   nightLight: false,
   airplane: false,
   perfProfile: 'balanced',
-  dock: { size: 52, mag: 60, autoHide: true, position: 'bottom' },
+  dock: { size: 50, mag: 35, autoHide: true, position: 'bottom' },
   widgets: { clock: true, weather: true, system: true, music: true, notes: true, projects: true },
   widgetPos: {},
   showWidgets: true,
@@ -65,7 +65,7 @@ const SETTINGS = {
   startupMode: 'hybrid',
   transition: 'cinematic',
   modeLabel: true,
-  layoutVersion: 2,
+  layoutVersion: 3,
 };
 const PERSIST = Object.keys(SETTINGS);
 
@@ -81,10 +81,15 @@ function loadSettings() {
     if (out.startupMode) out.mode = out.startupMode;
     if (!THEMES[out.theme]) delete out.theme;
     // v2: the dock hides until the pointer rests on the screen edge
-    if (saved.layoutVersion !== 2) {
-      out.dock = { ...(out.dock || SETTINGS.dock), autoHide: true };
-      out.layoutVersion = 2;
+    if ((saved.layoutVersion || 1) < 2) out.dock = { ...(out.dock || SETTINGS.dock), autoHide: true };
+    // v3: new widget grid and calmer dock; drop old free positions and the old magnification default
+    if ((saved.layoutVersion || 1) < 3) {
+      out.widgetPos = {};
+      out.dock = { ...(out.dock || SETTINGS.dock) };
+      if (out.dock.mag === 60) out.dock.mag = SETTINGS.dock.mag;
+      if (out.dock.size === 52) out.dock.size = SETTINGS.dock.size;
     }
+    out.layoutVersion = SETTINGS.layoutVersion;
     return out;
   } catch {
     return {};

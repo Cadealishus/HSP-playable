@@ -3,7 +3,7 @@ import { Palette, Image as ImageIcon, PanelBottom, Monitor, LayoutDashboard, Inf
 import { useOS } from '../os/store';
 import { THEMES } from '../os/themes';
 import { ThemePicker, WallpaperPicker, AccentPicker, AppearanceSliders, DockControls } from '../components/SettingsParts';
-import { Toggle, Segmented, HybridLogo, Kbd, SectionLabel } from '../components/ui';
+import { Toggle, Segmented, HybridLogo, Kbd, SectionLabel, Button } from '../components/ui';
 import { WIDGET_NAMES } from '../hybrid/Widgets';
 import { WinLogo } from '../shell/Overlays';
 
@@ -19,10 +19,10 @@ const PAGES = [
 
 function Row({ title, sub, children }) {
   return (
-    <div className="flex items-center gap-4 py-3" style={{ borderTop: '1px solid var(--line)' }}>
+    <div className="flex items-center gap-4 py-3 border-t border-[var(--line)] first:border-t-0">
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-semibold">{title}</div>
-        {sub && <div className="text-[11.5px] text-t3 mt-0.5">{sub}</div>}
+        {sub && <div className="text-[12px] text-t3 mt-0.5">{sub}</div>}
       </div>
       {children}
     </div>
@@ -31,7 +31,7 @@ function Row({ title, sub, children }) {
 
 function Panel({ children }) {
   return (
-    <div className="rounded-[16px] p-4 mb-4" style={{ background: 'var(--field)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>
+    <div className="rounded-[var(--r-lg)] px-4 py-3 mb-4" style={{ background: 'var(--field)' }}>
       {children}
     </div>
   );
@@ -46,29 +46,29 @@ export default function Settings({ page: initial }) {
 
   return (
     <div className="h-full flex text-[13px]">
-      <aside className="w-[210px] shrink-0 p-3 flex flex-col gap-1" style={{ borderRight: '1px solid var(--line)', background: 'rgb(var(--glass) / .25)' }}>
+      <aside className="w-[210px] shrink-0 p-3 flex flex-col gap-1" style={{ borderRight: '1px solid var(--line)', background: 'rgb(var(--surface) / .25)' }}>
         <div className="flex items-center gap-3 px-2 py-2 mb-1">
-          <span className="w-9 h-9 rounded-full grid place-items-center text-[14px] font-bold text-white" style={{ background: 'linear-gradient(135deg, #5ef0ff, #9b6bff)' }}>
+          <span className="w-9 h-9 rounded-full grid place-items-center text-[14px] font-semibold text-white" style={{ background: 'linear-gradient(135deg, #5ef0ff, #9b6bff)' }}>
             C
           </span>
           <span>
-            <span className="block font-bold">Cade</span>
+            <span className="block font-semibold">Cade</span>
             <span className="block text-[11px] text-t3">Local account</span>
           </span>
         </div>
-        <div className="flex items-center gap-2 h-[30px] px-2.5 mb-2 rounded-[9px] field">
+        <div className="flex items-center gap-2 h-[30px] px-2.5 mb-2 rounded-[var(--r-md)] field">
           <Search size={13} className="text-t3" />
           <input aria-label="Find a setting" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a setting" className="flex-1 min-w-0 bg-transparent outline-none text-[12px] placeholder:text-t3" />
         </div>
         {pages.map(([id, label, I]) => (
-          <button key={id} onClick={() => setPage(id)} className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left hov font-medium" style={page === id ? { background: 'rgb(var(--acc) / .16)', boxShadow: 'inset 0 0 0 1px rgb(var(--acc) / .3)' } : undefined}>
+          <button key={id} onClick={() => setPage(id)} className="flex items-center gap-2.5 h-8 px-2.5 rounded-[var(--r-sm)] text-left hov" style={page === id ? { background: 'var(--press)' } : undefined}>
             <I size={15} className={page === id ? 'text-acc' : 'text-t2'} />
             {label}
           </button>
         ))}
       </aside>
       <main className="flex-1 min-w-0 overflow-y-auto px-7 py-6">
-        <h1 key={page} className="font-display text-[24px] font-semibold mb-5 a-pop">{title}</h1>
+        <h1 key={page} className="text-[20px] font-semibold mb-5 a-fade">{title}</h1>
 
         {page === 'appearance' && (
           <>
@@ -104,7 +104,7 @@ export default function Settings({ page: initial }) {
         {page === 'dock' && (
           <Panel>
             <DockControls idPrefix="st" />
-            <p className="mt-3 text-[11.5px] text-t3">Hover the dock to feel the magnification change. Right-click any dock icon for app options.</p>
+            <p className="mt-3 text-[12px] text-t3">Hover the dock to feel the magnification change. Right-click any dock icon for app options.</p>
           </Panel>
         )}
 
@@ -117,13 +117,13 @@ export default function Settings({ page: initial }) {
               ].map(([id, name, sub, logo]) => {
                 const on = state.mode === id;
                 return (
-                  <button key={id} onClick={() => actions.switchMode(id)} className="text-left rounded-[16px] p-4 press" style={{ background: on ? 'rgb(var(--acc) / .14)' : 'var(--field)', boxShadow: on ? 'inset 0 0 0 1.5px rgb(var(--acc) / .6)' : 'inset 0 0 0 1px var(--line)' }}>
+                  <button key={id} onClick={() => actions.switchMode(id)} className="text-left rounded-[var(--r-lg)] p-4 press" style={{ background: on ? 'rgb(var(--acc) / .14)' : 'var(--field)', boxShadow: on ? 'inset 0 0 0 1.5px rgb(var(--acc) / .6)' : 'inset 0 0 0 1px var(--line)' }}>
                     <div className="flex items-center justify-between mb-3">
                       {logo}
-                      {on && <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-acc">Active</span>}
+                      {on && <span className="text-[11px] font-semibold text-acc">Active</span>}
                     </div>
-                    <div className="font-display text-[16px] font-semibold">{name}</div>
-                    <div className="text-[11.5px] text-t3 mt-0.5">{sub}</div>
+                    <div className="text-[15px] font-medium">{name}</div>
+                    <div className="text-[12px] text-t3 mt-0.5">{sub}</div>
                   </button>
                 );
               })}
@@ -166,7 +166,7 @@ export default function Settings({ page: initial }) {
                 <Toggle id="st-label" label="Show mode label" on={state.modeLabel} onChange={(v) => actions.set({ modeLabel: v })} />
               </Row>
             </Panel>
-            <p className="text-[11.5px] text-t3">This concept never changes real Windows settings. In the production app, the switch will swap the shell UI while Windows keeps running underneath.</p>
+            <p className="text-[12px] text-t3">This concept never changes real Windows settings. In the production app, the switch will swap the shell UI while Windows keeps running underneath.</p>
           </>
         )}
 
@@ -181,9 +181,7 @@ export default function Settings({ page: initial }) {
               </Row>
             ))}
             <div className="pt-3">
-              <button onClick={() => actions.set({ widgetPos: {} })} className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold field hov press">
-                Reset widget layout
-              </button>
+              <Button onClick={() => actions.set({ widgetPos: {} })}>Reset widget layout</Button>
             </div>
           </Panel>
         )}
@@ -194,9 +192,7 @@ export default function Settings({ page: initial }) {
               <Toggle id="st-focus" label="Focus mode" on={state.focus} onChange={(v) => actions.set({ focus: v })} />
             </Row>
             <Row title="Send a test notification">
-              <button onClick={() => actions.notify({ title: 'Test notification', body: 'Notifications slide in from the corner and dismiss themselves.', app: 'settings', force: true })} className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold field hov press">
-                Send
-              </button>
+              <Button onClick={() => actions.notify({ title: 'Test notification', body: 'Notifications appear here and dismiss themselves after a few seconds.', app: 'settings', force: true })}>Send</Button>
             </Row>
           </Panel>
         )}
@@ -204,9 +200,9 @@ export default function Settings({ page: initial }) {
         {page === 'about' && (
           <Panel>
             <div className="flex items-center gap-4 mb-4">
-              <HybridLogo size={48} glow />
+              <HybridLogo size={44} />
               <div>
-                <div className="font-display text-[18px] font-semibold tracking-[0.06em]">HYBRID OS</div>
+                <div className="text-[15px] font-semibold tracking-[0.04em]">HYBRID OS</div>
                 <div className="text-[12px] text-t2">Concept 0.9 “Aurora” · interactive prototype</div>
               </div>
             </div>
@@ -220,7 +216,7 @@ export default function Settings({ page: initial }) {
                   } catch {}
                   location.reload();
                 }}
-                className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold field hov press"
+                className="inline-flex items-center h-8 px-3 rounded-[var(--r-sm)] text-[13px] font-medium hov" style={{ background: 'var(--field)', boxShadow: 'inset 0 0 0 1px var(--line)' }}
               >
                 Reset
               </button>

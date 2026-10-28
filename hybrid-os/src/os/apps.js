@@ -12,22 +12,22 @@ import {
 } from 'lucide-react';
 
 // App registry: metadata only. Window contents live in src/apps and are mapped in WindowLayer.
+// hue: glyph colour on the shared HYBRID icon tile (the family look comes from the tile, identity from the hue).
 // kind: 'window' (default) opens a window, 'launcher' toggles the launcher overlay, 'panel' toggles Rocky.
 export const APPS = {
   launcher: {
     name: 'HYBRID Launcher',
     short: 'Launcher',
     glyph: LayoutGrid,
-    grad: ['#53f1ff', '#7a55ff'],
     kind: 'launcher',
     keywords: 'apps launcher all applications grid',
     blurb: 'Every app, one tap away',
   },
   explorer: {
     name: 'File Explorer',
+    hue: '#6cb4ff',
     short: 'Files',
     glyph: FolderOpen,
-    grad: ['#63bbff', '#2459e6'],
     size: [880, 560],
     min: [520, 320],
     keywords: 'files folders finder documents downloads',
@@ -35,9 +35,9 @@ export const APPS = {
   },
   edge: {
     name: 'Microsoft Edge',
+    hue: '#3ccfbf',
     short: 'Edge',
     glyph: Globe,
-    grad: ['#3be3c4', '#1a6ae6'],
     size: [980, 620],
     min: [520, 340],
     keywords: 'browser web internet tabs',
@@ -45,9 +45,9 @@ export const APPS = {
   },
   vscode: {
     name: 'Visual Studio Code',
+    hue: '#4ba3ff',
     short: 'VS Code',
     glyph: Braces,
-    grad: ['#46bcff', '#0a58c2'],
     size: [1000, 630],
     min: [560, 340],
     keywords: 'code editor ide develop programming',
@@ -55,9 +55,9 @@ export const APPS = {
   },
   discord: {
     name: 'Discord',
+    hue: '#8d95ff',
     short: 'Discord',
     glyph: MessagesSquare,
-    grad: ['#96a2ff', '#4f5ce8'],
     size: [920, 580],
     min: [560, 360],
     keywords: 'chat voice friends server messages',
@@ -65,9 +65,9 @@ export const APPS = {
   },
   spotify: {
     name: 'Spotify',
+    hue: '#3ed17f',
     short: 'Spotify',
     glyph: AudioLines,
-    grad: ['#56ec95', '#119a4a'],
     size: [900, 580],
     min: [560, 360],
     keywords: 'music player songs playlist audio',
@@ -75,9 +75,9 @@ export const APPS = {
   },
   blender: {
     name: 'Blender',
+    hue: '#ff9b45',
     short: 'Blender',
     glyph: Box,
-    grad: ['#ffbd57', '#ec5a10'],
     size: [1020, 640],
     min: [600, 380],
     keywords: '3d modeling render mesh',
@@ -85,10 +85,9 @@ export const APPS = {
   },
   terminal: {
     name: 'Terminal',
+    hue: '#9fe7f7',
     short: 'Terminal',
     glyph: Terminal,
-    grad: ['#2b3346', '#090c14'],
-    glyphColor: '#5ef0ff',
     size: [740, 460],
     min: [420, 260],
     keywords: 'shell console command line cli bash powershell',
@@ -96,9 +95,9 @@ export const APPS = {
   },
   settings: {
     name: 'HYBRID Settings',
+    hue: '#b7c0d4',
     short: 'Settings',
     glyph: Settings,
-    grad: ['#aab4c8', '#475066'],
     size: [900, 600],
     min: [620, 400],
     single: true,
@@ -116,7 +115,6 @@ export const APPS = {
     name: 'About HYBRID OS',
     short: 'About',
     glyph: Info,
-    grad: ['#53f1ff', '#7a55ff'],
     size: [560, 500],
     min: [460, 420],
     single: true,

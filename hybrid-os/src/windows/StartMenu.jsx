@@ -69,7 +69,7 @@ export function StartMenu() {
                     {r.app ? <AppIcon app={r.app} size={28} /> : I ? <I size={20} className="text-acc mx-1" /> : <span className="w-7" />}
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13px] truncate">{r.title}</span>
-                      <span className="block text-[11.5px] text-t3 truncate">{r.kind} · {r.sub}</span>
+                      <span className="block text-[12px] text-t3 truncate">{r.kind} · {r.sub}</span>
                     </span>
                   </button>
                 );
@@ -104,7 +104,7 @@ export function StartMenu() {
                 {PINNED.map((id) => (
                   <button key={id} onClick={() => (id === 'rocky' ? actions.set({ rocky: true, overlay: null }) : actions.open(id))} className="flex flex-col items-center gap-1.5 py-2.5 rounded-[6px] hover:bg-[var(--hover)]">
                     <AppIcon app={id} size={34} />
-                    <span className="text-[11.5px] text-center leading-tight px-1">{APPS[id].short}</span>
+                    <span className="text-[12px] text-center leading-tight px-1">{APPS[id].short}</span>
                   </button>
                 ))}
               </div>
@@ -119,7 +119,7 @@ export function StartMenu() {
                     <button key={r.name} onClick={() => (close(), openFile(actions, f))} className="flex items-center gap-3 px-2.5 py-2 rounded-[6px] text-left hover:bg-[var(--hover)]">
                       <I size={22} className="text-acc shrink-0" strokeWidth={1.5} />
                       <span className="min-w-0">
-                        <span className="block text-[12.5px] truncate">{r.name}</span>
+                        <span className="block text-[13px] truncate">{r.name}</span>
                         <span className="block text-[11px] text-t3">{r.when}</span>
                       </span>
                     </button>
@@ -129,12 +129,12 @@ export function StartMenu() {
             </>
           )}
         </div>
-        <div className="relative h-[62px] shrink-0 flex items-center px-12 justify-between" style={{ background: 'rgb(var(--glass) / .5)', borderTop: '1px solid var(--line)' }}>
+        <div className="relative h-[62px] shrink-0 flex items-center px-12 justify-between" style={{ background: 'rgb(var(--surface) / .5)', borderTop: '1px solid var(--line)' }}>
           <button onClick={() => actions.open('settings')} className="flex items-center gap-3 px-2 py-1.5 rounded-[6px] hover:bg-[var(--hover)]">
-            <span className="w-8 h-8 rounded-full grid place-items-center text-[13px] font-bold text-white" style={{ background: 'linear-gradient(135deg, #5ef0ff, #9b6bff)' }}>
+            <span className="w-8 h-8 rounded-full grid place-items-center text-[13px] font-semibold text-white" style={{ background: 'linear-gradient(135deg, #5ef0ff, #9b6bff)' }}>
               C
             </span>
-            <span className="text-[12.5px]">Cade</span>
+            <span className="text-[13px]">Cade</span>
           </button>
           <button aria-label="Power" onClick={() => setPower((p) => !p)} className="w-9 h-9 grid place-items-center rounded-[6px] hover:bg-[var(--hover)]">
             <Power size={16} />
@@ -183,14 +183,14 @@ export function QuickSettings() {
               <button aria-pressed={on} aria-label={label} onClick={fn} className="w-full h-[46px] grid place-items-center rounded-[6px] press" style={{ background: on ? 'rgb(var(--acc))' : 'var(--field)', color: on ? 'var(--on-acc)' : 'var(--t1)', border: on ? 'none' : '1px solid var(--line)' }}>
                 <I size={17} />
               </button>
-              <span className="text-[11.5px] text-center">{label}</span>
+              <span className="text-[12px] text-center">{label}</span>
             </div>
           ))}
           <div className="flex flex-col items-center gap-1.5">
             <button onClick={() => actions.switchMode('hybrid')} aria-label="HYBRID Mode" className="w-full h-[46px] grid place-items-center rounded-[6px] press" style={{ background: 'linear-gradient(120deg, rgba(94,240,255,.25), rgba(155,107,255,.3))', border: '1px solid rgba(140,200,255,.4)' }}>
               <HybridLogo size={18} />
             </button>
-            <span className="text-[11.5px]">HYBRID Mode</span>
+            <span className="text-[12px]">HYBRID Mode</span>
           </div>
         </div>
         <div className="px-5 pb-4 flex flex-col gap-3">
@@ -205,7 +205,7 @@ export function QuickSettings() {
             <Slider id="qs-volume" label="Volume" value={state.volume} onChange={(v) => actions.set({ volume: v })} />
           </div>
         </div>
-        <div className="h-[48px] flex items-center justify-between px-5 text-[12px]" style={{ background: 'rgb(var(--glass) / .5)', borderTop: '1px solid var(--line)' }}>
+        <div className="h-[48px] flex items-center justify-between px-5 text-[12px]" style={{ background: 'rgb(var(--surface) / .5)', borderTop: '1px solid var(--line)' }}>
           <span className="flex items-center gap-2">
             <BatteryMedium size={16} /> 87%
           </span>

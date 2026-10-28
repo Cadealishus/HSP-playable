@@ -84,7 +84,7 @@ export default function DesktopIcons({ onMenu }) {
             onKeyDown={(e) => e.key === 'Enter' && ic.open(actions)}
           >
             {ic.render()}
-            <span className="text-[11.5px] leading-tight text-center text-white px-0.5 line-clamp-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,.9)' }}>
+            <span className="text-[12px] leading-tight text-center text-white px-0.5 line-clamp-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,.9)' }}>
               {ic.label}
             </span>
           </button>

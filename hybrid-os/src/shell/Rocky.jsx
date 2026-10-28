@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, Minus, Sparkles } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import { useOS, fullscreenWindow } from '../os/store';
 import { APPS } from '../os/apps';
 import { THEMES } from '../os/themes';
 import { usePerf } from '../os/sim';
-import { RockyOrb } from '../components/ui';
+import { RockyOrb, IconButton, Tip } from '../components/ui';
 
 // Scripted replies only. This concept is not connected to any AI backend.
 function reply(text, ctx) {
@@ -35,7 +35,7 @@ function reply(text, ctx) {
   return { text: "That's beyond this demo's script. In the production build this would go to Rocky's real brain. Try “help” for things I can do here." };
 }
 
-const SUGGEST = ['Open terminal', 'Stealth theme', 'How is my PC?', 'Switch to Windows mode', 'Focus mode'];
+const SUGGEST = ['Open Terminal', 'Stealth theme', 'How is my PC?', 'Focus mode'];
 
 export default function Rocky() {
   const { state, actions } = useOS();
@@ -72,72 +72,65 @@ export default function Rocky() {
   };
 
   return (
-    <div className="absolute z-[8400] w-[360px] h-[480px] flex flex-col glass-strong rounded-[22px] overflow-hidden a-popup" style={{ bottom, right, boxShadow: 'var(--shadow), 0 0 0 1px rgb(var(--acc) / .2), 0 20px 70px -20px rgb(var(--acc) / .45)' }} role="dialog" aria-label="Rocky AI">
-      <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
-        <RockyOrb size={42} thinking={thinking} />
-        <div className="flex-1">
-          <div className="font-display font-semibold text-[15px]">Rocky</div>
-          <div className="flex items-center gap-1.5 text-[11px] text-t2">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#3ef0a0', boxShadow: '0 0 6px #3ef0a0' }} />
-            {thinking ? 'Thinking…' : 'Online · demo mode'}
+    <div
+      className="absolute z-[8400] w-[360px] h-[480px] flex flex-col glass-strong rounded-[var(--r-xl)] overflow-hidden a-popup"
+      style={{ bottom, right }}
+      role="dialog"
+      aria-label="Rocky AI"
+      onKeyDown={(e) => e.key === 'Escape' && actions.set({ rocky: false })}
+    >
+      <div className="flex items-center gap-3 pl-4 pr-2 h-14 shrink-0" style={{ borderBottom: '1px solid var(--line)' }}>
+        <RockyOrb size={32} thinking={thinking} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium">Rocky</div>
+          <div className="flex items-center gap-1.5 text-[11px] text-t3" aria-live="polite">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'rgb(var(--ok))' }} />
+            {thinking ? 'Thinking…' : 'Scripted demo · not connected to an AI service'}
           </div>
         </div>
-        <button aria-label="Minimize Rocky" onClick={() => actions.set({ rocky: false })} className="w-7 h-7 grid place-items-center rounded-full text-t2 hov">
-          <Minus size={14} />
-        </button>
-        <button aria-label="Close Rocky" onClick={() => actions.set({ rocky: false })} className="w-7 h-7 grid place-items-center rounded-full text-t2 hov">
-          <X size={14} />
-        </button>
-        <div className="absolute left-4 right-4 bottom-0 h-px" style={{ background: 'linear-gradient(90deg, rgb(var(--acc) / .5), rgb(var(--acc2) / .4), transparent)' }} />
+        <IconButton label="Close Rocky" onClick={() => actions.set({ rocky: false })}>
+          <X size={15} strokeWidth={1.75} />
+        </IconButton>
       </div>
-      <div ref={list} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2.5">
+      <div ref={list} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3" aria-live="polite">
         {msgs.map((m, i) => (
           <div key={i} className={`max-w-[85%] a-popup ${m.from === 'me' ? 'self-end' : 'self-start'}`}>
             <div
-              className="rounded-[16px] px-3 py-2 text-[13px] leading-[1.45] selectable"
-              style={
-                m.from === 'me'
-                  ? { background: 'linear-gradient(135deg, rgb(var(--acc)), rgb(var(--acc2)))', color: 'var(--on-acc)', borderBottomRightRadius: 6 }
-                  : { background: 'var(--field)', boxShadow: 'inset 0 0 0 1px var(--line)', borderBottomLeftRadius: 6 }
-              }
+              className="rounded-[var(--r-lg)] px-3 py-2 text-[13px] leading-[1.5] selectable"
+              style={m.from === 'me' ? { background: 'rgb(var(--acc))', color: 'var(--on-acc)', borderBottomRightRadius: 4 } : { background: 'var(--field)', borderBottomLeftRadius: 4 }}
             >
               {m.text}
             </div>
-            {m.action && (
-              <div className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-acc">
-                <Sparkles size={10} /> Action ran in the prototype
-              </div>
-            )}
+            {m.action && <div className="mt-1 text-[11px] text-t3">Done in the prototype</div>}
           </div>
         ))}
         {thinking && (
-          <div className="self-start rounded-[16px] px-3 py-2.5 flex gap-1" style={{ background: 'var(--field)' }}>
+          <div className="self-start rounded-[var(--r-lg)] px-3 py-3 flex gap-1" style={{ background: 'var(--field)' }} aria-label="Rocky is typing">
             {[0, 1, 2].map((k) => (
-              <span key={k} className="typing-dot w-1.5 h-1.5 rounded-full bg-acc" style={{ animationDelay: `${k * 0.15}s` }} />
+              <span key={k} className="typing-dot w-1.5 h-1.5 rounded-full" style={{ background: 'var(--t2)', animationDelay: `${k * 0.15}s` }} />
             ))}
           </div>
         )}
       </div>
-      <div className="px-3 pb-2 flex gap-1.5 overflow-x-auto">
+      <div className="px-3 pb-2 flex flex-wrap gap-1.5">
         {SUGGEST.map((s) => (
-          <button key={s} onClick={() => send(s)} className="shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-semibold text-t2 field hov press">
+          <button key={s} onClick={() => send(s)} className="h-7 rounded-full px-3 text-[12px] text-t2 hov" style={{ boxShadow: 'inset 0 0 0 1px var(--line)' }}>
             {s}
           </button>
         ))}
       </div>
       <form
-        className="m-3 mt-1 flex items-center gap-2 rounded-[14px] pl-3.5 pr-1.5 py-1.5 field"
+        className="mx-3 mb-3 flex items-center gap-2 h-10 rounded-[var(--r-md)] pl-3 pr-1 field"
         onSubmit={(e) => {
           e.preventDefault();
           send();
         }}
       >
-        <input id="rocky-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Rocky…" className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-t3" autoComplete="off" />
-        <button type="submit" aria-label="Send" className="w-8 h-8 grid place-items-center rounded-[10px] press" style={{ background: text.trim() ? 'linear-gradient(135deg, rgb(var(--acc)), rgb(var(--acc2)))' : 'var(--field)', color: text.trim() ? 'var(--on-acc)' : 'var(--t3)' }}>
-          <Send size={14} />
+        <input id="rocky-input" aria-label="Message Rocky" value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Rocky" className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-t3" autoComplete="off" />
+        <button type="submit" aria-label="Send" disabled={!text.trim()} className="w-8 h-8 grid place-items-center rounded-[var(--r-sm)]" style={{ background: text.trim() ? 'rgb(var(--acc))' : 'transparent', color: text.trim() ? 'var(--on-acc)' : 'var(--t3)', transition: 'background var(--d-fast), color var(--d-fast)' }}>
+          <Send size={15} strokeWidth={1.75} />
         </button>
       </form>
-      <div className="pb-2 text-center text-[10px] text-t3">Scripted demo responses · no AI backend connected</div>
     </div>
   );
 }
@@ -151,18 +144,9 @@ export function RockyCompanion() {
   const bottom = isWin ? 62 : d.position === 'bottom' && !d.autoHide ? 24 : 20;
   const right = !isWin && d.position === 'right' && !d.autoHide ? d.size + 40 : 22;
   return (
-    <button
-      aria-label="Open Rocky AI"
-      onClick={() => actions.set({ rocky: true })}
-      className="absolute z-[3700] group chrome chrome-fade"
-      style={{ bottom, right }}
-    >
-      <div style={{ animation: 'bob 4s ease-in-out infinite' }}>
-        <RockyOrb size={46} />
-      </div>
-      <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 whitespace-nowrap glass-strong rounded-[10px] px-2.5 py-1 text-[12px] font-semibold opacity-0 group-hover:opacity-100 pointer-events-none" style={{ transition: 'opacity 160ms' }}>
-        Ask Rocky
-      </span>
+    <button aria-label="Open Rocky AI" onClick={() => actions.set({ rocky: true })} className="tip-host absolute z-[3700] chrome chrome-fade rounded-full press" style={{ bottom, right }}>
+      <RockyOrb size={40} />
+      <Tip side="left">Ask Rocky</Tip>
     </button>
   );
 }

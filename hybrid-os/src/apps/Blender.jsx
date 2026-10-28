@@ -130,12 +130,6 @@ function Viewport() {
         ctx.strokeStyle = 'rgba(0,0,0,.18)';
         ctx.stroke();
       }
-      // selection outline glow
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-over';
-      ctx.shadowColor = 'rgba(255,160,40,.9)';
-      ctx.shadowBlur = 10;
-      ctx.restore();
       // axis gizmo
       const g = [w - 60, 60];
       [
@@ -201,7 +195,7 @@ function Viewport() {
 export default function Blender() {
   return (
     <div className="h-full flex flex-col text-[12px] text-[#d6d6d6]" style={{ background: '#303030' }}>
-      <div className="h-[28px] shrink-0 flex items-center gap-4 px-3" style={{ background: '#232323' }}>
+      <div className="h-[28px] shrink-0 flex items-center gap-4 px-3" style={{ background: '#232323' }} title="Demo scene: menus are not interactive">
         <span className="w-4 h-4 rounded-full" style={{ background: 'linear-gradient(135deg,#ffbd57,#ec5a10)' }} />
         {['File', 'Edit', 'Render', 'Window', 'Help'].map((m) => (
           <span key={m}>{m}</span>
@@ -213,7 +207,7 @@ export default function Blender() {
         <span className="ml-auto text-white/50">rocket_v3.blend</span>
       </div>
       <div className="flex-1 min-h-0 flex">
-        <div className="w-[38px] shrink-0 flex flex-col items-center gap-1.5 pt-2" style={{ background: '#2a2a2a' }}>
+        <div className="w-[38px] shrink-0 flex flex-col items-center gap-1.5 pt-2" style={{ background: '#2a2a2a' }} title="Demo scene: drag the viewport to orbit" aria-hidden="true">
           {[MousePointer2, Move, RotateCcw, Maximize2, Box].map((I, i) => (
             <span key={i} className="w-7 h-7 grid place-items-center rounded" style={{ background: i === 0 ? '#4772b3' : 'transparent' }}>
               <I size={15} />

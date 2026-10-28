@@ -72,17 +72,17 @@ export default function Code({ project = 'hybrid', file, fileName, nonce }) {
     });
 
   return (
-    <div className="h-full flex flex-col text-[12.5px] text-[#c9d3ee]" style={{ background: '#0d1022' }}>
+    <div className="h-full flex flex-col text-[13px] text-[#c9d3ee]" style={{ background: '#0d1022' }}>
       <div className="flex-1 min-h-0 flex">
-        <div className="w-[46px] shrink-0 flex flex-col items-center gap-4 pt-3" style={{ background: '#090b18' }}>
+        <div className="w-[46px] shrink-0 flex flex-col items-center gap-4 pt-3" style={{ background: '#090b18' }} aria-hidden="true">
           {[Files, Search, GitBranch, Bug, Puzzle].map((I, i) => (
             <I key={i} size={20} strokeWidth={1.6} className={i === 0 ? 'text-white' : 'text-[#5d6789]'} />
           ))}
           <Settings size={19} strokeWidth={1.6} className="text-[#5d6789] mt-auto mb-3" />
         </div>
         <div className="w-[200px] shrink-0 overflow-y-auto" style={{ background: '#0b0e1d', borderRight: '1px solid rgba(255,255,255,.05)' }}>
-          <div className="px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#7d88ad]">Explorer</div>
-          <div className="px-2 py-1 font-bold text-[11px] uppercase tracking-wide flex items-center gap-1">
+          <div className="px-3 py-2 text-[11px] font-semibold text-[#7d88ad]">Explorer</div>
+          <div className="px-2 py-1 font-semibold text-[11px] flex items-center gap-1">
             <ChevronDown size={13} /> {proj.name}
           </div>
           {tree && <Tree node={tree} />}
@@ -115,7 +115,7 @@ export default function Code({ project = 'hybrid', file, fileName, nonce }) {
             {proj.name} › {active}
           </div>
           <div className="flex-1 min-h-0 flex overflow-hidden">
-            <div className="flex-1 overflow-auto font-mono text-[12.5px] leading-[1.65] py-1 selectable">
+            <div className="flex-1 overflow-auto font-mono text-[13px] leading-[1.65] py-1 selectable">
               {lines.map((l, i) => (
                 <div key={i} className="flex hover:bg-white/[.03]">
                   <span className="w-12 shrink-0 text-right pr-4 text-[#454e72] select-none">{i + 1}</span>

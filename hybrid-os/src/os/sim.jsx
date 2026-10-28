@@ -50,27 +50,32 @@ export function PerfProvider({ children }) {
     netUp: 3,
     cpuTemp: 46,
     gpuTemp: 41,
-    hist: { cpu: Array(HIST).fill(12), gpu: Array(HIST).fill(8), net: Array(HIST).fill(14) },
+    // Seed with a plausible recent history rather than a flat line
+    hist: {
+      cpu: Array.from({ length: HIST }, (_, i) => 12 + 4 * Math.sin(i / 4) + 2 * Math.sin(i / 1.7)),
+      gpu: Array.from({ length: HIST }, (_, i) => 8 + 2 * Math.sin(i / 5)),
+      net: Array.from({ length: HIST }, (_, i) => 14 + 3 * Math.sin(i / 3)),
+    },
   }));
 
   useEffect(() => {
     const t = setInterval(() => {
       setP((q) => {
         const L = load.current;
-        const cpu = walk(q.cpu, L.cpu, 9);
-        const gpu = walk(q.gpu, L.gpu, 7);
-        const ram = Math.max(4, Math.min(31, q.ram + (L.ram - q.ram) * 0.2 + (Math.random() - 0.5) * 0.2));
-        const burst = Math.random() < 0.12 ? 60 + Math.random() * 120 : 0;
-        const netDown = Math.max(0.4, q.netDown * 0.6 + (8 + Math.random() * 20 + burst) * 0.4);
-        const netUp = Math.max(0.1, q.netUp * 0.6 + (1 + Math.random() * 5) * 0.4);
+        // Values follow the simulated load of open apps with small drift, not random jitter.
+        const cpu = walk(q.cpu, L.cpu, 2.5);
+        const gpu = walk(q.gpu, L.gpu, 2);
+        const ram = Math.max(4, Math.min(31, q.ram + (L.ram - q.ram) * 0.2));
+        const netDown = Math.max(0.5, q.netDown * 0.8 + (10 + Math.random() * 8) * 0.2);
+        const netUp = Math.max(0.2, q.netUp * 0.8 + (1.5 + Math.random() * 1.5) * 0.2);
         return {
           cpu,
           gpu,
           ram,
           netDown,
           netUp,
-          cpuTemp: walk(q.cpuTemp, 38 + cpu * 0.45, 1.2, 30, 95),
-          gpuTemp: walk(q.gpuTemp, 34 + gpu * 0.5, 1.2, 30, 95),
+          cpuTemp: walk(q.cpuTemp, 38 + cpu * 0.45, 0.4, 30, 95),
+          gpuTemp: walk(q.gpuTemp, 34 + gpu * 0.5, 0.4, 30, 95),
           hist: {
             cpu: [...q.hist.cpu.slice(1), cpu],
             gpu: [...q.hist.gpu.slice(1), gpu],
@@ -78,7 +83,7 @@ export function PerfProvider({ children }) {
           },
         };
       });
-    }, 1100);
+    }, 2000);
     return () => clearInterval(t);
   }, []);
 
@@ -90,14 +95,20 @@ export const usePerf = () => useContext(PerfContext);
 // ---------- Music (shared by the Now Playing widget and the Spotify mock) ----------
 const MusicContext = createContext(null);
 
+function nextIndex(q) {
+  if (!q.shuffle) return (q.i + 1) % TRACKS.length;
+  const r = Math.floor(Math.random() * (TRACKS.length - 1));
+  return r >= q.i ? r + 1 : r;
+}
+
 export function MusicProvider({ children }) {
-  const [m, setM] = useState({ i: 0, playing: false, pos: 64, liked: { 0: true } });
+  const [m, setM] = useState({ i: 0, playing: false, pos: 64, liked: { 0: true }, shuffle: false, repeat: false });
   useEffect(() => {
     if (!m.playing) return;
     const t = setInterval(() => {
       setM((q) => {
         const dur = TRACKS[q.i].dur;
-        if (q.pos + 1 >= dur) return { ...q, i: (q.i + 1) % TRACKS.length, pos: 0 };
+        if (q.pos + 1 >= dur) return { ...q, i: q.repeat ? q.i : nextIndex(q), pos: 0 };
         return { ...q, pos: q.pos + 1 };
       });
     }, 1000);
@@ -107,7 +118,9 @@ export function MusicProvider({ children }) {
   const api = useMemo(
     () => ({
       toggle: () => setM((q) => ({ ...q, playing: !q.playing })),
-      next: () => setM((q) => ({ ...q, i: (q.i + 1) % TRACKS.length, pos: 0 })),
+      next: () => setM((q) => ({ ...q, i: nextIndex(q), pos: 0 })),
+      toggleShuffle: () => setM((q) => ({ ...q, shuffle: !q.shuffle })),
+      toggleRepeat: () => setM((q) => ({ ...q, repeat: !q.repeat })),
       prev: () => setM((q) => (q.pos > 4 ? { ...q, pos: 0 } : { ...q, i: (q.i - 1 + TRACKS.length) % TRACKS.length, pos: 0 })),
       play: (i) => setM((q) => ({ ...q, i, pos: 0, playing: true })),
       seek: (pos) => setM((q) => ({ ...q, pos })),

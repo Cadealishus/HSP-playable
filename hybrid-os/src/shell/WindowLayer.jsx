@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, memo } from 'react';
 import { Minus, Square, X, Copy, Maximize2, Minimize2, Columns2 } from 'lucide-react';
 import { useOS, toLocal, workArea, metrics } from '../os/store';
 import { APPS } from '../os/apps';
-import { AppIcon } from '../components/ui';
+import { AppIcon, IconButton } from '../components/ui';
 import Explorer from '../apps/Explorer';
 import Terminal from '../apps/Terminal';
 import Settings from '../apps/Settings';
@@ -152,11 +152,11 @@ function Window({ win, area, focused, mode }) {
   const origin = win.origin && win.phase === 'opening' ? `${win.origin.x - g.x}px ${win.origin.y - g.y}px` : 'center';
 
   const isWin = mode === 'windows';
-  const radius = isMax ? 0 : isWin ? 8 : 16;
+  const radius = isMax ? 0 : isWin ? 8 : 14;
 
   const titleMenu = (e) =>
     actions.contextMenu(e, [
-      { label: win.max ? 'Restore' : 'Maximize', icon: win.max ? Minimize2 : Maximize2, onClick: () => actions.toggleMax(win.id) },
+      { label: win.max ? 'Exit Full Screen' : isWin ? 'Maximize' : 'Full Screen', icon: win.max ? Minimize2 : Maximize2, onClick: () => actions.toggleMax(win.id) },
       { label: 'Minimize', icon: Minus, onClick: () => actions.minimize(win.id) },
       { label: 'Snap Left', icon: Columns2, onClick: () => actions.snap(win.id, 'left') },
       { label: 'Snap Right', icon: Columns2, onClick: () => actions.snap(win.id, 'right') },
@@ -171,7 +171,7 @@ function Window({ win, area, focused, mode }) {
       {preview && (
         <div
           className="absolute a-fade pointer-events-none"
-          style={{ left: preview.x, top: preview.y, width: preview.w, height: preview.h, zIndex: win.z, borderRadius: isWin ? 8 : 16, background: 'rgb(var(--acc) / .12)', border: '1px solid rgb(var(--acc) / .5)', backdropFilter: 'blur(6px)', boxShadow: '0 0 40px -6px rgb(var(--acc) / .5)', transition: 'all 160ms' }}
+          style={{ left: preview.x, top: preview.y, width: preview.w, height: preview.h, zIndex: win.z, borderRadius: isWin ? 8 : 14, background: 'rgb(var(--acc) / .10)', border: '1px solid rgb(var(--acc) / .45)', transition: 'all var(--d-base) var(--ease-out)' }}
         />
       )}
       <div
@@ -191,14 +191,9 @@ function Window({ win, area, focused, mode }) {
           borderRadius: radius,
           transformOrigin: win.phase === 'opening' ? origin : 'center',
           ...fly,
-          border: isWin ? '1px solid var(--line)' : undefined,
-          boxShadow: focused
-            ? isWin
-              ? '0 0 0 1px rgb(var(--acc) / .35), 0 26px 70px -12px rgba(0,0,0,.6)'
-              : 'inset 0 1px 0 0 var(--hl), 0 0 0 1px rgb(var(--acc) / .22), 0 34px 90px -20px rgba(0,0,0,.7), 0 0 60px -18px rgb(var(--acc) / .35)'
-            : isWin
-              ? '0 12px 40px -10px rgba(0,0,0,.45)'
-              : 'inset 0 1px 0 0 var(--hl), 0 20px 60px -20px rgba(0,0,0,.6)',
+          border: '1px solid var(--line)',
+          // Active windows read through depth and title contrast, not coloured glow
+          boxShadow: isMax ? 'none' : focused ? 'inset 0 1px 0 0 var(--hl), 0 30px 70px -24px rgba(0,0,0,.75), 0 4px 14px -6px rgba(0,0,0,.4)' : 'inset 0 1px 0 0 var(--hl), 0 14px 40px -20px rgba(0,0,0,.6)',
         }}
       >
         {/* Title bar */}
@@ -217,21 +212,22 @@ function Window({ win, area, focused, mode }) {
             ))}
           </div>
         ) : (
-          <div onPointerDown={startDrag} onDoubleClick={() => actions.toggleMax(win.id)} onContextMenu={titleMenu} className="relative flex items-center h-[42px] shrink-0 px-3 gap-2.5">
-            <AppIcon app={win.app} size={20} />
-            <span className={`text-[12.5px] font-bold truncate flex-1 ${focused ? 'text-t1' : 'text-t3'}`}>{win.title}</span>
-            <div className="flex items-center gap-1.5">
-              <button aria-label="Minimize" onClick={() => actions.minimize(win.id)} className="w-[26px] h-[26px] grid place-items-center rounded-full text-t2 hov press field">
-                <Minus size={13} />
-              </button>
-              <button aria-label={win.max ? 'Restore' : 'Maximize'} onClick={() => actions.toggleMax(win.id)} className="w-[26px] h-[26px] grid place-items-center rounded-full text-t2 hov press field">
-                {win.max ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
-              <button aria-label="Close" onClick={() => actions.close(win.id)} className="w-[26px] h-[26px] grid place-items-center rounded-full text-t2 press field hover:!bg-[#ff4d6a] hover:!text-white" style={{ transition: 'all 140ms' }}>
-                <X size={13} />
-              </button>
+          <div onPointerDown={startDrag} onDoubleClick={() => actions.toggleMax(win.id)} onContextMenu={titleMenu} className="flex items-center h-10 shrink-0 pl-3 pr-1.5 gap-2.5" style={{ borderBottom: '1px solid var(--line)' }}>
+            <AppIcon app={win.app} size={18} />
+            <span className={`text-[13px] font-medium truncate flex-1 ${focused ? 'text-t1' : 'text-t3'}`} style={{ transition: 'color var(--d-base)' }}>
+              {win.title}
+            </span>
+            <div className="flex items-center gap-0.5">
+              <IconButton label="Minimize" onClick={() => actions.minimize(win.id)}>
+                <Minus size={15} strokeWidth={1.75} />
+              </IconButton>
+              <IconButton label={win.max ? 'Exit full screen' : 'Full screen'} onClick={() => actions.toggleMax(win.id)}>
+                {win.max ? <Minimize2 size={14} strokeWidth={1.75} /> : <Maximize2 size={14} strokeWidth={1.75} />}
+              </IconButton>
+              <IconButton label="Close" danger onClick={() => actions.close(win.id)}>
+                <X size={15} strokeWidth={1.75} />
+              </IconButton>
             </div>
-            {focused && <div className="absolute inset-x-10 -bottom-px h-px pointer-events-none" style={{ background: 'linear-gradient(90deg, transparent, rgb(var(--acc) / .45), transparent)' }} />}
           </div>
         )}
         <div className="relative flex-1 min-h-0 overflow-hidden" style={{ borderBottomLeftRadius: radius, borderBottomRightRadius: radius }}>

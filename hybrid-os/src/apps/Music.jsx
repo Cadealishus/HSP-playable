@@ -23,7 +23,7 @@ export default function Music() {
               <I size={18} /> {l}
             </div>
           ))}
-          <div className="mt-3 px-2 text-[11px] font-bold uppercase tracking-[0.1em] text-white/40">Playlists</div>
+          <div className="mt-3 px-2 text-[11px] font-semibold text-white/40">Playlists</div>
           {['Night Drive — HYBRID Mix', 'Launch Window', 'Deep Focus', 'Liked Songs'].map((p, i) => (
             <div key={p} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[8px] ${i === 0 ? 'bg-white/10' : 'text-white/60'}`}>
               <ListMusic size={14} /> <span className="truncate">{p}</span>
@@ -34,18 +34,18 @@ export default function Music() {
           <div className="flex items-end gap-5 p-6 pb-5">
             <AlbumArt track={{ art: ['#4fe3ff', '#7a3cff', '#0b0f36'] }} size={150} />
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-white/70">Playlist</div>
-              <div className="font-display text-[34px] font-bold leading-tight">Night Drive — HYBRID Mix</div>
-              <div className="text-white/70 text-[12.5px] mt-1">Cade · {TRACKS.length} songs · demo playlist, fictional artists</div>
+              <div className="text-[11px] font-semibold text-white/70">Playlist</div>
+              <div className="text-[34px] font-semibold leading-tight">Night Drive — HYBRID Mix</div>
+              <div className="text-white/70 text-[13px] mt-1">Cade · {TRACKS.length} songs · demo playlist, fictional artists</div>
             </div>
           </div>
           <div className="px-6 flex items-center gap-4 mb-3">
             <button aria-label={m.playing ? 'Pause' : 'Play'} onClick={m.toggle} className="w-12 h-12 rounded-full grid place-items-center press" style={{ background: '#1ed760', color: '#000' }}>
               {m.playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
             </button>
-            <Shuffle size={20} className="text-white/60" />
+            <button aria-label="Shuffle" aria-pressed={m.shuffle} title="Shuffle" onClick={m.toggleShuffle} className={m.shuffle ? "text-[#1ed760]" : "text-white/60 hover:text-white"}><Shuffle size={20} /></button>
           </div>
-          <table className="w-full mx-6 text-[12.5px]" style={{ width: 'calc(100% - 48px)' }}>
+          <table className="w-full mx-6 text-[13px]" style={{ width: 'calc(100% - 48px)' }}>
             <thead>
               <tr className="text-left text-white/50 text-[11px]" style={{ borderBottom: '1px solid rgba(255,255,255,.1)' }}>
                 <th className="w-8 font-medium pb-2 pl-2">#</th>
@@ -71,7 +71,7 @@ export default function Music() {
                           <div className="font-semibold" style={{ color: cur ? '#1ed760' : '#fff' }}>
                             {tr.title}
                           </div>
-                          <div className="text-white/55 text-[11.5px]">{tr.artist}</div>
+                          <div className="text-white/55 text-[12px]">{tr.artist}</div>
                         </div>
                       </div>
                     </td>
@@ -89,7 +89,7 @@ export default function Music() {
           <AlbumArt track={t} size={46} />
           <div className="min-w-0">
             <div className="font-semibold truncate">{t.title}</div>
-            <div className="text-[11.5px] text-white/55 truncate">{t.artist}</div>
+            <div className="text-[12px] text-white/55 truncate">{t.artist}</div>
           </div>
           <button aria-label="Like" onClick={() => m.like(m.i)}>
             <Heart size={15} className={m.liked[m.i] ? 'text-[#1ed760]' : 'text-white/50'} fill={m.liked[m.i] ? 'currentColor' : 'none'} />
@@ -97,7 +97,7 @@ export default function Music() {
         </div>
         <div className="flex-1 flex flex-col items-center gap-1">
           <div className="flex items-center gap-5">
-            <Shuffle size={15} className="text-white/50" />
+            <button aria-label="Shuffle" aria-pressed={m.shuffle} title="Shuffle" onClick={m.toggleShuffle} className={m.shuffle ? "text-[#1ed760]" : "text-white/50 hover:text-white"}><Shuffle size={15} /></button>
             <button aria-label="Previous" onClick={m.prev}>
               <SkipBack size={17} fill="currentColor" />
             </button>
@@ -107,9 +107,9 @@ export default function Music() {
             <button aria-label="Next" onClick={m.next}>
               <SkipForward size={17} fill="currentColor" />
             </button>
-            <Repeat size={15} className="text-white/50" />
+            <button aria-label="Repeat track" aria-pressed={m.repeat} title="Repeat track" onClick={m.toggleRepeat} className={m.repeat ? "text-[#1ed760]" : "text-white/50 hover:text-white"}><Repeat size={15} /></button>
           </div>
-          <div className="w-full max-w-[420px] flex items-center gap-2 text-[10.5px] text-white/55 tabular-nums">
+          <div className="w-full max-w-[420px] flex items-center gap-2 text-[11px] text-white/55 tabular-nums">
             {fmtDur(m.pos)}
             <div className="flex-1 h-1 rounded-full bg-white/15 cursor-pointer" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); m.seek(Math.floor(((e.clientX - r.left) / r.width) * t.dur)); }}>
               <div className="h-full rounded-full bg-white" style={{ width: `${(m.pos / t.dur) * 100}%` }} />

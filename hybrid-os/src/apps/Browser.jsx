@@ -18,7 +18,7 @@ function NewTab({ go }) {
   return (
     <div className="h-full overflow-y-auto relative" style={{ background: 'radial-gradient(80% 70% at 50% 0%, rgba(80,120,255,.28), transparent 60%), linear-gradient(180deg, #0b1030, #070918)' }}>
       <div className="max-w-[620px] mx-auto pt-[9%] px-6 text-center">
-        <div className="font-display text-[30px] font-light text-white">{h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, Cade</div>
+        <div className="text-[30px] font-light text-white">{h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, Cade</div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -33,7 +33,7 @@ function NewTab({ go }) {
         <div className="mt-9 grid grid-cols-6 gap-3">
           {TILES.map((t) => (
             <button key={t.name} onClick={() => go({ kind: 'site', ...t })} className="flex flex-col items-center gap-2 p-2 rounded-[14px] hover:bg-white/10 press">
-              <span className="w-12 h-12 rounded-[14px] grid place-items-center text-[18px] font-extrabold" style={{ background: `${t.color}22`, color: t.color, boxShadow: `inset 0 0 0 1px ${t.color}44` }}>
+              <span className="w-12 h-12 rounded-[14px] grid place-items-center text-[18px] font-semibold" style={{ background: `${t.color}22`, color: t.color, boxShadow: `inset 0 0 0 1px ${t.color}44` }}>
                 {t.name[0]}
               </span>
               <span className="text-[11px] text-white/80 leading-tight">{t.name}</span>
@@ -41,7 +41,7 @@ function NewTab({ go }) {
           ))}
         </div>
         <div className="mt-10 text-left rounded-[18px] p-4 bg-white/[.06]" style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.08)' }}>
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-white/50 mb-2">Reading list</div>
+          <div className="text-[11px] font-semibold text-white/50 mb-2">Reading list</div>
           {['Orbital transfer windows, explained', 'Designing a dock that feels physical', 'WinUI 3: custom title bars and Mica'].map((r) => (
             <div key={r} className="flex items-center gap-2 py-1.5 text-[13px] text-white/85">
               <Star size={12} className="text-[#ffd36b]" /> {r}
@@ -64,7 +64,7 @@ function Offline({ page, back }) {
           </>
         ) : (
           <>
-            <div className="w-14 h-14 mx-auto mb-4 rounded-[16px] grid place-items-center text-[22px] font-extrabold" style={{ background: `${page.color}22`, color: page.color }}>
+            <div className="w-14 h-14 mx-auto mb-4 rounded-[16px] grid place-items-center text-[22px] font-semibold" style={{ background: `${page.color}22`, color: page.color }}>
               {page.name[0]}
             </div>
             <div className="text-white text-[18px] font-semibold mb-2">{page.name}</div>
@@ -90,7 +90,7 @@ export default function Browser() {
   const title = (t) => (!t.page ? 'New tab' : t.page.kind === 'search' ? t.page.q : t.page.name);
   const url = !tab.page ? 'hybrid://newtab' : tab.page.kind === 'search' ? `search?q=${encodeURIComponent(tab.page.q)}` : tab.page.url;
   return (
-    <div className="h-full flex flex-col text-[12.5px]" style={{ background: '#0a0d20', color: '#dfe6ff' }}>
+    <div className="h-full flex flex-col text-[13px]" style={{ background: '#0a0d20', color: '#dfe6ff' }}>
       <div className="flex items-end gap-1 px-2 pt-1.5 h-[38px] shrink-0">
         {tabs.map((t) => (
           <div key={t.id} onClick={() => setActive(t.id)} className="flex items-center gap-2 h-[30px] w-[190px] px-3 rounded-t-[10px] cursor-pointer" style={{ background: t.id === tab.id ? '#141a38' : 'transparent', color: t.id === tab.id ? '#fff' : '#8a94bd' }}>
@@ -131,7 +131,7 @@ export default function Browser() {
         <button aria-label="Forward" disabled className="w-7 h-7 grid place-items-center rounded-full opacity-40">
           <ArrowRight size={15} />
         </button>
-        <button aria-label="Reload" className="w-7 h-7 grid place-items-center rounded-full hover:bg-white/10">
+        <button aria-label="Reload" onClick={() => setTabs((ts) => ts.map((t) => (t.id === tab.id ? { ...t, rev: (t.rev || 0) + 1 } : t)))} className="w-7 h-7 grid place-items-center rounded-full hover:bg-white/10">
           <RotateCw size={14} />
         </button>
         <button aria-label="Home" onClick={() => setPage(null)} className="w-7 h-7 grid place-items-center rounded-full hover:bg-white/10">
@@ -140,9 +140,8 @@ export default function Browser() {
         <div className="flex-1 flex items-center gap-2 h-[28px] px-3 rounded-full bg-black/30 text-[12px] text-[#aeb8de]">
           <Lock size={11} /> {url}
         </div>
-        <Star size={15} className="text-[#8a94bd] mx-1.5" />
       </div>
-      <div className="flex-1 min-h-0">{tab.page ? <Offline page={tab.page} back={() => setPage(null)} /> : <NewTab go={setPage} />}</div>
+      <div key={`${tab.id}:${tab.rev || 0}`} className="flex-1 min-h-0 a-fade">{tab.page ? <Offline page={tab.page} back={() => setPage(null)} /> : <NewTab go={setPage} />}</div>
     </div>
   );
 }

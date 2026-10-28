@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { X, Monitor, Lock } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { X, Lock } from 'lucide-react';
 import { useOS, metrics } from '../os/store';
 import { useNow, fmtTime } from '../os/sim';
-import { MenuList, AppIcon, HybridLogo, Kbd } from '../components/ui';
+import { MenuList, AppIcon, HybridLogo, Kbd, IconButton } from '../components/ui';
 
 // ---------- Context menu ----------
 export function ContextMenuLayer() {
@@ -35,64 +35,54 @@ export function ContextMenuLayer() {
   );
 }
 
-// ---------- Toast notifications ----------
+// ---------- Notifications ----------
+// Top right under the bar in HYBRID, above the tray in Windows. They never cover the bar itself.
 export function Toasts() {
   const { state, actions } = useOS();
   const win = state.mode === 'windows';
   return (
-    <div className={`absolute z-[8500] flex flex-col gap-2.5 w-[340px] pointer-events-none ${win ? 'right-3 bottom-[60px]' : 'right-3 top-[52px]'}`}>
+    <div className={`absolute z-[8500] flex flex-col gap-2 w-[340px] pointer-events-none ${win ? 'right-3 bottom-[60px]' : 'right-3 top-[44px]'}`} aria-live="polite">
       {state.toasts.map((t) => (
-        <div key={t.id} className="pointer-events-auto glass-strong rounded-[16px] p-3 pr-2 flex gap-3 a-toast" role="status">
-          {t.app ? <AppIcon app={t.app} size={34} /> : <span className="grid place-items-center w-[34px] h-[34px] rounded-[10px] field"><HybridLogo size={20} /></span>}
+        <div key={t.id} className="pointer-events-auto glass-strong rounded-[var(--r-lg)] p-3 flex gap-3 a-toast" role="status">
+          {t.app ? (
+            <AppIcon app={t.app} size={32} />
+          ) : (
+            <span className="grid place-items-center w-8 h-8 rounded-[var(--r-sm)] shrink-0" style={{ background: 'linear-gradient(180deg, var(--icon-top), var(--icon-bot))', boxShadow: 'inset 0 0 0 1px var(--icon-edge)' }}>
+              <HybridLogo size={18} />
+            </span>
+          )}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] font-bold truncate">{t.title}</span>
-              <span className="text-[10.5px] text-t3 pl-2">now</span>
-            </div>
-            {t.body && <div className="text-[12px] text-t2 leading-snug mt-0.5">{t.body}</div>}
+            <div className="text-[13px] font-medium truncate">{t.title}</div>
+            {t.body && <div className="text-[12px] text-t2 leading-[1.45] mt-0.5">{t.body}</div>}
           </div>
-          <button aria-label="Dismiss" onClick={() => actions.dispatch({ type: 'untoast', id: t.id })} className="self-start w-6 h-6 grid place-items-center rounded-full text-t3 hov">
-            <X size={13} />
-          </button>
+          <IconButton label="Dismiss" tip={false} size={24} onClick={() => actions.dispatch({ type: 'untoast', id: t.id })} className="-mr-1 -mt-1">
+            <X size={14} strokeWidth={1.75} />
+          </IconButton>
         </div>
       ))}
     </div>
   );
 }
 
-// ---------- Mode switch banner + light sweep ----------
+// ---------- Mode switch label ----------
 export function ModeSwitchFX() {
   const { state } = useOS();
   const b = state.modeBanner;
+  if (!b) return null;
   return (
-    <>
-      {state.switching && (
-        <div className="absolute inset-0 z-[9500] pointer-events-none overflow-hidden">
-          <div className="absolute inset-y-[-20%] w-[35%]" style={{ background: 'linear-gradient(90deg, transparent, rgb(var(--acc) / .14), rgba(255,255,255,.18), rgb(var(--acc2) / .14), transparent)', animation: 'sweep calc(var(--anim) * 900ms) cubic-bezier(.5,0,.3,1) both', filter: 'blur(6px)' }} />
-        </div>
-      )}
-      {b && (
-        <div key={b.at} className="absolute left-1/2 top-1/2 z-[9600] pointer-events-none" style={{ animation: 'labelIn calc(max(var(--anim), .6) * 1700ms) cubic-bezier(.2,.8,.3,1) both' }}>
-          <div className="glass-strong rounded-[22px] px-7 py-5 flex items-center gap-4" style={{ boxShadow: 'var(--shadow), 0 0 80px -10px rgb(var(--acc) / .55)' }}>
-            {b.mode === 'hybrid' ? (
-              <HybridLogo size={40} glow />
-            ) : (
-              <span className="grid place-items-center w-10 h-10">
-                <WinLogo size={30} />
-              </span>
-            )}
-            <div>
-              <div className="font-display text-[20px] font-semibold tracking-[0.12em]">{b.mode === 'hybrid' ? 'HYBRID MODE' : 'WINDOWS DESKTOP'}</div>
-              <div className="text-[12px] text-t2 mt-0.5 flex items-center gap-1.5">
-                Switch back anytime with <Kbd>Ctrl</Kbd>
-                <Kbd>Alt</Kbd>
-                <Kbd>M</Kbd>
-              </div>
-            </div>
+    <div key={b.at} className="absolute left-1/2 top-1/2 z-[9600] pointer-events-none" style={{ animation: 'labelIn calc(max(var(--anim), .6) * 1500ms) var(--ease-out) both' }} role="status">
+      <div className="glass-strong rounded-[var(--r-xl)] px-6 py-4 flex items-center gap-4">
+        {b.mode === 'hybrid' ? <HybridLogo size={32} /> : <WinLogo size={26} />}
+        <div>
+          <div className="text-[15px] font-semibold">{b.mode === 'hybrid' ? 'HYBRID desktop' : 'Windows desktop'}</div>
+          <div className="text-[12px] text-t2 mt-1 flex items-center gap-1">
+            Switch back with <Kbd>Ctrl</Kbd>
+            <Kbd>Alt</Kbd>
+            <Kbd>M</Kbd>
           </div>
         </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -118,18 +108,15 @@ export function WinLogo({ size = 20, color }) {
 // ---------- Boot ----------
 export function Boot({ onDone }) {
   useEffect(() => {
-    const t = setTimeout(onDone, 1500);
+    const t = setTimeout(onDone, 1000);
     return () => clearTimeout(t);
   }, []);
   return (
-    <div className="absolute inset-0 z-[10000] grid place-items-center" style={{ background: 'radial-gradient(60% 60% at 50% 45%, #0c1240, #02030a 70%)', animation: 'bootOut 380ms 1.1s ease-in both' }}>
-      <div className="flex flex-col items-center gap-5">
-        <div style={{ animation: 'breathe 2s ease-in-out infinite' }}>
-          <HybridLogo size={64} glow />
-        </div>
-        <div className="font-display text-[15px] font-semibold tracking-[0.5em] text-[#dfe7ff] pl-[0.5em]">HYBRID OS</div>
-        <div className="w-40 h-[2px] rounded-full overflow-hidden bg-white/10">
-          <div className="h-full origin-left" style={{ background: 'linear-gradient(90deg, #5ef0ff, #9b6bff)', animation: 'bootBar 1s cubic-bezier(.4,0,.2,1) both' }} />
+    <div className="absolute inset-0 z-[10000] grid place-items-center" style={{ background: '#05060d', animation: 'bootOut 280ms 720ms ease-in both' }}>
+      <div className="flex flex-col items-center gap-6">
+        <HybridLogo size={48} />
+        <div className="w-32 h-0.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,.1)' }}>
+          <div className="h-full origin-left" style={{ background: '#e9edf7', animation: 'bootBar 700ms cubic-bezier(.4,0,.2,1) both' }} />
         </div>
       </div>
     </div>
@@ -141,6 +128,10 @@ export function LockScreen() {
   const { state, actions } = useOS();
   const now = useNow(1000);
   const [leaving, setLeaving] = useState(false);
+  const lockRef = useRef(null);
+  useEffect(() => {
+    if (state.overlay === 'lock') lockRef.current?.focus();
+  }, [state.overlay]);
   if (state.overlay !== 'lock') return null;
   const unlock = () => {
     setLeaving(true);
@@ -155,17 +146,17 @@ export function LockScreen() {
       onKeyDown={unlock}
       tabIndex={0}
       className="absolute inset-0 z-[9800] flex flex-col items-center cursor-pointer outline-none"
-      style={{ backdropFilter: 'blur(26px) saturate(140%)', WebkitBackdropFilter: 'blur(26px) saturate(140%)', background: 'rgba(4,6,20,.35)', transition: 'opacity 380ms, transform 380ms', opacity: leaving ? 0 : 1, transform: leaving ? 'translateY(-30px)' : 'none' }}
-      ref={(el) => el && el.focus()}
+      style={{ backdropFilter: 'blur(28px) saturate(110%)', WebkitBackdropFilter: 'blur(28px) saturate(110%)', background: 'rgba(5,6,13,.35)', transition: 'opacity var(--d-slow) var(--ease-in), transform var(--d-slow) var(--ease-in)', opacity: leaving ? 0 : 1, transform: leaving ? 'translateY(-16px)' : 'none' }}
+      ref={lockRef}
     >
-      <div className="mt-[12vh] font-display font-extralight text-[110px] leading-none tracking-[-0.04em] text-white tabular-nums a-fade">{fmtTime(now).replace(/\s?[AP]M/i, '')}</div>
-      <div className="mt-3 text-[18px] font-semibold text-white/80">{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <div className="mt-[12vh] font-light text-[112px] leading-none tracking-[-0.04em] text-white tnum a-fade">{fmtTime(now).replace(/\s?[AP]M/i, '')}</div>
+      <div className="mt-4 text-[20px] font-medium text-white/80">{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
       <div className="mt-auto mb-[12vh] flex flex-col items-center gap-3">
-        <div className="w-16 h-16 rounded-full grid place-items-center text-[22px] font-bold text-white" style={{ background: 'linear-gradient(135deg, #5ef0ff, #9b6bff)', boxShadow: '0 0 40px -6px rgba(94,240,255,.7)' }}>
+        <div className="w-16 h-16 rounded-full grid place-items-center text-[20px] font-medium text-white" style={{ background: 'linear-gradient(135deg, #4aa6d6, #6b5bd6)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.2)' }}>
           C
         </div>
-        <div className="text-white font-bold">Cade</div>
-        <div className="flex items-center gap-2 text-[12.5px] text-white/70">
+        <div className="text-white font-semibold">Cade</div>
+        <div className="flex items-center gap-2 text-[13px] text-white/70">
           <Lock size={13} /> Click or press any key to unlock
         </div>
       </div>

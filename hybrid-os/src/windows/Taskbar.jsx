@@ -1,4 +1,4 @@
-import { Moon, Search, ChevronUp, Wifi, WifiOff, BatteryMedium, LayoutPanelTop, X, AppWindow } from 'lucide-react';
+import { Moon, Search, Wifi, WifiOff, BatteryMedium, X, AppWindow } from 'lucide-react';
 import { useOS, iconRegistry, iconCenter } from '../os/store';
 import { APPS, TASKBAR_APPS } from '../os/apps';
 import { useNow } from '../os/sim';
@@ -62,12 +62,9 @@ export default function Taskbar() {
             <TBButton label="Start" active={state.overlay === 'start'} onClick={() => actions.toggleOverlay('start')}>
               <WinLogo size={20} />
             </TBButton>
-            <button onClick={() => actions.set({ overlay: 'start', startSearch: Date.now() })} className="h-[32px] w-[200px] mx-1 flex items-center gap-2 rounded-full px-3 text-[12.5px] text-t2 field press" aria-label="Search">
+            <button onClick={() => actions.set({ overlay: 'start', startSearch: Date.now() })} className="h-[32px] w-[200px] mx-1 flex items-center gap-2 rounded-full px-3 text-[13px] text-t2 field press" aria-label="Search">
               <Search size={15} /> Search
             </button>
-            <TBButton label="Task view" onClick={() => actions.minimizeAll()}>
-              <LayoutPanelTop size={19} strokeWidth={1.6} />
-            </TBButton>
             {apps.map((id) => {
               const wins = state.windows.filter((w) => w.app === id && w.phase !== 'closing');
               const running = wins.length > 0;
@@ -86,9 +83,6 @@ export default function Taskbar() {
             </TBButton>
           </div>
           <div className="flex-1 flex items-center justify-end gap-0.5">
-            <TBButton label="Show hidden icons" w={28}>
-              <ChevronUp size={15} />
-            </TBButton>
             <button onClick={() => actions.toggleOverlay('quick')} aria-label="Quick settings" className="h-10 px-2.5 flex items-center gap-2.5 rounded-[5px] hover:bg-[var(--hover)]" style={{ background: state.overlay === 'quick' ? 'var(--hover)' : undefined }}>
               {state.wifi && !state.airplane ? <Wifi size={15} /> : <WifiOff size={15} />}
               <VolumeIcon v={state.volume} size={15} />
